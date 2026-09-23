@@ -44,16 +44,20 @@ button.reader-icon{width:34px;height:34px;min-height:34px;flex:0 0 34px;padding:
 :root[data-branding=false] header .file{grid-column:1/3;grid-row:1;justify-self:start;width:min(320px,100%);text-align:left;padding:0!important}
 
 
-/* Compact layouts use a single action row, clear of reading controls. */
-:root:not([data-toolbar=both]) header .actions{grid-row:1;align-self:center}
-@media(max-width:640px){:root:not([data-toolbar=both]) header .file,:root[data-branding=false] header .file{grid-column:1;max-width:320px;padding:0 8px 0 0!important;text-align:left}}
-
-@media(min-width:1201px){
- :root:not([data-toolbar=both]) header{grid-template-columns:minmax(0,1fr) auto minmax(0,1fr)}
- :root:not([data-toolbar=both]) header nav{grid-column:2;grid-row:1;padding-inline:0;flex-wrap:nowrap}
- :root[data-branding=false] header .file{grid-column:1}
-}
-@media(max-width:1200px){:root:not([data-toolbar=both]) header nav{grid-row:2}}
+/* Compact toolbars wrap only when their visible controls no longer fit.
+   Balanced side tracks center the tools where possible, yielding to real widths. */
+.tool-group{flex-shrink:0}
+:root:not([data-toolbar=both]) header{grid-template-columns:minmax(var(--toolbar-left-min,0px),1fr) max-content minmax(var(--toolbar-right-min,0px),1fr)}
+:root:not([data-toolbar=both]) header .identity{display:flex;grid-column:1;grid-row:1}
+:root:not([data-toolbar=both]) header .identity>*{flex-shrink:0}
+:root:not([data-toolbar=both]) header .file{grid-column:1;grid-row:1;max-width:320px;padding:0!important;text-align:left}
+:root:not([data-toolbar=both]) header .actions{grid-column:3;grid-row:1;align-self:center}
+:root:not([data-toolbar=both]) header nav{grid-column:2;grid-row:1;padding-inline:0;flex-wrap:nowrap}
+:root:not([data-toolbar=both]) header #findbar{grid-row:2}
+:root:not([data-toolbar=both])[data-toolbar-wrap=true] header{grid-template-columns:minmax(0,1fr) auto}
+:root:not([data-toolbar=both])[data-toolbar-wrap=true] header .actions{grid-column:2}
+:root:not([data-toolbar=both])[data-toolbar-wrap=true] header nav{grid-column:1/-1;grid-row:2;flex-wrap:wrap}
+:root:not([data-toolbar=both])[data-toolbar-wrap=true] header #findbar{grid-row:3}
 
 #properties-dialog{width:min(600px,calc(100vw - 32px));max-width:none;max-height:calc(100dvh - 32px);overflow:auto;font-size:15px}
 #properties-dialog h2{font-size:18px;margin:0 0 18px}#properties-status:empty{display:none}#properties-status{font-size:14px;color:var(--muted)}
@@ -62,3 +66,15 @@ button.reader-icon{width:34px;height:34px;min-height:34px;flex:0 0 34px;padding:
 @media(max-width:480px){#properties-list{grid-template-columns:100px minmax(0,1fr);gap:10px 12px}}
 
 @media(max-width:640px){:root[data-toolbar=both] header .file{grid-column:1;grid-row:1;padding:0 8px 0 0!important;text-align:left}}
+
+/* Optional overflow keeps the real controls and their existing state/handlers. */
+#leading-actions{grid-column:1;grid-row:1;align-self:center;justify-self:start}
+#scale-input{width:66px;padding:4px;text-align:center;font-size:15px;font-variant-numeric:tabular-nums;border-color:transparent;background:var(--bg)}
+#scale-input:hover{border-color:var(--line)}.tool-group[data-first=true]::before{display:none}
+#more-actions{position:fixed;inset:auto;margin:0;width:min(280px,calc(100vw - 16px));padding:6px;overflow:auto;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--text);box-shadow:0 6px 22px #0003;font-size:15px}
+#more-actions::backdrop{background:transparent}
+#more-actions .menu-action{display:flex;align-items:center;gap:12px;width:100%;height:auto;min-height:36px;padding:7px 10px;border:0;background:transparent;border-radius:5px;text-align:start;font-size:15px;font-weight:400;line-height:1.4}
+#more-actions .menu-action:hover,#more-actions .menu-action:focus-visible{background:var(--soft)}
+#more-actions .menu-action svg{width:20px;height:20px;flex:0 0 20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+#more-actions .menu-settings{border-top:1px solid var(--line);margin-top:5px;padding-top:10px;border-radius:0 0 5px 5px}
+@media print{#more-actions{display:none!important}}

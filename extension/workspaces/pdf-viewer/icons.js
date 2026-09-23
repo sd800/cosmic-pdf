@@ -1,6 +1,9 @@
 // All reader icons share a 24-unit grid, 20px size and the same stroke weight.
 const paths = {
   settings:'M4 6h16M4 12h16M4 18h16',
+  more:'M13 5a1 1 0 1 1-2 0 1 1 0 0 1 2 0M13 12a1 1 0 1 1-2 0 1 1 0 0 1 2 0M13 19a1 1 0 1 1-2 0 1 1 0 0 1 2 0',
+  'fit-width':'M4 4h16v16H4zM7 12h10M9 10l-2 2 2 2M15 10l2 2-2 2',
+  'fit-page':'M8 3h8v18H8zM3 8V3h2M19 3h2v5M21 16v5h-2M5 21H3v-5',
   native:'M14 4h6v6M20 4l-9 9M18 13v6H5V6h6',
   'ocr-toggle':'M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4M8 8h8M12 8v8',
   'ocr-close':'m5 5 14 14M19 5 5 19',

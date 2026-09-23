@@ -31,6 +31,21 @@ async function chooseToolbar(root,mode){
  await root.locator('#showFilename').setChecked(showFilename);await root.locator('#showBranding').setChecked(showBranding);
  await root.waitForFunction(async({showFilename,showBranding})=>{const s=(await chrome.storage.local.get('settings')).settings;return s.showFilename===showFilename&&s.showBranding===showBranding;},{showFilename,showBranding});
 }
+async function checkToolbarLayout(page,frame,width,wrap){
+ await page.setViewportSize({width,height:960});
+ await frame.waitForFunction(({width,wrap})=>innerWidth===width&&(document.documentElement.dataset.toolbarWrap==='true')===wrap,{width,wrap},{timeout:5000});
+ const layout=await frame.evaluate(async()=>{
+  await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+  const header=document.querySelector('header'),nav=header.querySelector('nav').getBoundingClientRect(),actions=header.querySelector('.actions').getBoundingClientRect();
+  const controls=[...header.querySelectorAll('button,#page,#count,#scale,#scale-input,.identity,.file')].map(n=>({id:n.id||n.className,b:n.getBoundingClientRect()})).filter(n=>n.b.width&&n.b.height);
+  const collisions=[];
+  for(let i=0;i<controls.length;i++)for(let j=i+1;j<controls.length;j++){
+   const a=controls[i],b=controls[j];if(Math.min(a.b.right,b.b.right)-Math.max(a.b.left,b.b.left)>1&&Math.min(a.b.bottom,b.b.bottom)-Math.max(a.b.top,b.b.top)>1)collisions.push(a.id+' / '+b.id);
+  }
+  return{wrap:document.documentElement.dataset.toolbarWrap==='true',sameRow:Math.abs(nav.top-actions.top)<1,collisions,inside:controls.every(n=>n.b.left>=0&&n.b.right<=innerWidth),height:header.getBoundingClientRect().height};
+ });
+ assert.equal(layout.wrap,wrap,`unexpected toolbar wrap at ${width}px`);assert.equal(layout.sameRow,!wrap,`toolbar row at ${width}px`);assert.deepEqual(layout.collisions,[],`overlapping toolbar controls at ${width}px`);assert.equal(layout.inside,true,`toolbar exceeds ${width}px`);
+}
 async function chooseLanguages(root,group,values){
  const inputs=root.locator(group+' input[type=checkbox]');
  // Add first, then clear, so changing the only selection never empties a group.
@@ -61,11 +76,13 @@ try{
   await warm.waitForFunction(()=>window.qaWorkerReady===true||window.qaWorkerError,null,{polling:50});assert.equal(await warm.evaluate(()=>window.qaWorkerError),undefined);
   assert.equal(await page.locator('#splash').count(),0);assert.equal(await warm.locator('header').isVisible(),true);
   assert.equal(await warm.locator('#progress').isVisible(),true);assert.equal(await warm.locator('#status').textContent(),'');assert.equal(await warm.locator('#scale').inputValue(),'1');
+  assert.equal(await warm.locator('#scale-input').isVisible(),true);assert.equal(await warm.locator('#scale-input').isDisabled(),true);assert.equal(await warm.locator('#scale').isVisible(),false);assert.equal(await warm.locator('#sidebar-toggle').evaluate(n=>n.parentElement.id),'leading-actions');assert.equal(await warm.locator('#sidebar-toggle').isDisabled(),true);
   assert.equal(await warm.locator('.identity').isVisible(),false);assert.equal(await warm.locator('.file').isVisible(),false);
   assert.equal(await warm.locator('#print').isDisabled(),true);assert.equal(await warm.locator('#properties').isDisabled(),true);assert.equal(await warm.locator('#download').isDisabled(),true);assert.equal(await warm.locator('#next').isDisabled(),true);assert.equal(await warm.locator('#native').isDisabled(),false);
   const geometry=await warm.evaluate(()=>{const h=document.querySelector('header').getBoundingClientRect(),p=document.querySelector('#progress').getBoundingClientRect();return{height:h.height,aligned:Math.abs(h.bottom-p.bottom)<1&&p.height===2};});assert.equal(geometry.aligned,true);
   await warm.locator('#theme').click();await warm.waitForFunction(dark=>document.documentElement.dataset.dark===String(!dark),scheme==='dark');
   await warm.locator('#theme').click();await warm.waitForFunction(dark=>document.documentElement.dataset.dark===String(dark),scheme==='dark');
+  await warm.locator('#settings').click();await warm.waitForSelector('#more-actions:popover-open');assert.equal(await warm.locator('[data-action=print]').isDisabled(),true);assert.equal(await warm.locator('[data-action=open-settings]').isDisabled(),false);await warm.locator('[data-action=open-settings]').press('Escape');
   await page.screenshot({path:join(folder,'loading-'+scheme+'.png')});releaseSlow();
   await page.waitForFunction(()=>document.documentElement.dataset.view==='reader');await warm.waitForSelector('.page canvas');assert.equal(await warm.locator('#progress').isVisible(),false);
   assert.equal(await warm.locator('header').evaluate(n=>n.getBoundingClientRect().height),geometry.height);assert.equal(await warm.locator('#download').isDisabled(),false);
@@ -138,6 +155,7 @@ try{
  frame=await open('/branding');assert.equal(await frame.locator('.file').isVisible(),false);assert.equal(await frame.locator('.identity').isVisible(),true);
  assert.equal(await frame.locator('#appearance-actions').isVisible(),false);assert.equal(await frame.locator('#primary-actions > button').first().getAttribute('id'),'theme');
  const compactHeight=await frame.locator('header').evaluate(n=>n.getBoundingClientRect().height);assert.ok(compactHeight<60);
+ await checkToolbarLayout(page,frame,1101,false);await checkToolbarLayout(page,frame,720,true);await page.setViewportSize({width:1360,height:960});
  await chooseToolbar(prefs,'filename');
  await frame.waitForFunction(()=>document.querySelector('.identity').hidden);
  frame=await open('/An exceptionally long PDF filename that must fit without overlapping other toolbar controls.pdf');
@@ -213,6 +231,39 @@ try{
  };const readability=await prefs.evaluate(measureReadability);assert.ok(readability.label>=15&&readability.description>=14&&readability.language>=15);assert.ok(readability.contrast>=4.5);report.checks.push('readable type sizes and secondary-text contrast in both themes');
  await prefs.locator('#appearance').selectOption('light');await prefs.waitForFunction(()=>document.documentElement.dataset.dark==='false');assert.ok((await prefs.evaluate(measureReadability)).contrast>=4.5);await prefs.screenshot({path:join(folder,'settings-light.png'),fullPage:true});await prefs.setViewportSize({width:360,height:850});assert.equal(await prefs.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);await prefs.screenshot({path:join(folder,'settings-narrow.png'),fullPage:true});await prefs.locator('#locale').selectOption('zh-CN');await prefs.waitForFunction(()=>document.documentElement.lang==='zh-CN');assert.equal(await prefs.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);await prefs.screenshot({path:join(folder,'settings-zh-narrow.png'),fullPage:true});await checkDefaultLabels(true);report.checks.push('factory default labels in both languages, including Appearance');await page.bringToFront();await page.setViewportSize({width:560,height:850});await page.screenshot({path:join(folder,'reader-narrow.png')});report.checks.push('English settings and narrow layout');
  const local=join(folder,'local.pdf');await writeFile(local,viewerPdf(2));await page.locator('#file').setInputFiles(local);await page.waitForURL(reader);const lf=await(await page.waitForSelector('iframe')).contentFrame();await lf.waitForSelector('.page canvas');const popup=context.waitForEvent('page');await lf.locator('#native').click();const nativeLocal=await popup;await nativeLocal.waitForLoadState();assert.ok(nativeLocal.url().startsWith('blob:chrome-extension://'));await nativeLocal.close();report.checks.push('local file picker and native blob fallback');
+ // Configure overflow through the actual Settings controls, then exercise the existing commands.
+ await prefs.setViewportSize({width:1100,height:900});await page.setViewportSize({width:1360,height:960});await chooseToolbar(prefs,'none');
+ frame=await open('/overflow');await frame.evaluate(()=>window.qaOverflowDoc=qaViewer.pdfDocument);
+ assert.equal(await frame.locator('#settings').getAttribute('aria-haspopup'),'menu');assert.equal(await frame.locator('#sidebar-toggle').evaluate(n=>n.getBoundingClientRect().left<25),true);
+ assert.deepEqual(await prefs.locator('#toolbarHidden input:checked').evaluateAll(nodes=>nodes.map(n=>n.id)),['hide-find','hide-paging','hide-fit','hide-print','hide-properties']);
+ for(const width of [1101,900,760])await checkToolbarLayout(page,frame,width,false);await page.screenshot({path:join(folder,'toolbar-compact-760.png')});await checkToolbarLayout(page,frame,360,true);await checkToolbarLayout(page,frame,900,false);
+ async function menuAction(id){await frame.locator('#settings').click();await frame.locator('#more-actions [data-action='+id+']').click();}
+ await frame.locator('#settings').click();assert.deepEqual(await frame.locator('#more-actions button').evaluateAll(nodes=>nodes.map(n=>n.dataset.action)),['search-toggle','previous','next','fit-width','fit-page','print','properties','open-settings']);assert.equal(await frame.locator('#more-actions button svg').count(),8);await page.screenshot({path:join(folder,'more-actions-compact.png')});await frame.locator('#viewport').click({position:{x:10,y:30}});assert.equal(await frame.locator('#more-actions').isVisible(),false);
+ for(const [value,expected]of [['125',1.25],['75%',.75],['bad',.75],['900',5],['1',.25],['100',1]]){await frame.locator('#scale-input').fill(value);await frame.locator('#scale-input').press('Enter');await frame.waitForFunction(n=>Math.abs(qaViewer.currentScale-n)<.001,expected);}
+ await frame.locator('#scale-input').fill('150');await frame.locator('#scale-input').press('Escape');assert.equal(await frame.locator('#scale-input').inputValue(),'100%');assert.ok((await frame.locator('#scale-input').boundingBox()).width<100);
+ await menuAction('fit-width');await frame.waitForFunction(()=>qaViewer.currentScaleValue==='page-width');await menuAction('fit-page');await frame.waitForFunction(()=>qaViewer.currentScaleValue==='page-fit');await frame.locator('#scale-input').fill('100');await frame.locator('#scale-input').press('Enter');
+ await menuAction('search-toggle');await frame.waitForSelector('#findbar:not([hidden])');await frame.locator('#find-close').click();await menuAction('print');await frame.waitForSelector('#print-dialog[open]');await frame.locator('#print-dialog button[value=cancel]').click();await menuAction('properties');await frame.waitForSelector('#properties-dialog[open]');await frame.locator('#properties-close').click();
+ const actionKeys=['pages','find','paging','zoom','fit','rotate','fullscreen','ocr','print','properties','native'];
+ for(const key of actionKeys)await prefs.locator('#hide-'+key).check();
+ await prefs.waitForFunction(async keys=>{const h=(await chrome.storage.local.get('settings')).settings.toolbarHidden;return keys.every(k=>h[k]);},actionKeys);
+ await frame.waitForFunction(()=>document.querySelector('#sidebar-toggle').hidden&&document.querySelector('#native').hidden);
+ await checkToolbarLayout(page,frame,360,false);await checkToolbarLayout(page,frame,900,false);
+ assert.equal(await frame.evaluate(()=>qaViewer.pdfDocument===qaOverflowDoc),true);await frame.locator('#settings').click();assert.equal(await frame.locator('#more-actions button').count(),15);assert.equal(await frame.locator('#more-actions button svg').count(),15);assert.equal(await frame.locator('[data-action=previous]').isDisabled(),true);await frame.locator('#more-actions').press('Escape');
+ await menuAction('next');await frame.waitForFunction(()=>qaViewer.currentPageNumber===2);await menuAction('previous');await frame.waitForFunction(()=>qaViewer.currentPageNumber===1);await menuAction('zoom-in');await frame.waitForFunction(()=>Math.abs(qaViewer.currentScale-1.1)<.001);await menuAction('zoom-out');await frame.waitForFunction(()=>qaViewer.currentScale===1);await menuAction('rotate');await frame.waitForFunction(()=>qaViewer.pagesRotation===270);
+ await menuAction('fullscreen');await page.waitForFunction(()=>!!document.fullscreenElement);await menuAction('fullscreen');await page.waitForFunction(()=>!document.fullscreenElement);await menuAction('sidebar-toggle');assert.equal(await frame.locator('#sidebar').isVisible(),true);await menuAction('ocr-toggle');assert.equal(await frame.locator('#ocr-panel').isVisible(),true);await frame.locator('#ocr-close').click();
+ await frame.locator('#settings').focus();await frame.locator('#settings').press('ArrowDown');await frame.waitForSelector('#more-actions:popover-open');await frame.locator('#more-actions').press('End');assert.equal(await frame.evaluate(()=>document.activeElement.dataset.action),'open-settings');await frame.locator('#more-actions').press('Escape');assert.equal(await frame.evaluate(()=>document.activeElement.id),'settings');
+ await page.setViewportSize({width:360,height:850});await frame.locator('#settings').click();assert.equal(await frame.locator('#more-actions').evaluate(n=>{const b=n.getBoundingClientRect();return b.left>=0&&b.right<=innerWidth&&b.bottom<=innerHeight;}),true);await page.screenshot({path:join(folder,'more-actions-all-narrow.png')});await frame.locator('#more-actions').press('Escape');await page.setViewportSize({width:1360,height:960});
+ const spacer=await context.newPage();await spacer.goto('about:blank');await page.bringToFront();
+ const settingsPopup=context.waitForEvent('page');await menuAction('open-settings');const adjacent=await settingsPopup;await adjacent.waitForURL(settings);const sourceTab=await page.evaluate(()=>chrome.tabs.getCurrent()),settingsTab=await adjacent.evaluate(()=>chrome.tabs.getCurrent());assert.equal(settingsTab.index,sourceTab.index+1);assert.equal(settingsTab.windowId,sourceTab.windowId);await adjacent.close();
+ await menuAction('native');await page.waitForURL(base+'/overflow');report.checks.push('all overflow actions keep icons and behavior, numeric zoom validation, keyboard/outside dismissal, live settings, and adjacent Settings tab');
+ // With no hidden actions, the same button goes straight to Settings again.
+ for(const key of actionKeys)await prefs.locator('#hide-'+key).uncheck();await prefs.waitForFunction(async keys=>{const h=(await chrome.storage.local.get('settings')).settings.toolbarHidden;return keys.every(k=>h[k]===false);},actionKeys);
+ frame=await open('/all-visible');assert.equal(await frame.locator('#settings').getAttribute('aria-haspopup'),null);assert.equal(await frame.locator('#scale').isVisible(),true);assert.equal(await frame.locator('#scale-input').isVisible(),false);
+ await checkToolbarLayout(page,frame,1101,false);await checkToolbarLayout(page,frame,760,true);await checkToolbarLayout(page,frame,1101,false);
+ for(const mode of ['filename','branding']){await chooseToolbar(prefs,mode);await frame.waitForFunction(mode=>document.documentElement.dataset.toolbar===mode,mode);await checkToolbarLayout(page,frame,1101,false);await checkToolbarLayout(page,frame,760,true);await checkToolbarLayout(page,frame,1101,false);}
+ report.checks.push('content-measured single-row toolbar for each compact mode, hidden/visible groups, narrow fallback, and resize recovery without overlaps');
+ const directPopup=context.waitForEvent('page');await frame.locator('#settings').click();const direct=await directPopup;await direct.waitForURL(settings);assert.equal((await direct.evaluate(()=>chrome.tabs.getCurrent())).index,(await page.evaluate(()=>chrome.tabs.getCurrent())).index+1);await direct.close();await spacer.close();await prefs.reload();await prefs.waitForSelector('#toolbarHidden');assert.equal(await prefs.locator('#toolbarHidden input:checked').count(),0);
+ report.checks.push('explicit all-visible settings persist and restore direct adjacent Settings navigation');
  await go(base+'/bad');await page.waitForFunction(()=>!!document.querySelector('#message')?.textContent&&document.documentElement.dataset.view==='home'&&!document.querySelector('iframe'));await page.waitForSelector('#native');assert.ok(await page.locator('#native').isVisible());report.checks.push('invalid PDF fallback');
  await go(base+'/broken');await page.waitForFunction(()=>!!document.querySelector('#message')?.textContent&&!document.querySelector('iframe'));report.checks.push('parse failure removes shell and releases worker');
  await page.goto(reader);await page.waitForFunction(()=>document.querySelector('#intro').textContent.length>0);await page.screenshot({path:join(folder,'opening.png')});

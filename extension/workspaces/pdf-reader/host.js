@@ -1,4 +1,4 @@
-import { readSettings, uiLocale, toolbarMode } from '../../core/settings.js';
+import { readSettings, uiLocale, toolbarMode, toolbarSignature } from '../../core/settings.js';
 import { sourceFromReader, READER_PATH, isPdf, filenameFrom, cleanFilename } from '../../core/source.js';
 import { createPdfViewer } from '../pdf-viewer/host.js';
 import { PDF_LIMITS } from '../pdf-viewer/model.js';
@@ -46,7 +46,7 @@ async function load(loader, initialFilename='PDF'){
 async function openFile(file){if(file.size>PDF_LIMITS.bytes){if(reader)reader.showError(text.large);else fail(text.large);return;}source=null;history.replaceState(null,'',chrome.runtime.getURL(READER_PATH));$('native').hidden=true;await load(async()=>({bytes:await file.arrayBuffer(),filename:file.name}),file.name);}
 function loadSource(){return load(async signal=>{const response=await fetch(source,{signal,credentials:'include',cache:'default',referrerPolicy:'no-referrer'});return {bytes:await readResponse(response,signal),filename:filenameFrom(response.url||source,response.headers.get('content-disposition')||'')};},filenameFrom(source));}
 if(source){$('native').hidden=false;void loadSource();}else setView('home');
-chrome.storage.onChanged.addListener((changes,area)=>{if(area!=='local'||!changes.settings)return;void readSettings().then(next=>{settings=next;const mode=toolbarMode(next);if(toolbarMode(activeSettings)!==mode){const dark=currentDark();activeSettings={...activeSettings,showFilename:next.showFilename,showBranding:next.showBranding};if(appearanceOverride!==null)appearanceOverride=mode==='both'?dark:dark===defaultDark()?null:'opposite';reader?.setToolbar(next);applyTheme();}/* Rendering/OCR preferences stay unchanged. */});});
+chrome.storage.onChanged.addListener((changes,area)=>{if(area!=='local'||!changes.settings)return;void readSettings().then(next=>{settings=next;const mode=toolbarMode(next),changed=toolbarSignature(activeSettings)!==toolbarSignature(next),dark=currentDark();activeSettings={...activeSettings,showFilename:next.showFilename,showBranding:next.showBranding,toolbarHidden:next.toolbarHidden};if(changed){if(appearanceOverride!==null)appearanceOverride=mode==='both'?dark:dark===defaultDark()?null:'opposite';reader?.setToolbar(next);applyTheme();}/* Rendering/OCR preferences stay unchanged. */});});
 window.addEventListener('pagehide',()=>{generation++;controller?.abort();reader?.destroy();reader=null;if(blobURL)URL.revokeObjectURL(blobURL);blobURL=null;});
 // A history restore may revive this document after its renderer was disposed.
 window.addEventListener('pageshow',event=>{if(!event.persisted)return;if(original){const saved=original,name=filename;void load(async()=>({bytes:await saved.arrayBuffer(),filename:name}),name);}else if(source)void loadSource();else setView('home');});

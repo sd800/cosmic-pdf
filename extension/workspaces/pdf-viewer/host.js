@@ -1,4 +1,4 @@
-import { toolbarMode } from '../../core/settings.js';
+import { normalizeSettings } from '../../core/settings.js';
 import { PDF_LIMITS } from './model.js';
 // This host is the only connection to a product. The opaque viewer has no
 // extension APIs, storage access, document URL, or arbitrary command channel.
@@ -67,9 +67,11 @@ export function createPdfViewer({ container, locale, sampling, settings, filenam
       sendDocument();
     },
     showError(message) { if (!closed) channel.port1.postMessage({ type: 'host-error', message: String(message).slice(0,1000) }); },
-    setToolbar({ showFilename, showBranding }) {
-      settings = { ...settings, showFilename: showFilename === true, showBranding: showBranding === true };
-      if (!closed) channel.port1.postMessage({ type: 'toolbar', toolbar: toolbarMode(settings) });
+    setToolbar({ showFilename, showBranding, toolbarHidden }) {
+      const next = normalizeSettings({ showFilename, showBranding, toolbarHidden });
+      const toolbar = { showFilename: next.showFilename, showBranding: next.showBranding, toolbarHidden: next.toolbarHidden };
+      settings = { ...settings, ...toolbar };
+      if (!closed) channel.port1.postMessage({ type: 'toolbar', toolbar });
     },
     setSharpening(value) { if (!closed) { sharpening = value === true; channel.port1.postMessage({ type: 'sharpening', enabled: sharpening }); } },
     setTheme(nextDark, nextReversed, nextAutomatic) { dark = !!nextDark; reversed = !!nextReversed; automatic = !!nextAutomatic; if (!closed) channel.port1.postMessage({ type: 'theme', dark, reversed, automatic }); },

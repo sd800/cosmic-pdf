@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.5
+
+- Let toolbar controls move into an icon-labeled More actions menu through Settings, with immediate updates to open readers.
+- Simplify the toolbar when filename and branding are hidden, including moving Previous/next page into the menu while retaining the page counter and keeping Pages and outline at the left.
+- Use a compact percentage input when fit controls are moved into the menu; accept values with or without `%`.
+- Open reader Settings immediately to the right of the current PDF tab.
+- Keep compact toolbars on one row whenever their visible controls fit, and reduce the README heading logo size.
+
 ## 1.2.3
 
 - Show the toolbar immediately while opening a PDF, with loading progress in its bottom divider instead of a separate loading screen.

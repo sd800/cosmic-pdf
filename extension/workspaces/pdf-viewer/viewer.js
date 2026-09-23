@@ -4,8 +4,9 @@ import * as pdfjs from '../../vendor/pdfjs/pdf.min.mjs';
 import { PDFViewer, EventBus, PDFLinkService, PDFFindController, RenderingStates } from '../../vendor/pdfjs/pdf_viewer.mjs';
 import { labels } from './labels.js';
 import { setReaderIcon, setReaderIcons } from './icons.js';
+import { createToolbarMenu } from './toolbar-menu.js';
 import { normalizePdfSampling } from '../../core/pdf-sampling.js';
-import { PDF_LIMITS, pdfDetailCanvasPixels, pdfOptions, pdfScale, stepPdfScale, printRange, rotateLeft, safePdfLink } from './model.js';
+import { PDF_LIMITS, pdfDetailCanvasPixels, pdfOptions, pdfScale, parsePdfZoom, stepPdfScale, printRange, rotateLeft, safePdfLink } from './model.js';
 
 const $ = id => document.getElementById(id);
 let port, task, pdf, viewer, workerUrl, pdfWorker, parseTimer, destroyed = false, text = labels['en-US'];
@@ -26,7 +27,7 @@ const workerReady = fetch(new URL('../../vendor/pdfjs/pdf.worker.min.mjs', impor
 });
 void workerReady.catch(() => {});
 let firstPageReady = false, toolbarMode = 'both', themeState = {};
-let customZoomScale = null;
+let customZoomScale = null, toolbarMenu;
 let thumbnailObserver, thumbnailTask, thumbnailBusy = false, thumbnailGeneration = 0, outlineLoaded = false;
 const nearThumbnails = new Set(), thumbnailCache = new Map(), printUrls = new Set();
 let sharpening = false, settings, ocr, documentFilename, documentBytes = 0, properties;
@@ -96,14 +97,18 @@ window.addEventListener('message', event => {
       if (opened || !(data.bytes instanceof ArrayBuffer) || !data.bytes.byteLength || data.bytes.byteLength > PDF_LIMITS.bytes) return;
       opened = true; documentBytes = data.bytes.byteLength; documentFilename = String(data.filename || 'PDF').slice(0, 1024);
       $('filename').textContent = String(data.filename || 'PDF').slice(0, 1024); $('filename').title = $('filename').textContent;
-      $('download').disabled = $('native').disabled = false;
+      $('download').disabled = $('native').disabled = false; toolbarMenu?.refresh();
       void open(data.bytes, normalizePdfSampling(input.sampling)).catch(() => {
         clearTimeout(parseTimer);
         if (!destroyed && !passwordCancelled) { status('failed'); emit('error'); void task?.destroy().catch(() => {}); pdfWorker?.destroy(); }
       });
     }
     else if (data?.type === 'theme') theme(data.dark, data.reversed, data.automatic);
-    else if (data?.type === 'toolbar') toolbarPreferences(data.toolbar);
+    else if (data?.type === 'toolbar') {
+      const next = normalizeSettings(data.toolbar);
+      settings = { ...settings, showFilename: next.showFilename, showBranding: next.showBranding, toolbarHidden: next.toolbarHidden };
+      toolbarPreferences(getToolbarMode(settings)); toolbarMenu?.update(settings);
+    }
     else if (data?.type === 'sharpening') setSharpening(data.enabled);
     else if (data?.type === 'host-error') { $('status').textContent = String(data.message || '').slice(0,1000); $('progress').hidden = true; }
     else if (data?.type === 'copied') { $('ocr-status').textContent = text[data.ok ? 'copied' : 'copyFailed']; }
@@ -111,7 +116,7 @@ window.addEventListener('message', event => {
     else if (data?.type === 'fullscreen') {
       setReaderIcon($('fullscreen'), data.active ? 'fullscreen-exit' : 'fullscreen');
       $('fullscreen').title = text[data.active ? 'exitFullscreen' : 'fullscreen'];
-      $('fullscreen').setAttribute('aria-label', $('fullscreen').title);
+      $('fullscreen').setAttribute('aria-label', $('fullscreen').title); toolbarMenu?.refresh();
     }
   };
   text = labels[input.locale] || labels['en-US']; document.documentElement.lang = input.locale === 'zh-CN' ? input.locale : 'en-US';
@@ -122,6 +127,9 @@ window.addEventListener('message', event => {
   theme(input.dark, input.reversed, input.automatic); status('loading', true);
   setReaderIcons(document);
   $('scale').value = settings.zoom.startsWith('page-') ? settings.zoom : String(Number(settings.zoom));
+  $('scale-input').value = (Number(settings.zoom) > 0 ? Math.round(Number(settings.zoom) * 100) : 100) + '%';
+  toolbarMenu = createToolbarMenu({ text, signal, onSettings: () => emit('settings'), onFit: value => { if (viewer) viewer.currentScaleValue = value; } });
+  toolbarMenu.update(settings);
   // Keep form navigation forbidden by the sandbox, including method=dialog.
   // These controls only validate local input and close the local dialog.
   for (const form of document.querySelectorAll('dialog form')) {
@@ -135,7 +143,7 @@ window.addEventListener('message', event => {
     }, { signal });
   }
   click('download', () => emit('download')); click('theme', () => emit('theme')); click('theme-auto', () => emit('auto'));
-  click('fullscreen', () => emit('fullscreen')); click('native', () => emit('native')); click('settings', () => emit('settings'));
+  click('fullscreen', () => emit('fullscreen')); click('native', () => emit('native'));
   emit('shell-ready');
 }, { signal });
 
@@ -185,7 +193,7 @@ async function open(bytes, sampling) {
     if (document.hidden) viewer.cleanup(); else { viewer.update(); void drawThumbnails(); }
   }, { signal });
   eventBus.on('pagesinit', () => {
-    for (const control of document.querySelectorAll('header nav button, header nav input, header nav select')) control.disabled = false;
+    for (const control of document.querySelectorAll('header nav button, header nav input, header nav select, #sidebar-toggle')) control.disabled = false;
     viewer.currentScaleValue = settings.zoom;
     // Setting the initial scale aligns the first paper edge with the viewport.
     // Restore its top gutter once at initialization, never during later reading.
@@ -194,10 +202,11 @@ async function open(bytes, sampling) {
     $('count').textContent = String(pdf.numPages); $('page').max = pdf.numPages; $('page').parentElement.style.setProperty('--page-digits', Math.max(2, String(pdf.numPages).length));
     $('previous').disabled = true; $('next').disabled = pdf.numPages === 1; $('print').disabled = !viewer.printingAllowed;
     $('print-to').max = $('print-from').max = pdf.numPages; $('print-to').value = Math.min(pdf.numPages, PDF_LIMITS.printPages);
-    if (settings.sidebar) $('sidebar').hidden = false;
+    if (settings.sidebar) $('sidebar').hidden = false; toolbarMenu.refresh();
   }, { signal });
   eventBus.on('pagechanging', ({ pageNumber }) => {
     $('page').value = pageNumber; $('previous').disabled = pageNumber === 1; $('next').disabled = pageNumber === pdf.numPages;
+    toolbarMenu.refresh();
     for (const node of $('thumbnails').children) node.setAttribute('aria-current', String(Number(node.dataset.page) === pageNumber));
   }, { signal });
   eventBus.on('pagerendered', ({ pageNumber, cssTransform, error }) => {
@@ -222,7 +231,8 @@ async function open(bytes, sampling) {
       custom.textContent = Math.round(scale * 100) + '%'; custom.hidden = false;
       select.value = 'custom'; customZoomScale = scale;
     }
-    $('zoom-in').disabled = scale >= 5; $('zoom-out').disabled = scale <= .25;
+    $('scale-input').value = Math.round(scale * 100) + '%';
+    $('zoom-in').disabled = scale >= 5; $('zoom-out').disabled = scale <= .25; toolbarMenu.refresh();
   }, { signal });
   eventBus.on('updatefindmatchescount', ({ matchesCount }) => { $('matches').textContent = `${matchesCount.current} / ${matchesCount.total}`; }, { signal });
   eventBus.on('updatefindcontrolstate', ({ state, matchesCount }) => {
@@ -247,6 +257,17 @@ async function open(bytes, sampling) {
     if (['ArrowDown', 'ArrowUp', ' ', 'Enter', 'Home', 'End'].includes(event.key)) locateCustomZoom();
   }, { signal });
   $('scale').onchange = () => { const value = $('scale').value; if (value === 'custom') return; if (value.startsWith('page-')) viewer.currentScaleValue = value; else zoomTo(Number(value)); };
+  function resetZoomInput() { $('scale-input').value = Math.round(viewer.currentScale * 100) + '%'; }
+  function commitZoomInput() {
+    const value = parsePdfZoom($('scale-input').value);
+    if (value !== null && Math.abs(value - viewer.currentScale) > .00001) zoomTo(value);
+    resetZoomInput();
+  }
+  $('scale-input').addEventListener('blur', commitZoomInput, { signal });
+  $('scale-input').addEventListener('keydown', event => {
+    if (event.key === 'Enter') { event.preventDefault(); commitZoomInput(); $('scale-input').blur(); }
+    else if (event.key === 'Escape') { event.preventDefault(); resetZoomInput(); $('scale-input').blur(); }
+  }, { signal });
   click('rotate', () => {
     const page = viewer.currentPageNumber;
     viewer.pagesRotation = rotateLeft(viewer.pagesRotation);

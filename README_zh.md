@@ -1,4 +1,4 @@
-# <img src="extension/icons/icon-128.png" width="128" align="right" alt=""> Cosmic PDF<br clear="right">
+# <img src="extension/icons/icon-128.png" width="96" align="right" alt=""> Cosmic PDF<br clear="right">
 
 [English](README.md)
 

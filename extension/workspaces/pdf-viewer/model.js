@@ -30,3 +30,8 @@ export function pdfFileSize(bytes, locale = 'en-US') {
   if (bytes < 1000) return `${bytes} ${locale === 'zh-CN' ? '字节' : bytes === 1 ? 'byte' : 'bytes'}`;
   return `${number.format(bytes / (bytes < 1000000 ? 1000 : 1000000))} ${bytes < 1000000 ? 'KB' : 'MB'}`;
 }
+
+export function parsePdfZoom(value) {
+  const match = String(value).trim().match(/^(\d+(?:\.\d*)?|\.\d+)\s*%?$/);
+  return match && Number(match[1]) > 0 ? pdfScale(Number(match[1]) / 100) : null;
+}

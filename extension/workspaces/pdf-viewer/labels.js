@@ -12,3 +12,6 @@ Object.assign(labels['zh-CN'], {settings:'设置',native:'使用 Chrome 阅读�
 
 Object.assign(labels['en-US'], {properties:'Document properties', propertiesLoading:'Reading document properties…', propertiesUnavailable:'Some document properties could not be read.', fileName:'File name', fileSize:'File size', documentTitle:'Title', author:'Author', subject:'Subject', keywords:'Keywords', created:'Created', modified:'Modified', application:'Application', producer:'PDF producer', pdfVersion:'PDF version', pageCount:'Page count', pageSize:'Page size', fastWebView:'Fast web view', yes:'Yes', no:'No'});
 Object.assign(labels['zh-CN'], {properties:'文档信息', propertiesLoading:'正在读取文档信息…', propertiesUnavailable:'部分文档信息无法读取。', fileName:'文件名', fileSize:'文件大小', documentTitle:'标题', author:'作者', subject:'主题', keywords:'关键词', created:'创建时间', modified:'修改时间', application:'创建应用', producer:'PDF 生成程序', pdfVersion:'PDF 版本', pageCount:'页数', pageSize:'页面尺寸', fastWebView:'快速 Web 查看', yes:'是', no:'否'});
+
+Object.assign(labels['en-US'],{moreActions:'More actions'});
+Object.assign(labels['zh-CN'],{moreActions:'更多操作'});
