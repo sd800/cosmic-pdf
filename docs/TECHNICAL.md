@@ -4,7 +4,7 @@
 
 The project follows Cosmic Gemini's Central → Province → Product separation. `background/central.js` routes events, never parses documents. Standing Province owns automatic opening and per-tab native-reader exemptions. Operations Province owns extension administration. The reader/renderer/OCR workspace is the Customs boundary: it handles imported bytes but cannot invoke sibling products. The host exposes a small explicit command bridge, not arbitrary RPC. The three province names describe ownership, not a reason to add empty lifecycle machinery.
 
-Preferences are normalized against a whitelist in `core/settings.js`. Unknown/deprecated fields are ignored, never migrated. Defaults are automatic appearance, 100% initial zoom, 4× sampling, sharpening off and manual English OCR. Interface languages are en-US/zh-CN. Recognition languages additionally include Traditional Chinese. Open readers snapshot rendering/OCR settings; subsequent opens/reloads use changed settings. The theme button changes the current reader only. The Default button reapplies the saved appearance.
+Preferences are normalized against a whitelist in `core/settings.js`. Unknown/deprecated fields are ignored, never migrated. Defaults are automatic appearance, 100% initial zoom, 4× sampling, sharpening off and manual English OCR. Interface languages are en-US/zh-CN. Recognition languages additionally include Traditional Chinese. Open readers snapshot rendering/OCR settings; subsequent opens/reloads use changed settings. Appearance controls change the current reader only. The full toolbar retains a fixed light/dark override and a Default reset. Compact toolbars use one button for the saved default or its opposite; Auto follows the browser in either state. Toolbar visibility changes synchronize to open readers without reparsing their PDFs; rendering/OCR preferences remain snapshots.
 
 ## PDF takeover and return
 
@@ -15,6 +15,10 @@ A DNR regex capture cannot URL-encode its substitution. The final `?source=` val
 Native-reader requests must come from frame 0 of this extension's reader tab. Central derives the URL from the sender, installs a high-priority exact-URL tab-scoped session allow rule, then navigates. Exemptions survive PDF reloads, not tab departure/closure or browser restart. Other tabs remain unaffected. Very long unsupported regex URLs fail with guidance rather than creating a redirect loop. Local file-picker documents use a blob URL opened in a separate Chrome-reader tab while the original owner remains open.
 
 PDF URLs remain in the reader address for reload, not in extension storage. Native exemption metadata lives in storage.session only. Local picked bytes are not persisted. Download always returns the original PDF, never the displayed dark/rotated/OCR representation.
+
+The homepage Settings link navigates in the same tab and adds a history entry. Reader-toolbar Settings still opens separately so local file-picker documents are not lost. The PDF viewport contains vertical overscroll but leaves horizontal browser navigation enabled; Alt-key history shortcuts are not consumed. History restoration recreates a disposed renderer from in-memory bytes or its validated source URL.
+
+Opening a PDF immediately selects a dedicated logo/name/progress cover before asynchronous settings load. The sandbox shell and bundled worker source load concurrently with the document; no renderer or OCR engine is created on the empty homepage. The cover stays until the first page is painted (or a password dialog needs input). The frame remains paintable but inert and hidden from assistive technology beneath the opaque cover, avoiding Chrome's animation-frame suspension for invisible frames. Parsed background documents wait for visibility without a false first-paint timeout. Failures expose the normal recovery actions.
 
 ## Isolation and document safety
 
@@ -45,3 +49,5 @@ English/Simplified Chinese README and changelog have equivalent structure. READM
 ## Interface design
 
 Use the Cosmic Gemini family palette, flat outlined icons, compact identity header and rounded cards. Settings labels/controls and OCR choices are 15px; supporting text is at least 14px, except the opening-screen copyright at 13px. Preserve contrast in both themes and reflow at narrow widths rather than shrinking type. The editable brand is `extension/icons/icon.svg`; regenerate manifest PNGs with `scripts/render-icons.mjs` using the same isolated Chrome/Playwright variables as browser QA.
+
+Two independent toolbar-content checkboxes allow both items, branding only, filename only, or neither. The default preserves the two-row layout and spacing. Hiding either item uses a single row when space permits and a single appearance button before Print. Filename-only mode is left aligned, bounded to 320px or available space, and ellipsized with the full name in its tooltip. Narrow windows reflow controls without reducing text or button spacing.

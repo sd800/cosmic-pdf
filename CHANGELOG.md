@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.1
+
+- Simplify PDF loading to the Cosmic PDF logo, name, and progress bar, and prepare the reader while the file loads.
+- Open homepage Settings in the same tab and improve browser Back/Forward navigation from the PDF reader.
+- Add independent toolbar checkboxes for the filename and Cosmic PDF branding, including the option to hide both. Changes also apply to open readers.
+- Use a compact layout with a single appearance button when either item is hidden, while preserving the original two-row controls when both are shown.
+- Mark default appearance, reading, and OCR dropdown choices, and refine the README presentation and extension description.
+
 ## 1.1.6
 
 - Set the opening-screen copyright to 13px and center it vertically between the file hint and the card border.

@@ -1,8 +1,8 @@
-# Cosmic PDF
+# <img src="extension/icons/icon-128.png" width="128" align="right" alt=""> Cosmic PDF<br clear="right">
 
-[简体中文](README_zh.md)
+[Simplified Chinese](README_zh.md)
 
-Read PDFs in Chrome with a comfortable light or dark appearance, clear rendering and local text recognition. Cosmic PDF is an independent extension developed from Cosmic Gemini's PDF Viewer.
+Cosmic PDF is a Chrome PDF reader with comfortable light and dark themes, clear rendering, and local text recognition.
 
 ## Reading
 
@@ -16,7 +16,7 @@ Recognize scanned pages in English, Simplified Chinese or Traditional Chinese, i
 
 ## Make it yours
 
-Settings cover appearance, 1×–6× rendering quality, optional sharpening, initial zoom, page spacing, thumbnails, document links and OCR preferences. The interface supports English and Simplified Chinese.
+Settings cover appearance, toolbar layout, 1×–6× rendering quality, optional sharpening, initial zoom, page spacing, thumbnails, document links and OCR preferences. The interface supports English and Simplified Chinese.
 
 ## Install
 

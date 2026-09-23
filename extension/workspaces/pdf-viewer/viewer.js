@@ -1,5 +1,5 @@
 import { createOcr } from './ocr.js';
-import { normalizeSettings } from '../../core/settings.js';
+import { normalizeSettings, toolbarMode as getToolbarMode } from '../../core/settings.js';
 import * as pdfjs from '../../vendor/pdfjs/pdf.min.mjs';
 import { PDFViewer, EventBus, PDFLinkService, PDFFindController, RenderingStates } from '../../vendor/pdfjs/pdf_viewer.mjs';
 import { labels } from './labels.js';
@@ -11,13 +11,38 @@ const $ = id => document.getElementById(id);
 let port, task, pdf, viewer, workerUrl, parseTimer, destroyed = false, text = labels['en-US'];
 const lifetime = new AbortController(), signal = lifetime.signal;
 const eventBus = new EventBus(), viewport = $('viewport');
+// Warm the local worker source in parallel with the host's document download.
+let workerSource = fetch(new URL('../../vendor/pdfjs/pdf.worker.min.mjs', import.meta.url), { signal }).then(response => {
+  if (!response.ok) throw Error('PDF worker unavailable');
+  return response.text();
+});
+void workerSource.catch(() => {});
+let firstPageReady = false, toolbarMode = 'both', themeState = {};
 let thumbnailObserver, thumbnailTask, thumbnailBusy = false, thumbnailGeneration = 0, outlineLoaded = false;
 const nearThumbnails = new Set(), thumbnailCache = new Map(), printUrls = new Set();
 let sharpening = false, settings, ocr;
 let printing = false, printTask, zoomFrame = 0, wheelFactor = 1, wheelOrigin, passwordCancelled = false;
 const emit = type => port?.postMessage({ type });
 function status(key, loading = false) { $('status').textContent = text[key] || ''; $('progress').hidden = !loading; }
-function theme(dark, automatic) { document.documentElement.dataset.dark = String(!!dark); document.documentElement.style.colorScheme = dark ? 'dark' : 'light'; $('theme-auto').hidden = !!automatic; setReaderIcon($('theme'), dark ? 'sun' : 'moon'); }
+function theme(dark, reversed, automatic) {
+  themeState = { dark, reversed, automatic };
+  $('theme-auto').hidden = !reversed && automatic;
+  document.documentElement.dataset.dark = String(!!dark); document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+  setReaderIcon($('theme'), dark ? 'sun' : 'moon');
+  $('theme').title = toolbarMode === 'both' ? text.theme : text[reversed ? 'themeDefault' : 'themeOpposite'];
+  $('theme').setAttribute('aria-label', $('theme').title);
+}
+function toolbarPreferences(toolbar) {
+  toolbarMode = toolbar;
+  document.documentElement.dataset.toolbar = toolbar;
+  if (toolbar === 'both') $('appearance-actions').append($('theme'));
+  else $('primary-actions').prepend($('theme'));
+  $('appearance-actions').hidden = toolbar !== 'both';
+  theme(themeState.dark, themeState.reversed, themeState.automatic);
+  document.querySelector('header .file').hidden = toolbar === 'branding' || toolbar === 'none';
+  document.querySelector('header .identity').hidden = toolbar === 'filename' || toolbar === 'none';
+  document.documentElement.dataset.branding = String(toolbar === 'both' || toolbar === 'branding');
+}
 function updateCanvasSharpening(view, transformed = false) {
   const canvas = view?.canvas;
   if (!canvas) return;
@@ -49,13 +74,15 @@ window.addEventListener('message', async event => {
   if (event.source !== parent || port || event.data?.type !== 'CP_PDF_INIT' || event.ports.length !== 1) return;
   const input = event.data;
   settings = normalizeSettings(input.settings);
+  toolbarPreferences(getToolbarMode(settings));
   document.documentElement.style.setProperty('--page-gap', settings.gap + 'px');
   document.documentElement.style.setProperty('--dark-strength',settings.darkStrength);
   document.documentElement.dataset.motion = String(settings.motion);
   if (!(input.bytes instanceof ArrayBuffer) || input.bytes.byteLength > PDF_LIMITS.bytes) return;
   port = event.ports[0];
   port.onmessage = ({ data }) => {
-    if (data?.type === 'theme') theme(data.dark, data.automatic);
+    if (data?.type === 'theme') theme(data.dark, data.reversed, data.automatic);
+    else if (data?.type === 'toolbar') toolbarPreferences(data.toolbar);
     else if (data?.type === 'sharpening') setSharpening(data.enabled);
     else if (data?.type === 'host-error') { $('status').textContent = String(data.message || '').slice(0,1000); $('progress').hidden = true; }
     else if (data?.type === 'copied') { $('ocr-status').textContent = text[data.ok ? 'copied' : 'copyFailed']; }
@@ -71,8 +98,8 @@ window.addEventListener('message', async event => {
   for (const node of document.querySelectorAll('[data-label]')) { node.title = text[node.dataset.label]; node.setAttribute('aria-label', node.title); }
   $('filename').textContent = String(input.filename || 'PDF').slice(0, 1024); $('filename').title = $('filename').textContent;
   setSharpening(input.sharpening);
-  theme(input.dark, input.automatic); status('loading', true);
-  setReaderIcons(document); emit('shell-ready');
+  theme(input.dark, input.reversed, input.automatic); status('loading', true);
+  setReaderIcons(document);
   // Keep form navigation forbidden by the sandbox, including method=dialog.
   // These controls only validate local input and close the local dialog.
   for (const form of document.querySelectorAll('dialog form')) {
@@ -96,7 +123,7 @@ window.addEventListener('message', async event => {
 async function open(bytes, sampling) {
   // An opaque extension sandbox cannot create a Worker from its extension URL.
   // Only the fixed bundled worker is copied into a blob; never PDF-supplied code.
-  const workerCode = await (await fetch(new URL('../../vendor/pdfjs/pdf.worker.min.mjs', import.meta.url), { signal })).text();
+  const workerCode = await workerSource; workerSource = null;
   if (destroyed) return;
   workerUrl = URL.createObjectURL(new Blob([workerCode], { type: 'text/javascript' }));
   pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
@@ -120,6 +147,7 @@ async function open(bytes, sampling) {
   clearTimeout(parseTimer);
   if (destroyed) return;
   if (pdf.numPages > PDF_LIMITS.pages) { await task.destroy(); throw Error('PDF page budget'); }
+  emit('parsed');
   const links = new PDFLinkService({ eventBus });
   // The annotation/form/editor/scripting layers are not instantiated. Only
   // passive text and our bounded allowlisted links are added above the canvas.
@@ -150,7 +178,6 @@ async function open(bytes, sampling) {
     $('count').textContent = '/ ' + pdf.numPages; $('page').max = pdf.numPages; $('page').style.setProperty('--page-digits', Math.max(2, String(pdf.numPages).length));
     $('previous').disabled = true; $('next').disabled = pdf.numPages === 1; $('print').disabled = !viewer.printingAllowed;
     $('print-to').max = $('print-from').max = pdf.numPages; $('print-to').value = Math.min(pdf.numPages, PDF_LIMITS.printPages);
-    status(''); emit('ready');
     if (settings.sidebar) { $('sidebar').hidden = false; createThumbnails(); }
   }, { signal });
   eventBus.on('pagechanging', ({ pageNumber }) => {
@@ -158,6 +185,7 @@ async function open(bytes, sampling) {
     for (const node of $('thumbnails').children) node.setAttribute('aria-current', String(Number(node.dataset.page) === pageNumber));
   }, { signal });
   eventBus.on('pagerendered', ({ pageNumber, cssTransform, error }) => {
+    if (!firstPageReady && pageNumber === 1) { firstPageReady = true; status(''); emit('ready'); }
     if (error) status('pageError');
     if (sharpening) updateCanvasSharpening(viewer.getPageView(pageNumber - 1), cssTransform || error);
     if (settings.links && !cssTransform && !destroyed) void renderLinks(pageNumber, links).catch(() => {});
@@ -204,6 +232,7 @@ async function open(bytes, sampling) {
   $('query').oninput = () => search(); $('match-case').onchange = () => search();
   $('query').onkeydown = event => { if (event.key === 'Enter') { event.preventDefault(); search(true, event.shiftKey); } };
   window.addEventListener('keydown', event => {
+    if (event.altKey) return; // Leave browser history shortcuts to Chrome.
     const modifier = event.ctrlKey || event.metaKey, editable = /INPUT|SELECT|TEXTAREA/.test(event.target.tagName);
     if (modifier && event.key.toLowerCase() === 'f') { event.preventDefault(); openFind(); }
     else if (modifier && event.key.toLowerCase() === 'p') { event.preventDefault(); openPrint(); }
