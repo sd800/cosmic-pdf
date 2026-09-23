@@ -7,7 +7,7 @@ const paths = {
   native:'M14 4h6v6M20 4l-9 9M18 13v6H5V6h6',
   'ocr-toggle':'M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4M8 8h8M12 8v8',
   'ocr-close':'m5 5 14 14M19 5 5 19',
-  properties:'M14 3H5v18h14V8zM14 3v5h5M12 11v.01M11 14h1v4h1',
+  properties:'M12.5 4a.5.5 0 1 1-1 0 .5.5 0 0 1 1 0M9 10h3v11M8 21h8',
   print:'M6 9V3h12v6M6 17H3V9h18v8h-3M6 14h12v7H6z',
   download:'M12 3v12M7 10l5 5 5-5M5 21h14',
   moon:'M20.5 13.5A8.5 8.5 0 0 1 10.5 3 8.5 8.5 0 1 0 20.5 13.5Z',

@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.9
+
+- Use a plain information icon for Document properties in the PDF reader.
+
 ## 1.2.8
 
 - Update the PDF reader’s Rotate left icon to a rounded square with a counterclockwise arrow, aligned with the other toolbar icons.
