@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.2.6
+
+- Add customizable Document properties date formats, spaced Chinese dates, and source time zones and seconds when available. Allow clicking outside the dialog to close it.
+- Apply interface-language changes immediately to open readers and Settings pages.
+- Show OCR results directly as selectable page text, with each page ready as soon as it is recognized.
+- Default Text recognition to the current page, with choices for the current page and next 5/10 pages or the side panel; hold the button to open the panel from a direct-recognition mode.
+- Enable English and Simplified Chinese recognition by default and improve spacing when copying recognized Chinese text.
+- Use Chrome for ⌘F/Ctrl+F by default, with a Settings switch to use Cosmic PDF search instead.
+- Size More actions to its contents, simplify Find labels and the Properties menu label, and mark default-hidden controls in Settings.
+
 ## 1.2.5
 
 - Let toolbar controls move into an icon-labeled More actions menu through Settings, with immediate updates to open readers.

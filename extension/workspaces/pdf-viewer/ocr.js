@@ -1,21 +1,28 @@
-import { OCR_LIMITS, ocrRange, ocrScale, ocrWords } from './ocr-model.js';
+import { OCR_LIMITS, ocrRange, ocrScale, ocrWords, quickOcrRange } from './ocr-model.js';
 import { createOcrWorker } from './ocr-worker-client.js';
 import { AnnotationMode, PermissionFlag } from '../../vendor/pdfjs/pdf.min.mjs';
 import { languageChoices } from '../../shared/ocr-languages.js';
+import { bindPressAction } from './press-action.js';
 const $=id=>document.getElementById(id);
-export function createOcr({pdf,viewer,eventBus,settings,text,signal,port}){
- const cache=new Map();let active=null,generation=0,closed=false,current=1;
+export function createOcr({pdf,viewer,eventBus,settings,text,signal}){
+ const cache=new Map();let active=null,generation=0,closed=false,action=settings.ocrAction,statusKey='',readingPage=0,readingEnd=0,hideFeedback=0,feedbackUntil=0,progress=0;
  const languages=languageChoices($('ocr-languages'),settings.ocrLanguages,{eng:text.ocrEnglish,chi_sim:text.ocrSimplified,chi_tra:text.ocrTraditional});$('ocr-to').max=$('ocr-from').max=pdf.numPages;
- const msg=key=>$('ocr-status').textContent=text[key];
- function showResult(page){current=Number(page);const result=cache.get(current);$('ocr-result').value=result?.text||'';$('ocr-copy').disabled=!result?.text;$('ocr-clear').disabled=!cache.size;if(result)$('ocr-result-page').value=current;}
- function updateResultChoices(){const select=$('ocr-result-page');select.replaceChildren();for(const page of [...cache.keys()].sort((a,b)=>a-b)){const option=document.createElement('option');option.value=page;option.textContent=text.page+' '+page;select.append(option);}select.disabled=!cache.size;}
- function clear(){for(const page of cache.keys())viewer.getPageView(page-1)?.div.querySelector('.ocr-text-layer')?.remove();cache.clear();updateResultChoices();showResult(viewer.currentPageNumber);msg('');}
- function busy(value){$('ocr-start').disabled=value;$('ocr-languages').disabled=value;$('ocr-from').disabled=value;$('ocr-to').disabled=value;$('ocr-cancel').hidden=!value;$('ocr-progress').hidden=!value;}
+ function updateStatus() {
+  const value=statusKey==='ocrReading'?`${text.ocrReading} ${readingPage} / ${readingEnd}`:text[statusKey]||'';
+  $('ocr-status').textContent=$('ocr-feedback-status').textContent=value;
+  $('ocr-feedback').hidden=!$('ocr-panel').hidden||!value||(!active&&performance.now()>=feedbackUntil);
+  $('ocr-feedback-cancel').hidden=!active;
+  $('ocr-feedback-progress').hidden=!active;
+  $('ocr-progress').value=$('ocr-feedback-progress').value=progress;
+ }
+ function msg(key){statusKey=key;feedbackUntil=key?performance.now()+6000:0;updateStatus();if(!active){clearTimeout(hideFeedback);hideFeedback=setTimeout(updateStatus,6000);}}
+ function clear(){for(const page of cache.keys())viewer.getPageView(page-1)?.div.querySelector('.ocr-text-layer')?.remove();cache.clear();$('ocr-clear').disabled=true;msg('');}
+ function busy(value){$('ocr-start').disabled=value;$('ocr-languages').disabled=value;$('ocr-from').disabled=value;$('ocr-to').disabled=value;$('ocr-cancel').hidden=!value;$('ocr-progress').hidden=!value;$('ocr-toggle').setAttribute('aria-busy',String(value));updateStatus();if(!value&&statusKey){clearTimeout(hideFeedback);hideFeedback=setTimeout(()=>{$('ocr-feedback').hidden=true;},6000);}}
  async function release(job){if(!job)return;job.cancelled=true;job.abort.abort();job.render?.cancel();clearTimeout(job.timer);if(job.worker)await job.worker.terminate().catch(()=>{});if(job.workerURL)URL.revokeObjectURL(job.workerURL);if(job.canvas)job.canvas.width=job.canvas.height=0;}
  function stop(message='ocrCancelled'){generation++;const job=active;active=null;void release(job);busy(false);if(message)msg(message);}
  function overlay(number){
   const result=cache.get(number),view=viewer.getPageView(number-1);if(!view)return;view.div.querySelector('.ocr-text-layer')?.remove();
-  if(!result||!settings.ocrOverlay||!view.canvas)return;
+  if(!result?.words.length||!view.canvas)return;
   const viewport=view.viewport,layer=document.createElement('div');layer.className='ocr-text-layer';layer.setAttribute('aria-label',text.ocrResult);
   // Word coordinates live in PDF space, so zoom/rotation do not require OCR again.
   const rotation=((viewport.rotation-result.rotation)%360+360)%360;
@@ -23,14 +30,15 @@ export function createOcr({pdf,viewer,eventBus,settings,text,signal,port}){
   for(const word of result.words){
    const a=viewport.convertToViewportPoint(...word.topLeft),b=viewport.convertToViewportPoint(...word.topRight),c=viewport.convertToViewportPoint(...word.bottomLeft);
    const width=Math.hypot(b[0]-a[0],b[1]-a[1]),height=Math.hypot(c[0]-a[0],c[1]-a[1]);if(width<.1||height<.1)continue;
-   const span=document.createElement('span');span.textContent=word.text+' ';span.style.left=a[0]+'px';span.style.top=a[1]+'px';span.style.fontSize=height+'px';span.style.fontFamily='sans-serif';ctx.font=height+'px sans-serif';const measured=ctx.measureText(word.text).width||width;
+   const span=document.createElement('span');span.textContent=word.text+word.separator;span.style.left=a[0]+'px';span.style.top=a[1]+'px';span.style.fontSize=height+'px';span.style.fontFamily='sans-serif';ctx.font=height+'px sans-serif';const measured=ctx.measureText(word.text).width||width;
    span.style.transform=`rotate(${rotation}deg) scaleX(${width/measured})`;layer.append(span);
   }
   view.div.append(layer);
  }
- async function run(){
-  if(active)return;const range=ocrRange($('ocr-from').value,$('ocr-to').value,pdf.numPages);if(!range){msg('ocrInvalid');return;}
-  const id=++generation,job={abort:new AbortController(),cancelled:false};active=job;busy(true);msg('ocrLoading');$('ocr-progress').value=0;
+ async function run(requested){
+  if(active){openPanel();return;}const range=requested||ocrRange($('ocr-from').value,$('ocr-to').value,pdf.numPages);if(!range){msg('ocrInvalid');return;}
+  $('ocr-from').value=range.from;$('ocr-to').value=range.to;
+  const id=++generation,job={abort:new AbortController(),cancelled:false};active=job;clearTimeout(hideFeedback);progress=0;busy(true);msg('ocrLoading');
   const alive=()=>!closed&&generation===id&&!job.cancelled;
   try{
    const permissions=await pdf.getPermissions();if(permissions&&!permissions.includes(PermissionFlag.COPY)){if(alive())msg('ocrNoPermission');return;}
@@ -41,36 +49,55 @@ export function createOcr({pdf,viewer,eventBus,settings,text,signal,port}){
    const root=new URL('../../vendor/tesseract/',import.meta.url).href;
    const arm=()=>{clearTimeout(job.timer);job.timer=setTimeout(()=>{if(alive())stop('ocrFailed');},OCR_LIMITS.timeout);};arm();
    let completed=0;
-   const worker=createOcrWorker(job.workerURL,root,info=>{if(alive()&&info.status==='recognizing text')$('ocr-progress').value=(completed+Math.max(0,Math.min(1,info.progress||0)))/(range.to-range.from+1);});
+   const worker=createOcrWorker(job.workerURL,root,info=>{if(alive()&&info.status==='recognizing text'){progress=(completed+Math.max(0,Math.min(1,info.progress||0)))/(range.to-range.from+1);updateStatus();}});
    job.worker=worker;await worker.initialize(languages.value().join('+'));if(!alive())return;
    await worker.setParameters({tessedit_pageseg_mode:settings.ocrLayout,preserve_interword_spaces:'1',user_defined_dpi:'200'});
    for(let number=range.from;number<=range.to&&alive();number++){
-    arm();$('ocr-status').textContent=text.ocrReading+' '+number+' / '+range.to;
+    arm();readingPage=number;readingEnd=range.to;msg('ocrReading');
     const page=await pdf.getPage(number);if(!alive())break;
     const base=page.getViewport({scale:1}),scale=ocrScale(base.width,base.height,settings.ocrQuality),raster=page.getViewport({scale});
     const canvas=document.createElement('canvas');job.canvas=canvas;canvas.width=Math.ceil(raster.width);canvas.height=Math.ceil(raster.height);
     job.render=page.render({canvasContext:canvas.getContext('2d',{willReadFrequently:true}),viewport:raster,annotationMode:AnnotationMode.DISABLE,background:'rgb(255,255,255)'});await job.render.promise;job.render=null;if(!alive())break;
     const image=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));canvas.width=canvas.height=0;job.canvas=null;if(!image||!alive())break;
     const {data}=await worker.recognize(image,{}, {text:true,blocks:true});if(!alive())break;
-    const words=ocrWords(data.blocks,raster.width,raster.height).map(word=>({text:word.text,topLeft:raster.convertToPdfPoint(word.x0,word.y0),topRight:raster.convertToPdfPoint(word.x1,word.y0),bottomLeft:raster.convertToPdfPoint(word.x0,word.y1)}));
-    const result={text:String(data.text||'').slice(0,OCR_LIMITS.characters),words,rotation:raster.rotation};
+    const words=ocrWords(data.blocks,raster.width,raster.height).map(word=>({text:word.text,separator:word.separator,topLeft:raster.convertToPdfPoint(word.x0,word.y0),topRight:raster.convertToPdfPoint(word.x1,word.y0),bottomLeft:raster.convertToPdfPoint(word.x0,word.y1)}));
+    const result={characters:words.reduce((count,word)=>count+word.text.length,0),words,rotation:raster.rotation};
     cache.delete(number);cache.set(number,result);
     // Bound all result state, not only the number of rendered layers.
-    while(cache.size>20||[...cache.values()].reduce((n,r)=>n+r.words.length,0)>50000||[...cache.values()].reduce((n,r)=>n+r.text.length,0)>OCR_LIMITS.characters){const oldest=cache.keys().next().value;cache.delete(oldest);viewer.getPageView(oldest-1)?.div.querySelector('.ocr-text-layer')?.remove();}
-    updateResultChoices();showResult(number);overlay(number);completed++;$('ocr-progress').value=completed/(range.to-range.from+1);
+    while(cache.size>20||[...cache.values()].reduce((n,r)=>n+r.words.length,0)>50000||[...cache.values()].reduce((n,r)=>n+r.characters,0)>OCR_LIMITS.characters){const oldest=cache.keys().next().value;cache.delete(oldest);viewer.getPageView(oldest-1)?.div.querySelector('.ocr-text-layer')?.remove();}
+    $('ocr-clear').disabled=!cache.size;overlay(number);completed++;progress=completed/(range.to-range.from+1);updateStatus();
     await new Promise(resolve=>setTimeout(resolve,0));
    }
-   if(alive())msg(cache.get(current)?.text?'ocrDone':'ocrEmpty');
+   if(alive())msg([...cache].some(([number,result])=>number>=range.from&&number<=range.to&&result.words.length)?'ocrDone':'ocrEmpty');
   }catch{if(alive())msg('ocrFailed');}
   finally{await release(job);if(active===job){active=null;busy(false);}}
  }
- $('ocr-toggle').onclick=()=>{const show=$('ocr-panel').hidden;$('ocr-panel').hidden=!show;document.documentElement.dataset.ocrOpen=String(show);if(show&&!active){$('ocr-from').value=$('ocr-to').value=viewer.currentPageNumber;showResult(viewer.currentPageNumber);}};
- $('ocr-close').onclick=()=>{$('ocr-panel').hidden=true;document.documentElement.dataset.ocrOpen='false';};
- $('ocr-start').onclick=()=>void run();$('ocr-cancel').onclick=()=>stop();$('ocr-clear').onclick=()=>{stop('');clear();};
- $('ocr-result-page').onchange=()=>{const n=Number($('ocr-result-page').value);viewer.currentPageNumber=n;showResult(n);};
- $('ocr-copy').onclick=()=>{if($('ocr-result').value)port.postMessage({type:'copy',text:$('ocr-result').value.slice(0,OCR_LIMITS.characters)});};
+ function openPanel(){
+  $('ocr-panel').hidden=false;document.documentElement.dataset.ocrOpen='true';
+  if(!active)$('ocr-from').value=$('ocr-to').value=viewer.currentPageNumber;
+  updateStatus();
+ }
+ function activate(){
+  if(action==='panel'){
+   if($('ocr-panel').hidden)openPanel();else closePanel();
+  }else void run(quickOcrRange(action,viewer.currentPageNumber,pdf.numPages));
+ }
+ function closePanel(){$('ocr-panel').hidden=true;document.documentElement.dataset.ocrOpen='false';updateStatus();}
+ bindPressAction($('ocr-toggle'),{click:activate,hold:openPanel,canHold:()=>action!=='panel',signal});
+ $('ocr-close').onclick=closePanel;
+ $('ocr-start').onclick=()=>void run();$('ocr-cancel').onclick=$('ocr-feedback-cancel').onclick=()=>stop();$('ocr-clear').onclick=()=>{stop('');clear();};
  eventBus.on('pagerendered',({pageNumber})=>overlay(pageNumber),{signal});
  eventBus.on('scalechanging',()=>{for(const number of cache.keys())overlay(number);},{signal});
- eventBus.on('pagechanging',({pageNumber})=>{if(!active){$('ocr-from').value=$('ocr-to').value=pageNumber;if(cache.has(pageNumber))showResult(pageNumber);}},{signal});
- return {destroy(){closed=true;stop('');cache.clear();}};
+ eventBus.on('pagechanging',({pageNumber})=>{if(!active)$('ocr-from').value=$('ocr-to').value=pageNumber;},{signal});
+ return {
+  openPanel,
+  setInterface(nextAction){
+   action=nextAction;
+   const names={eng:text.ocrEnglish,chi_sim:text.ocrSimplified,chi_tra:text.ocrTraditional};
+   for(const input of $('ocr-languages').querySelectorAll('input'))input.nextElementSibling.textContent=names[input.value];
+   for(const layer of document.querySelectorAll('.ocr-text-layer'))layer.setAttribute('aria-label',text.ocrResult);
+   updateStatus();
+  },
+  destroy(){closed=true;stop('');clearTimeout(hideFeedback);cache.clear();}
+ };
 }

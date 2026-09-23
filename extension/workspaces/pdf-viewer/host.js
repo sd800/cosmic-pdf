@@ -39,9 +39,6 @@ export function createPdfViewer({ container, locale, sampling, settings, filenam
     else if (data.type === 'download') onDownload();
     else if (data.type === 'native') onNative();
     else if (data.type === 'settings') onSettings();
-    else if (data.type === 'copy' && typeof data.text === 'string' && data.text.length <= 500000) {
-      void navigator.clipboard.writeText(data.text).then(()=>channel.port1.postMessage({type:'copied',ok:true}),()=>channel.port1.postMessage({type:'copied',ok:false}));
-    }
     else if (data.type === 'theme') onTheme();
     else if (data.type === 'auto') onAuto();
     else if (data.type === 'fullscreen') {
@@ -72,6 +69,12 @@ export function createPdfViewer({ container, locale, sampling, settings, filenam
       const toolbar = { showFilename: next.showFilename, showBranding: next.showBranding, toolbarHidden: next.toolbarHidden };
       settings = { ...settings, ...toolbar };
       if (!closed) channel.port1.postMessage({ type: 'toolbar', toolbar });
+    },
+    setInterface(nextLocale, nextSettings) {
+      const next = normalizeSettings(nextSettings);
+      locale = nextLocale === 'zh-CN' ? nextLocale : 'en-US';
+      settings = { ...settings, propertyDateFormat: next.propertyDateFormat, ocrAction: next.ocrAction, useChromeFind: next.useChromeFind };
+      if (!closed) channel.port1.postMessage({ type: 'interface', locale, propertyDateFormat: next.propertyDateFormat, ocrAction: next.ocrAction, useChromeFind: next.useChromeFind });
     },
     setSharpening(value) { if (!closed) { sharpening = value === true; channel.port1.postMessage({ type: 'sharpening', enabled: sharpening }); } },
     setTheme(nextDark, nextReversed, nextAutomatic) { dark = !!nextDark; reversed = !!nextReversed; automatic = !!nextAutomatic; if (!closed) channel.port1.postMessage({ type: 'theme', dark, reversed, automatic }); },

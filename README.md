@@ -12,7 +12,7 @@ The reader's own extension page keeps website dark-mode extensions from applying
 
 ## Local OCR
 
-Recognize scanned pages in English, Simplified Chinese or Traditional Chinese, including mixed Chinese and English. Select and copy recognized text on the page or from the recognition panel. Recognition starts only when requested and does not upload or modify the PDF.
+Recognize scanned pages in English, Simplified Chinese or Traditional Chinese, including mixed Chinese and English. Select and copy recognized text directly on each page as recognition finishes. Recognition starts only when requested and does not upload or modify the PDF.
 
 ## Make it yours
 

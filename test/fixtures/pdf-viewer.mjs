@@ -26,7 +26,7 @@ export function viewerPdf(count = 80) {
 }
 
 // Image-only PDF for scan legibility QA; caller supplies an authored JPEG.
-export function scannedPdf(jpeg, width, height) {
+export function scannedPdf(jpeg, width, height, count = 1) {
   const command = 'q 612 0 0 842 0 0 cm /Scan Do Q';
   const objects = [
     '<< /Type /Catalog /Pages 2 0 R >>',
@@ -35,12 +35,14 @@ export function scannedPdf(jpeg, width, height) {
     `<< /Length ${command.length} >>\nstream\n${command}\nendstream`,
     Buffer.concat([Buffer.from(`<< /Type /XObject /Subtype /Image /Width ${width} /Height ${height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpeg.length} >>\nstream\n`), jpeg, Buffer.from('\nendstream')])
   ];
+  const pages=[3];for(let i=1;i<count;i++){objects.push(objects[2]);pages.push(objects.length);}
+  objects[1]=`<< /Type /Pages /Kids [${pages.map(n=>n+' 0 R').join(' ')}] /Count ${count} >>`;
   const chunks = [Buffer.from('%PDF-1.7\n')], offsets = [0]; let length = chunks[0].length;
   objects.forEach((value, index) => {
     offsets.push(length);
     const chunk = Buffer.concat([Buffer.from(`${index + 1} 0 obj\n`), Buffer.from(value), Buffer.from('\nendobj\n')]);
     chunks.push(chunk); length += chunk.length;
   });
-  chunks.push(Buffer.from(`xref\n0 6\n0000000000 65535 f \n${offsets.slice(1).map(offset => String(offset).padStart(10, '0') + ' 00000 n \n').join('')}trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${length}\n%%EOF`));
+  chunks.push(Buffer.from(`xref\n0 ${objects.length+1}\n0000000000 65535 f \n${offsets.slice(1).map(offset => String(offset).padStart(10, '0') + ' 00000 n \n').join('')}trailer\n<< /Size ${objects.length+1} /Root 1 0 R >>\nstartxref\n${length}\n%%EOF`));
   return Buffer.concat(chunks);
 }

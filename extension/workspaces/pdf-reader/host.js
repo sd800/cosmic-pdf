@@ -7,8 +7,15 @@ const $=id=>document.getElementById(id);
 // is private; neither bytes nor OCR results are ever sent to a web-page parent.
 if(window!==top) throw Error('Top-level reader required');
 let settings=await readSettings(), locale=uiLocale(settings,chrome.i18n.getUILanguage());
-const zh=locale==='zh-CN', text=zh?{intro:'以舒适的外观阅读 PDF，按需识别扫描件中的文字。',open:'打开 PDF 文件',settings:'设置',native:'使用 Chrome 阅读器',hint:'将 PDF 拖到这里，或选择本地文件。文件不会上传。',failed:'无法打开此文件。可尝试 Chrome 阅读器或选择本地副本。',large:'文件超过 64 MB 的安全读取上限，请使用 Chrome 阅读器。',downloadFailed:'下载未能开始，请重试。',nativeFailed:'无法切换。请在设置中暂时关闭自动打开，然后重新访问原文件。'}:{intro:'Read PDFs comfortably and recognize scanned text when you need it.',open:'Open a PDF',settings:'Settings',native:'Use Chrome reader',hint:'Drop a PDF here, or choose a local file. Your documents are never uploaded.',failed:'This file could not be opened. Try the Chrome reader or choose a local copy.',large:'This file exceeds the 64 MB safe reading limit. Use the Chrome reader instead.',downloadFailed:'The download could not start. Please try again.',nativeFailed:'Could not switch. Turn off automatic opening in Settings, then revisit the original file.'};
-document.documentElement.lang=locale; $('intro').textContent=text.intro;$('open-file').textContent=text.open;$('settings').textContent=text.settings;$('native').textContent=text.native;$('hint').textContent=text.hint;document.documentElement.dataset.motion=String(settings.motion);
+function hostText(locale){return locale==='zh-CN'?{intro:'以舒适的外观阅读 PDF，按需识别扫描件中的文字。',open:'打开 PDF 文件',settings:'设置',native:'使用 Chrome 阅读器',hint:'将 PDF 拖到这里，或选择本地文件。文件不会上传。',failed:'无法打开此文件。可尝试 Chrome 阅读器或选择本地副本。',large:'文件超过 64 MB 的安全读取上限，请使用 Chrome 阅读器。',downloadFailed:'下载未能开始，请重试。',nativeFailed:'无法切换。请在设置中暂时关闭自动打开，然后重新访问原文件。'}:{intro:'Read PDFs comfortably and recognize scanned text when you need it.',open:'Open a PDF',settings:'Settings',native:'Use Chrome reader',hint:'Drop a PDF here, or choose a local file. Your documents are never uploaded.',failed:'This file could not be opened. Try the Chrome reader or choose a local copy.',large:'This file exceeds the 64 MB safe reading limit. Use the Chrome reader instead.',downloadFailed:'The download could not start. Please try again.',nativeFailed:'Could not switch. Turn off automatic opening in Settings, then revisit the original file.'}}
+let text=hostText(locale);
+function localize(nextLocale){
+ const old=text, message=$('message').textContent;locale=nextLocale;text=hostText(locale);
+ document.documentElement.lang=locale;
+ for(const [id,key]of [['intro','intro'],['open-file','open'],['settings','settings'],['native','native'],['hint','hint']])$(id).textContent=text[key];
+ const errorKey=Object.keys(old).find(key=>old[key]===message);if(errorKey)$('message').textContent=text[errorKey];
+}
+localize(locale);document.documentElement.dataset.motion=String(settings.motion);
 let source=sourceFromReader(location.href,chrome.runtime.getURL(READER_PATH)), reader, original, blobURL, filename, controller, generation=0;
 let activeSettings=settings,appearanceOverride=null; const media=matchMedia('(prefers-color-scheme:dark)');
 function defaultDark(){return activeSettings.appearance==='dark'||(activeSettings.appearance==='auto'&&media.matches);}
@@ -46,7 +53,18 @@ async function load(loader, initialFilename='PDF'){
 async function openFile(file){if(file.size>PDF_LIMITS.bytes){if(reader)reader.showError(text.large);else fail(text.large);return;}source=null;history.replaceState(null,'',chrome.runtime.getURL(READER_PATH));$('native').hidden=true;await load(async()=>({bytes:await file.arrayBuffer(),filename:file.name}),file.name);}
 function loadSource(){return load(async signal=>{const response=await fetch(source,{signal,credentials:'include',cache:'default',referrerPolicy:'no-referrer'});return {bytes:await readResponse(response,signal),filename:filenameFrom(response.url||source,response.headers.get('content-disposition')||'')};},filenameFrom(source));}
 if(source){$('native').hidden=false;void loadSource();}else setView('home');
-chrome.storage.onChanged.addListener((changes,area)=>{if(area!=='local'||!changes.settings)return;void readSettings().then(next=>{settings=next;const mode=toolbarMode(next),changed=toolbarSignature(activeSettings)!==toolbarSignature(next),dark=currentDark();activeSettings={...activeSettings,showFilename:next.showFilename,showBranding:next.showBranding,toolbarHidden:next.toolbarHidden};if(changed){if(appearanceOverride!==null)appearanceOverride=mode==='both'?dark:dark===defaultDark()?null:'opposite';reader?.setToolbar(next);applyTheme();}/* Rendering/OCR preferences stay unchanged. */});});
+chrome.storage.onChanged.addListener((changes,area)=>{
+ if(area!=='local'||!changes.settings)return;
+ void readSettings().then(next=>{
+  settings=next;
+  const nextLocale=uiLocale(next,chrome.i18n.getUILanguage()),mode=toolbarMode(next),changed=toolbarSignature(activeSettings)!==toolbarSignature(next),dark=currentDark();
+  const interfaceChanged=locale!==nextLocale||activeSettings.propertyDateFormat!==next.propertyDateFormat||activeSettings.ocrAction!==next.ocrAction||activeSettings.useChromeFind!==next.useChromeFind;
+  activeSettings={...activeSettings,locale:next.locale,propertyDateFormat:next.propertyDateFormat,ocrAction:next.ocrAction,useChromeFind:next.useChromeFind,showFilename:next.showFilename,showBranding:next.showBranding,toolbarHidden:next.toolbarHidden};
+  if(changed){if(appearanceOverride!==null)appearanceOverride=mode==='both'?dark:dark===defaultDark()?null:'opposite';reader?.setToolbar(next);applyTheme();}
+  if(interfaceChanged){localize(nextLocale);reader?.setInterface(nextLocale,next);}
+  // Sampling, OCR languages and recognition detail stay fixed for this reader.
+ });
+});
 window.addEventListener('pagehide',()=>{generation++;controller?.abort();reader?.destroy();reader=null;if(blobURL)URL.revokeObjectURL(blobURL);blobURL=null;});
 // A history restore may revive this document after its renderer was disposed.
 window.addEventListener('pageshow',event=>{if(!event.persisted)return;if(original){const saved=original,name=filename;void load(async()=>({bytes:await saved.arrayBuffer(),filename:name}),name);}else if(source)void loadSource();else setView('home');});

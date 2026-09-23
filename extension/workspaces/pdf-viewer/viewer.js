@@ -9,7 +9,7 @@ import { normalizePdfSampling } from '../../core/pdf-sampling.js';
 import { PDF_LIMITS, pdfDetailCanvasPixels, pdfOptions, pdfScale, parsePdfZoom, stepPdfScale, printRange, rotateLeft, safePdfLink } from './model.js';
 
 const $ = id => document.getElementById(id);
-let port, task, pdf, viewer, workerUrl, pdfWorker, parseTimer, destroyed = false, text = labels['en-US'];
+let port, task, pdf, viewer, workerUrl, pdfWorker, parseTimer, destroyed = false, text = {...labels['en-US']}, fullscreenActive = false;
 const lifetime = new AbortController(), signal = lifetime.signal;
 const eventBus = new EventBus(), viewport = $('viewport');
 // Prepare the parser concurrently with the host download, without starting OCR.
@@ -52,6 +52,26 @@ function toolbarPreferences(toolbar) {
   document.querySelector('header .file').hidden = toolbar === 'branding' || toolbar === 'none';
   document.querySelector('header .identity').hidden = toolbar === 'filename' || toolbar === 'none';
   document.documentElement.dataset.branding = String(toolbar === 'both' || toolbar === 'branding');
+}
+function localize(locale) {
+  const previous = {...text};
+  Object.assign(text, labels[locale] || labels['en-US']);
+  document.documentElement.lang = locale === 'zh-CN' ? locale : 'en-US';
+  for (const node of document.querySelectorAll('[data-text]')) node.textContent = text[node.dataset.text];
+  for (const node of document.querySelectorAll('[data-label]')) { node.title = text[node.dataset.label]; node.setAttribute('aria-label', node.title); }
+  const browserFind = settings.useChromeFind;
+  $('find-controls').hidden = browserFind; $('browser-find-hint').hidden = !browserFind;
+  $('browser-find-hint').textContent = text.browserFindHint.replace('{shortcut}', /Mac/i.test(navigator.platform) ? '⌘F' : 'Ctrl+F');
+  for (const id of ['status','password-message','print-error','matches']) {
+    const key = Object.keys(previous).find(key => previous[key] === $(id).textContent);
+    if (key) $(id).textContent = text[key];
+  }
+  theme(themeState.dark, themeState.reversed, themeState.automatic);
+  $('fullscreen').title = text[fullscreenActive ? 'exitFullscreen' : 'fullscreen'];
+  $('fullscreen').setAttribute('aria-label', $('fullscreen').title);
+  ocr?.setInterface(settings.ocrAction);
+  toolbarMenu?.refreshLabels();
+  if(properties)void properties.then(dialog => { if (!destroyed) dialog.setInterface(document.documentElement.lang, settings.propertyDateFormat); });
 }
 function updateCanvasSharpening(view, transformed = false) {
   const canvas = view?.canvas;
@@ -111,24 +131,28 @@ window.addEventListener('message', event => {
     }
     else if (data?.type === 'sharpening') setSharpening(data.enabled);
     else if (data?.type === 'host-error') { $('status').textContent = String(data.message || '').slice(0,1000); $('progress').hidden = true; }
-    else if (data?.type === 'copied') { $('ocr-status').textContent = text[data.ok ? 'copied' : 'copyFailed']; }
+    else if (data?.type === 'interface') {
+      const next = normalizeSettings(data);
+      if (settings.useChromeFind !== next.useChromeFind) { $('findbar').hidden = true; eventBus.dispatch('findbarclose', { source: window }); }
+      settings = {...settings, propertyDateFormat:next.propertyDateFormat, ocrAction:next.ocrAction, useChromeFind:next.useChromeFind};
+      localize(data.locale);
+    }
     else if (data?.type === 'fullscreen-error') status('fullScreenFailed');
     else if (data?.type === 'fullscreen') {
+      fullscreenActive = !!data.active;
       setReaderIcon($('fullscreen'), data.active ? 'fullscreen-exit' : 'fullscreen');
       $('fullscreen').title = text[data.active ? 'exitFullscreen' : 'fullscreen'];
       $('fullscreen').setAttribute('aria-label', $('fullscreen').title); toolbarMenu?.refresh();
     }
   };
-  text = labels[input.locale] || labels['en-US']; document.documentElement.lang = input.locale === 'zh-CN' ? input.locale : 'en-US';
-  for (const node of document.querySelectorAll('[data-text]')) node.textContent = text[node.dataset.text];
-  for (const node of document.querySelectorAll('[data-label]')) { node.title = text[node.dataset.label]; node.setAttribute('aria-label', node.title); }
+  localize(input.locale);
   $('filename').textContent = String(input.filename || 'PDF').slice(0, 1024); $('filename').title = $('filename').textContent;
   setSharpening(input.sharpening);
   theme(input.dark, input.reversed, input.automatic); status('loading', true);
   setReaderIcons(document);
   $('scale').value = settings.zoom.startsWith('page-') ? settings.zoom : String(Number(settings.zoom));
   $('scale-input').value = (Number(settings.zoom) > 0 ? Math.round(Number(settings.zoom) * 100) : 100) + '%';
-  toolbarMenu = createToolbarMenu({ text, signal, onSettings: () => emit('settings'), onFit: value => { if (viewer) viewer.currentScaleValue = value; } });
+  toolbarMenu = createToolbarMenu({ text, signal, onSettings: () => emit('settings'), onOcrPanel: () => ocr?.openPanel(), canHoldOcr: () => settings.ocrAction !== 'panel', onFit: value => { if (viewer) viewer.currentScaleValue = value; } });
   toolbarMenu.update(settings);
   // Keep form navigation forbidden by the sandbox, including method=dialog.
   // These controls only validate local input and close the local dialog.
@@ -238,7 +262,7 @@ async function open(bytes, sampling) {
   eventBus.on('updatefindcontrolstate', ({ state, matchesCount }) => {
     $('matches').textContent = state === 3 ? text.searching : state === 1 ? text.noMatches : `${matchesCount?.current || 0} / ${matchesCount?.total || 0}`;
   }, { signal });
-  ocr = createOcr({ pdf, viewer, eventBus, settings, text, signal, port });
+  ocr = createOcr({ pdf, viewer, eventBus, settings, text, signal });
   viewer.setDocument(pdf);
   click('previous', () => viewer.previousPage()); click('next', () => viewer.nextPage());
   $('page').onchange = () => { viewer.currentPageNumber = Math.max(1, Math.min(pdf.numPages, Number($('page').value) || 1)); $('page').value = viewer.currentPageNumber; };
@@ -282,7 +306,7 @@ async function open(bytes, sampling) {
     wheelFactor *= Math.exp(-Math.max(-100, Math.min(100, event.deltaY)) * .004); wheelOrigin = [event.clientX, event.clientY];
     if (!zoomFrame) zoomFrame = requestAnimationFrame(() => { zoomFrame = 0; zoomTo(viewer.currentScale * wheelFactor, wheelOrigin); wheelFactor = 1; });
   }, { passive: false, signal });
-  function openFind() { $('findbar').hidden = false; $('query').focus(); $('query').select(); }
+  function openFind() { $('findbar').hidden = false; if (settings.useChromeFind) $('find-close').focus(); else { $('query').focus(); $('query').select(); } }
   function closeFind() { $('findbar').hidden = true; eventBus.dispatch('findbarclose', { source: window }); viewport.focus(); }
   function search(again = false, previous = false) {
     eventBus.dispatch('find', { source: window, type: again ? 'again' : '', query: $('query').value, caseSensitive: $('match-case').checked,
@@ -294,7 +318,11 @@ async function open(bytes, sampling) {
   window.addEventListener('keydown', event => {
     if (event.altKey) return; // Leave browser history shortcuts to Chrome.
     const modifier = event.ctrlKey || event.metaKey, editable = /INPUT|SELECT|TEXTAREA/.test(event.target.tagName);
-    if (modifier && event.key.toLowerCase() === 'f') { event.preventDefault(); openFind(); }
+    if (modifier && event.key.toLowerCase() === 'f') {
+      // Native Find belongs to Chrome: never simulate or cancel its shortcut.
+      if (settings.useChromeFind) { if (!$('findbar').hidden) closeFind(); return; }
+      event.preventDefault(); openFind();
+    }
     else if (modifier && event.key.toLowerCase() === 'p') { event.preventDefault(); openPrint(); }
     else if (modifier && event.key.toLowerCase() === 's') { event.preventDefault(); emit('download'); }
     else if (modifier && ['+', '=', '-', '0'].includes(event.key)) { event.preventDefault(); zoomTo(event.key === '0' ? 1 : stepPdfScale(viewer.currentScale, event.key === '-' ? -1 : 1)); }
@@ -313,7 +341,7 @@ async function open(bytes, sampling) {
   click('show-outline', () => { $('thumbnails').hidden = true; $('outline').hidden = false; thumbnailTask?.cancel(); void showOutline(links); });
   click('properties', () => {
     // Import and read metadata only on demand; retain one small dialog model.
-    properties ||= import('./properties.js').then(({ createProperties }) => createProperties({ pdf, viewer, filename: documentFilename, byteLength: documentBytes, locale: document.documentElement.lang, text, signal }));
+    properties ||= import('./properties.js').then(({ createProperties }) => createProperties({ pdf, viewer, filename: documentFilename, byteLength: documentBytes, locale: document.documentElement.lang, dateFormat: settings.propertyDateFormat, text, signal }));
     void properties.then(dialog => { if (!destroyed) return dialog.open(); }).catch(() => { if (!destroyed) status('propertiesUnavailable'); });
   });
   click('print', openPrint);

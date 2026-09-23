@@ -1,6 +1,7 @@
 import { hiddenToolbarActions } from '../../core/settings.js';
 import { setReaderIcon } from './icons.js';
 import { createToolbarLayout } from './toolbar-layout.js';
+import { bindPressAction } from './press-action.js';
 
 const groups = {
   pages:['sidebar-toggle'], find:['search-toggle'], paging:['previous','next'],
@@ -11,12 +12,13 @@ const groups = {
 
 // Presentation only: original controls keep their handlers, permissions and
 // disabled state. The menu never adds commands to the privileged host bridge.
-export function createToolbarMenu({ text, signal, onSettings, onFit }) {
+export function createToolbarMenu({ text, signal, onSettings, onFit, onOcrPanel, canHoldOcr }) {
   const $ = id => document.getElementById(id), trigger = $('settings'), menu = $('more-actions');
   const pages = $('sidebar-toggle'), marker = document.createComment('pages control');
   pages.before(marker);
   const layout = createToolbarLayout(signal);
-  let actions = [], entries = [], built = false;
+  let actions = [], entries = [], built = false, menuLifetime = new AbortController();
+  signal.addEventListener('abort',()=>menuLifetime.abort(),{once:true});
   const isOpen = () => menu.matches(':popover-open');
   function close(focus = false) {
     if (!isOpen()) return;
@@ -28,7 +30,7 @@ export function createToolbarMenu({ text, signal, onSettings, onFit }) {
     for (const entry of entries) {
       const source = $(entry.action), fit = entry.action.startsWith('fit-');
       entry.button.disabled = fit ? $('scale').disabled : entry.action === 'open-settings' ? false : source.disabled;
-      const label = fit ? text[entry.action === 'fit-width' ? 'fitWidth' : 'fitPage'] : entry.action === 'open-settings' ? text.settings : source.title;
+      const label = fit ? text[entry.action === 'fit-width' ? 'fitWidth' : 'fitPage'] : entry.action === 'open-settings' ? text.settings : entry.action === 'properties' ? text.menuProperties : source.title;
       const svg = source?.querySelector('svg'), iconKey = svg?.outerHTML || entry.action;
       if (entry.icon !== iconKey) {
         if (svg) entry.button.replaceChildren(svg.cloneNode(true));
@@ -42,17 +44,19 @@ export function createToolbarMenu({ text, signal, onSettings, onFit }) {
   }
   function build() {
     if (built) return;
-    menu.replaceChildren(); entries = [];
+    menuLifetime.abort(); menuLifetime = new AbortController(); menu.replaceChildren(); entries = [];
     for (const action of [...actions.flatMap(key => groups[key]), 'open-settings']) {
       const button = document.createElement('button'); button.type = 'button'; button.role = 'menuitem'; button.tabIndex = -1; button.dataset.action = action; button.className = 'menu-action';
       if (action === 'open-settings') button.classList.add('menu-settings');
-      button.addEventListener('click', () => {
+      const activate = () => {
         if (button.disabled) return;
         close(true);
         if (action === 'open-settings') onSettings();
         else if (action.startsWith('fit-')) onFit(action === 'fit-width' ? 'page-width' : 'page-fit');
         else $(action).click();
-      });
+      };
+      if(action==='ocr-toggle')bindPressAction(button,{click:activate,hold:()=>{close(true);onOcrPanel();},canHold:canHoldOcr,signal:menuLifetime.signal});
+      else button.addEventListener('click',activate);
       menu.append(button); entries.push({ action, button });
     }
     built = true;
@@ -62,7 +66,9 @@ export function createToolbarMenu({ text, signal, onSettings, onFit }) {
     build();
     const rect = trigger.getBoundingClientRect();
     menu.style.top = `${rect.bottom + 6}px`;
-    menu.style.right = `${Math.max(8, innerWidth - rect.right)}px`;
+    const right = Math.max(8, innerWidth - rect.right);
+    menu.style.right = `${right}px`;
+    menu.style.maxWidth = `${Math.max(0, innerWidth - right - 8)}px`;
     menu.style.maxHeight = `${Math.max(80, innerHeight - rect.bottom - 14)}px`;
     menu.showPopover(); trigger.setAttribute('aria-expanded', 'true'); refresh();
     const enabled = entries.filter(entry => !entry.button.disabled);
@@ -88,6 +94,7 @@ export function createToolbarMenu({ text, signal, onSettings, onFit }) {
   window.addEventListener('resize', () => close(), { signal });
   return {
     refresh,
+    refreshLabels() { trigger.title = actions.length ? text.moreActions : text.settings; trigger.setAttribute('aria-label',trigger.title); refresh(); },
     update(settings) {
       close(true); actions = hiddenToolbarActions(settings); built = false;
       const hidden = new Set(actions);

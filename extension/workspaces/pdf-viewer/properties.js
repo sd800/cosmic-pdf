@@ -1,13 +1,12 @@
-import { PDFDateString } from '../../vendor/pdfjs/pdf.min.mjs';
+import { formatPdfDate } from './document-dates.js';
 import { pdfFileSize } from './model.js';
 
 // Metadata is untrusted text, never markup. This module and its one cached
 // metadata request are created only when the user asks for document properties.
-export function createProperties({ pdf, viewer, filename, byteLength, locale, text, signal }) {
+export function createProperties({ pdf, viewer, filename, byteLength, locale, dateFormat, text, signal }) {
   const dialog = document.getElementById('properties-dialog');
   const list = document.getElementById('properties-list'), status = document.getElementById('properties-status');
-  const numbers = new Intl.NumberFormat(locale, { maximumFractionDigits: 2 });
-  const dates = new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' });
+  let numbers = new Intl.NumberFormat(locale, { maximumFractionDigits: 2 });
   let metadata, generation = 0;
   const fields = new Map();
   for (const key of ['fileName', 'fileSize', 'documentTitle', 'author', 'subject', 'keywords', 'created', 'modified', 'application', 'producer', 'pdfVersion', 'pageCount', 'pageSize', 'fastWebView']) {
@@ -19,18 +18,27 @@ export function createProperties({ pdf, viewer, filename, byteLength, locale, te
     fields.get(key).textContent = typeof value === 'string' && value.trim() ? value.slice(0, 4096) : '—';
   }
   function date(value) {
-    const parsed = PDFDateString.toDateObject(value);
-    return parsed && Number.isFinite(parsed.getTime()) ? dates.format(parsed) : '';
+    return formatPdfDate(value, locale, dateFormat);
   }
   document.getElementById('properties-close').addEventListener('click', () => dialog.close(), { signal });
   dialog.addEventListener('close', () => { generation++; }, { signal });
+  let outsidePress = false;
+  const outside = event => { const box = dialog.getBoundingClientRect(); return event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom; };
+  dialog.addEventListener('pointerdown', event => { outsidePress = outside(event); }, { signal });
+  dialog.addEventListener('pointercancel', () => { outsidePress = false; }, { signal });
+  dialog.addEventListener('click', event => { if (outsidePress && outside(event)) dialog.close(); outsidePress = false; }, { signal });
   return {
-    async open() {
-      if (signal.aborted || dialog.open) return;
+    setInterface(nextLocale, nextFormat) {
+      locale = nextLocale; dateFormat = nextFormat; numbers = new Intl.NumberFormat(locale, { maximumFractionDigits: 2 });
+      for (const [key, node] of fields) node.previousElementSibling.textContent = text[key];
+      if (dialog.open) void this.open(true);
+    },
+    async open(refresh = false) {
+      if (signal.aborted || (dialog.open && !refresh)) return;
       const run = ++generation, pageNumber = viewer.currentPageNumber;
       for (const key of fields.keys()) set(key, '');
       set('fileName', filename); set('fileSize', pdfFileSize(byteLength, locale)); set('pageCount', numbers.format(pdf.numPages));
-      status.textContent = text.propertiesLoading; dialog.showModal();
+      status.textContent = text.propertiesLoading; if (!dialog.open) dialog.showModal();
       const [result, page] = await Promise.all([
         metadata ||= pdf.getMetadata().catch(() => null),
         pdf.getPage(pageNumber).catch(() => null)
