@@ -1,6 +1,6 @@
 import { normalizeOcrLanguages, DEFAULT_OCR_LANGUAGES } from './ocr-languages.js';
 export const TOOLBAR_ACTIONS = Object.freeze(['pages','find','paging','zoom','fit','rotate','fullscreen','ocr','print','properties','native']);
-const COMPACT_HIDDEN = new Set(['find','paging','fit','print','properties']);
+const DEFAULT_HIDDEN = new Set(['find','paging','fit','print','properties','native']);
 export const DEFAULTS = Object.freeze({ enabled:true, locale:'auto', appearance:'auto', sampling:4, sharpening:false,
   zoom:'1', gap:16, showFilename:false, showBranding:false, toolbarHidden:Object.freeze({}), sidebar:false, links:true, motion:true, darkStrength:.96,
   propertyDateFormat:'auto', useChromeFind:true, ocrAction:'page', ocrLanguages:DEFAULT_OCR_LANGUAGES, ocrQuality:2, ocrLayout:'3' });
@@ -24,7 +24,6 @@ export function uiLocale(settings, browserLocale='en-US'){return settings.locale
 export function toolbarMode(settings){return settings.showFilename ? (settings.showBranding ? 'both' : 'filename') : (settings.showBranding ? 'branding' : 'none');}
 
 export function hiddenToolbarActions(settings){
-  const compact=!settings.showFilename&&!settings.showBranding;
-  return TOOLBAR_ACTIONS.filter(key=>settings.toolbarHidden?.[key]??(compact&&COMPACT_HIDDEN.has(key)));
+  return TOOLBAR_ACTIONS.filter(key=>settings.toolbarHidden?.[key]??DEFAULT_HIDDEN.has(key));
 }
 export function toolbarSignature(settings){return JSON.stringify([toolbarMode(settings),hiddenToolbarActions(settings)]);}

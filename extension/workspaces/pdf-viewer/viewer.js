@@ -26,7 +26,7 @@ const workerReady = fetch(new URL('../../vendor/pdfjs/pdf.worker.min.mjs', impor
   return pdfWorker;
 });
 void workerReady.catch(() => {});
-let firstPageReady = false, toolbarMode = 'both', themeState = {};
+let firstPageReady = false, themeDark = false;
 let customZoomScale = null, toolbarMenu;
 let thumbnailObserver, thumbnailTask, thumbnailBusy = false, thumbnailGeneration = 0, outlineLoaded = false;
 const nearThumbnails = new Set(), thumbnailCache = new Map(), printUrls = new Set();
@@ -34,24 +34,26 @@ let sharpening = false, settings, ocr, documentFilename, documentBytes = 0, prop
 let printing = false, printTask, zoomFrame = 0, wheelFactor = 1, wheelOrigin, passwordCancelled = false;
 const emit = type => port?.postMessage({ type });
 function status(key, loading = false) { $('status').textContent = key === 'loading' ? '' : text[key] || ''; $('progress').hidden = !loading; $('workspace').setAttribute('aria-busy', String(loading)); }
-function theme(dark, reversed, automatic) {
-  themeState = { dark, reversed, automatic };
-  $('theme-auto').hidden = !reversed && automatic;
-  document.documentElement.dataset.dark = String(!!dark); document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+function theme(dark) {
+  themeDark = !!dark;
+  document.documentElement.dataset.dark = String(themeDark); document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
   setReaderIcon($('theme'), dark ? 'sun' : 'moon');
-  $('theme').title = toolbarMode === 'both' ? text.theme : text[reversed ? 'themeDefault' : 'themeOpposite'];
-  $('theme').setAttribute('aria-label', $('theme').title);
+  $('theme').title = text.theme; $('theme').setAttribute('aria-label', text.theme);
 }
 function toolbarPreferences(toolbar) {
-  toolbarMode = toolbar;
   document.documentElement.dataset.toolbar = toolbar;
-  if (toolbar === 'both') $('appearance-actions').append($('theme'));
-  else $('primary-actions').prepend($('theme'));
-  $('appearance-actions').hidden = toolbar !== 'both';
-  theme(themeState.dark, themeState.reversed, themeState.automatic);
-  document.querySelector('header .file').hidden = toolbar === 'branding' || toolbar === 'none';
-  document.querySelector('header .identity').hidden = toolbar === 'filename' || toolbar === 'none';
-  document.documentElement.dataset.branding = String(toolbar === 'both' || toolbar === 'branding');
+  const header = document.querySelector('header'), file = header.querySelector('.file'), leading = $('leading-actions');
+  if (toolbar === 'both') header.insertBefore(leading, header.querySelector('nav'));
+  else header.querySelector('.leading-cluster').prepend(leading);
+  if (toolbar === 'filename') header.querySelector('.leading-cluster').append(file);
+  else header.insertBefore(file, header.querySelector('.actions'));
+  file.hidden = toolbar === 'branding' || toolbar === 'none';
+  header.querySelector('.identity').hidden = toolbar === 'filename' || toolbar === 'none';
+}
+function setFilename(value = $('filename').textContent) {
+  $('filename').textContent = String(value || 'PDF').slice(0, 1024);
+  $('filename').title = `${$('filename').textContent} — ${text.properties}`;
+  $('filename').setAttribute('aria-label', $('filename').title);
 }
 function localize(locale) {
   const previous = {...text};
@@ -63,7 +65,7 @@ function localize(locale) {
     const key = Object.keys(previous).find(key => previous[key] === $(id).textContent);
     if (key) $(id).textContent = text[key];
   }
-  theme(themeState.dark, themeState.reversed, themeState.automatic);
+  theme(themeDark); setFilename();
   $('fullscreen').title = text[fullscreenActive ? 'exitFullscreen' : 'fullscreen'];
   $('fullscreen').setAttribute('aria-label', $('fullscreen').title);
   ocr?.setInterface(settings.ocrAction);
@@ -107,20 +109,20 @@ window.addEventListener('message', event => {
   document.documentElement.dataset.motion = String(settings.motion);
   port = event.ports[0];
   let opened = false;
-  for (const control of document.querySelectorAll('header nav button:not(#fullscreen), header nav input, header nav select, #print, #download, #properties')) control.disabled = true;
+  for (const control of document.querySelectorAll('header nav button:not(#fullscreen), header nav input, header nav select, #sidebar-toggle, #print, #download, #properties, #filename')) control.disabled = true;
   $('native').disabled = input.canUseNative !== true;
   port.onmessage = ({ data }) => {
     if (data?.type === 'document') {
       if (opened || !(data.bytes instanceof ArrayBuffer) || !data.bytes.byteLength || data.bytes.byteLength > PDF_LIMITS.bytes) return;
       opened = true; documentBytes = data.bytes.byteLength; documentFilename = String(data.filename || 'PDF').slice(0, 1024);
-      $('filename').textContent = String(data.filename || 'PDF').slice(0, 1024); $('filename').title = $('filename').textContent;
+      setFilename(data.filename);
       $('download').disabled = $('native').disabled = false; toolbarMenu?.refresh();
       void open(data.bytes, normalizePdfSampling(input.sampling)).catch(() => {
         clearTimeout(parseTimer);
         if (!destroyed && !passwordCancelled) { status('failed'); emit('error'); void task?.destroy().catch(() => {}); pdfWorker?.destroy(); }
       });
     }
-    else if (data?.type === 'theme') theme(data.dark, data.reversed, data.automatic);
+    else if (data?.type === 'theme') theme(data.dark);
     else if (data?.type === 'toolbar') {
       const next = normalizeSettings(data.toolbar);
       settings = { ...settings, showFilename: next.showFilename, showBranding: next.showBranding, toolbarHidden: next.toolbarHidden };
@@ -142,9 +144,9 @@ window.addEventListener('message', event => {
     }
   };
   localize(input.locale);
-  $('filename').textContent = String(input.filename || 'PDF').slice(0, 1024); $('filename').title = $('filename').textContent;
+  setFilename(input.filename);
   setSharpening(input.sharpening);
-  theme(input.dark, input.reversed, input.automatic); status('loading', true);
+  theme(input.dark); status('loading', true);
   setReaderIcons(document);
   $('scale').value = settings.zoom.startsWith('page-') ? settings.zoom : String(Number(settings.zoom));
   $('scale-input').value = (Number(settings.zoom) > 0 ? Math.round(Number(settings.zoom) * 100) : 100) + '%';
@@ -162,7 +164,7 @@ window.addEventListener('message', event => {
       if (event.key === 'Enter') { event.preventDefault(); form.querySelector('button:not([value=cancel])').click(); }
     }, { signal });
   }
-  click('download', () => emit('download')); click('theme', () => emit('theme')); click('theme-auto', () => emit('auto'));
+  click('download', () => emit('download')); click('theme', () => emit('theme'));
   click('fullscreen', () => emit('fullscreen')); click('native', () => emit('native'));
   emit('shell-ready');
 }, { signal });
@@ -190,7 +192,7 @@ async function open(bytes, sampling) {
   clearTimeout(parseTimer);
   if (destroyed) return;
   if (pdf.numPages > PDF_LIMITS.pages) { await task.destroy(); throw Error('PDF page budget'); }
-  emit('parsed'); $('properties').disabled = false;
+  emit('parsed'); $('properties').disabled = $('filename').disabled = false;
   const links = new PDFLinkService({ eventBus });
   // The annotation/form/editor/scripting layers are not instantiated. Only
   // passive text and our bounded allowlisted links are added above the canvas.
@@ -335,11 +337,12 @@ async function open(bytes, sampling) {
   });
   click('show-pages', () => { $('outline').hidden = true; $('thumbnails').hidden = false; void drawThumbnails(); });
   click('show-outline', () => { $('thumbnails').hidden = true; $('outline').hidden = false; thumbnailTask?.cancel(); void showOutline(links); });
-  click('properties', () => {
+  const openProperties = () => {
     // Import and read metadata only on demand; retain one small dialog model.
     properties ||= import('./properties.js').then(({ createProperties }) => createProperties({ pdf, viewer, filename: documentFilename, byteLength: documentBytes, locale: document.documentElement.lang, dateFormat: settings.propertyDateFormat, text, signal }));
     void properties.then(dialog => { if (!destroyed) return dialog.open(); }).catch(() => { if (!destroyed) status('propertiesUnavailable'); });
-  });
+  };
+  click('properties', openProperties); click('filename', openProperties);
   click('print', openPrint);
   $('print-dialog').addEventListener('close', () => { if ($('print-dialog').returnValue === 'print') void printDocument(); }, { signal });
   window.addEventListener('afterprint', cleanupPrint, { signal });

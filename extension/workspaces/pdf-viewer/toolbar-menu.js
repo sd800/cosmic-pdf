@@ -14,23 +14,22 @@ const groups = {
 // disabled state. The menu never adds commands to the privileged host bridge.
 export function createToolbarMenu({ text, signal, onSettings, onFit, onOcrPanel, canHoldOcr }) {
   const $ = id => document.getElementById(id), trigger = $('settings'), menu = $('more-actions');
-  const pages = $('sidebar-toggle'), marker = document.createComment('pages control');
-  pages.before(marker);
   const layout = createToolbarLayout(signal);
   let actions = [], entries = [], built = false, menuLifetime = new AbortController();
   signal.addEventListener('abort',()=>menuLifetime.abort(),{once:true});
   const isOpen = () => menu.matches(':popover-open');
   function close(focus = false) {
-    if (!isOpen()) return;
-    menu.hidePopover(); trigger.setAttribute('aria-expanded', 'false');
-    if (focus) trigger.focus();
+    const wasOpen = isOpen();
+    if (wasOpen) menu.hidePopover();
+    trigger.setAttribute('aria-expanded', 'false');
+    if (focus && wasOpen) trigger.focus();
   }
   function refresh() {
     if (!isOpen()) return;
     for (const entry of entries) {
       const source = $(entry.action), fit = entry.action.startsWith('fit-');
       entry.button.disabled = fit ? $('scale').disabled : entry.action === 'open-settings' ? false : source.disabled;
-      const label = fit ? text[entry.action === 'fit-width' ? 'fitWidth' : 'fitPage'] : entry.action === 'open-settings' ? text.settings : entry.action === 'properties' ? text.menuProperties : source.title;
+      const label = fit ? text[entry.action === 'fit-width' ? 'fitWidth' : 'fitPage'] : entry.action === 'open-settings' ? text.settings : entry.action === 'properties' ? text.menuProperties : entry.action === 'native' ? text.menuNative : source.title;
       const svg = source?.querySelector('svg'), iconKey = svg?.outerHTML || entry.action;
       if (entry.icon !== iconKey) {
         if (svg) entry.button.replaceChildren(svg.cloneNode(true));
@@ -74,7 +73,16 @@ export function createToolbarMenu({ text, signal, onSettings, onFit, onOcrPanel,
     const enabled = entries.filter(entry => !entry.button.disabled);
     (last ? enabled.at(-1) : enabled[0])?.button.focus();
   }
-  trigger.addEventListener('click', () => isOpen() ? close(true) : open(), { signal });
+  // Auto popovers can light-dismiss between pointerdown and click. Remember
+  // the pointer's starting state so a second trigger click cannot reopen it.
+  let pointerWasOpen = false;
+  trigger.addEventListener('pointerdown', () => { pointerWasOpen = isOpen(); }, { signal });
+  trigger.addEventListener('pointercancel', () => { pointerWasOpen = false; }, { signal });
+  trigger.addEventListener('click', event => {
+    const shouldClose = isOpen() || (event.detail > 0 && pointerWasOpen);
+    pointerWasOpen = false;
+    if (shouldClose) { close(true); trigger.focus(); } else open();
+  }, { signal });
   trigger.addEventListener('keydown', event => {
     if (!actions.length || !['ArrowDown','ArrowUp'].includes(event.key)) return;
     event.preventDefault(); event.stopPropagation(); open(event.key === 'ArrowUp');
@@ -100,9 +108,7 @@ export function createToolbarMenu({ text, signal, onSettings, onFit, onOcrPanel,
       const hidden = new Set(actions);
       for (const [key, ids] of Object.entries(groups)) if (key !== 'fit') for (const id of ids) $(id).hidden = hidden.has(key);
       $('scale').hidden = hidden.has('fit'); $('scale-input').hidden = !hidden.has('fit');
-      const leading = !settings.showFilename && !settings.showBranding && !hidden.has('pages');
-      if (leading) $('leading-actions').append(pages); else marker.after(pages);
-      $('leading-actions').hidden = !leading;
+      $('leading-actions').hidden = hidden.has('pages');
       let first = true;
       for (const group of document.querySelectorAll('header nav .tool-group')) {
         group.hidden = ![...group.children].some(node => !node.hidden);

@@ -26,13 +26,13 @@ test('document properties use decimal sizes and bounded valid byte counts',()=>{
  assert.equal(pdfFileSize(1),'1 byte');assert.equal(pdfFileSize(999),'999 bytes');assert.equal(pdfFileSize(1234),'1.2 KB');assert.equal(pdfFileSize(1200000),'1.2 MB');assert.equal(pdfFileSize(12,'zh-CN'),'12 字节');assert.equal(pdfFileSize(NaN),'');assert.equal(pdfFileSize(-1),'');
 });
 
-test('toolbar defaults adapt to layout while explicit per-control choices win',()=>{
- assert.deepEqual(hiddenToolbarActions(normalizeSettings()),['find','paging','fit','print','properties']);
- for(const flags of [{showFilename:true},{showBranding:true},{showFilename:true,showBranding:true}])assert.deepEqual(hiddenToolbarActions(normalizeSettings(flags)),[]);
+test('toolbar defaults stay consistent across layouts while explicit choices win',()=>{
+ assert.deepEqual(hiddenToolbarActions(normalizeSettings()),['find','paging','fit','print','properties','native']);
+ for(const flags of [{showFilename:true},{showBranding:true},{showFilename:true,showBranding:true}])assert.deepEqual(hiddenToolbarActions(normalizeSettings(flags)),['find','paging','fit','print','properties','native']);
  const settings=normalizeSettings({toolbarHidden:{find:false,rotate:true,script:true,fit:'true'}});
  assert.deepEqual(settings.toolbarHidden,{find:false,rotate:true});
- assert.deepEqual(hiddenToolbarActions(settings),['paging','fit','rotate','print','properties']);
- assert.deepEqual(hiddenToolbarActions({...settings,showFilename:true}),['rotate']);
+ assert.deepEqual(hiddenToolbarActions(settings),['paging','fit','rotate','print','properties','native']);
+ assert.deepEqual(hiddenToolbarActions({...settings,showFilename:true}),['paging','fit','rotate','print','properties','native']);
  assert.deepEqual(hiddenToolbarActions(normalizeSettings({toolbarHidden:Object.fromEntries(TOOLBAR_ACTIONS.map(key=>[key,false]))})),[]);
  settings.toolbarHidden.print=false;assert.deepEqual(DEFAULTS.toolbarHidden,{});
 });

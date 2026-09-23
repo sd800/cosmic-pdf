@@ -1,4 +1,4 @@
-import { readSettings, uiLocale, toolbarMode, toolbarSignature } from '../../core/settings.js';
+import { readSettings, uiLocale, toolbarSignature } from '../../core/settings.js';
 import { sourceFromReader, READER_PATH, isPdf, filenameFrom, cleanFilename } from '../../core/source.js';
 import { createPdfViewer } from '../pdf-viewer/host.js';
 import { PDF_LIMITS } from '../pdf-viewer/model.js';
@@ -19,8 +19,8 @@ localize(locale);document.documentElement.dataset.motion=String(settings.motion)
 let source=sourceFromReader(location.href,chrome.runtime.getURL(READER_PATH)), reader, original, blobURL, filename, controller, generation=0;
 let activeSettings=settings,appearanceOverride=null; const media=matchMedia('(prefers-color-scheme:dark)');
 function defaultDark(){return activeSettings.appearance==='dark'||(activeSettings.appearance==='auto'&&media.matches);}
-function currentDark(){return appearanceOverride===null?defaultDark():appearanceOverride==='opposite'?!defaultDark():appearanceOverride;}
-function applyTheme(){const dark=currentDark();document.documentElement.dataset.dark=String(dark);try{localStorage.setItem('appearance',settings.appearance);}catch{}reader?.setTheme(dark,appearanceOverride!==null,activeSettings.appearance==='auto');return dark;}
+function currentDark(){return appearanceOverride===null?defaultDark():!defaultDark();}
+function applyTheme(){const dark=currentDark();document.documentElement.dataset.dark=String(dark);try{localStorage.setItem('appearance',settings.appearance);}catch{}reader?.setTheme(dark);return dark;}
 applyTheme();media.addEventListener('change',()=>{if(activeSettings.appearance==='auto')applyTheme();});
 function setView(view){document.documentElement.dataset.view=view;}
 function fail(message){$('message').textContent=message; setView('home');}
@@ -43,7 +43,7 @@ async function load(loader, initialFilename='PDF'){
  const deadline=setTimeout(()=>current.abort(),60000);
  try{
   // Load the isolated rendering shell and its bundled worker while fetching the PDF.
-  const prepared=createPdfViewer({container:$('reader'),locale,settings,filename:cleanFilename(initialFilename),canUseNative:!!source,sampling:settings.sampling,sharpening:settings.sharpening,dark:applyTheme(),reversed:appearanceOverride!==null,automatic:activeSettings.appearance==='auto',onNative:native,onSettings:openSettings,onDownload:download,onTheme:()=>{appearanceOverride=toolbarMode(activeSettings)==='both'?!currentDark():appearanceOverride===null?'opposite':null;applyTheme();},onAuto:()=>{appearanceOverride=null;applyTheme();},onReady:()=>{if(run===generation){setView('reader');}},onError:()=>{if(run===generation&&!$('reader').querySelector('iframe')){reader=null;$('reader').hidden=true;fail(text.failed);}}});
+  const prepared=createPdfViewer({container:$('reader'),locale,settings,filename:cleanFilename(initialFilename),canUseNative:!!source,sampling:settings.sampling,sharpening:settings.sharpening,dark:applyTheme(),onNative:native,onSettings:openSettings,onDownload:download,onTheme:()=>{appearanceOverride=appearanceOverride===null?'opposite':null;applyTheme();},onReady:()=>{if(run===generation){setView('reader');}},onError:()=>{if(run===generation&&!$('reader').querySelector('iframe')){reader=null;$('reader').hidden=true;fail(text.failed);}}});
   reader=prepared;
   const result=await loader(current.signal);if(run!==generation)return;if(!isPdf(result.bytes))throw Error('format');
   filename=cleanFilename(result.filename);original=new Blob([result.bytes],{type:'application/pdf'});blobURL=URL.createObjectURL(original);document.title=filename+' — Cosmic PDF';
@@ -57,10 +57,10 @@ chrome.storage.onChanged.addListener((changes,area)=>{
  if(area!=='local'||!changes.settings)return;
  void readSettings().then(next=>{
   settings=next;
-  const nextLocale=uiLocale(next,chrome.i18n.getUILanguage()),mode=toolbarMode(next),changed=toolbarSignature(activeSettings)!==toolbarSignature(next),dark=currentDark();
+  const nextLocale=uiLocale(next,chrome.i18n.getUILanguage()),changed=toolbarSignature(activeSettings)!==toolbarSignature(next);
   const interfaceChanged=locale!==nextLocale||activeSettings.propertyDateFormat!==next.propertyDateFormat||activeSettings.ocrAction!==next.ocrAction||activeSettings.useChromeFind!==next.useChromeFind;
   activeSettings={...activeSettings,locale:next.locale,propertyDateFormat:next.propertyDateFormat,ocrAction:next.ocrAction,useChromeFind:next.useChromeFind,showFilename:next.showFilename,showBranding:next.showBranding,toolbarHidden:next.toolbarHidden};
-  if(changed){if(appearanceOverride!==null)appearanceOverride=mode==='both'?dark:dark===defaultDark()?null:'opposite';reader?.setToolbar(next);applyTheme();}
+  if(changed)reader?.setToolbar(next);
   if(interfaceChanged){localize(nextLocale);reader?.setInterface(nextLocale,next);}
   // Sampling, OCR languages and recognition detail stay fixed for this reader.
  });

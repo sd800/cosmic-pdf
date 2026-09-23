@@ -39,7 +39,7 @@ async function checkToolbarLayout(page,frame,width,wrap){
  const layout=await frame.evaluate(async()=>{
   await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
   const header=document.querySelector('header'),nav=header.querySelector('nav').getBoundingClientRect(),actions=header.querySelector('.actions').getBoundingClientRect();
-  const controls=[...header.querySelectorAll('button,#page,#count,#scale,#scale-input,.identity,.file')].map(n=>({id:n.id||n.className,b:n.getBoundingClientRect()})).filter(n=>n.b.width&&n.b.height);
+  const controls=[...header.querySelectorAll('button:not(#filename),#page,#count,#scale,#scale-input,.identity,.file')].map(n=>({id:n.id||n.className,b:n.getBoundingClientRect()})).filter(n=>n.b.width&&n.b.height);
   const collisions=[];
   for(let i=0;i<controls.length;i++)for(let j=i+1;j<controls.length;j++){
    const a=controls[i],b=controls[j];if(Math.min(a.b.right,b.b.right)-Math.max(a.b.left,b.b.left)>1&&Math.min(a.b.bottom,b.b.bottom)-Math.max(a.b.top,b.b.top)>1)collisions.push(a.id+' / '+b.id);
@@ -80,7 +80,7 @@ try{
   assert.equal(await warm.locator('#progress').isVisible(),true);assert.equal(await warm.locator('#status').textContent(),'');assert.equal(await warm.locator('#scale').inputValue(),'1');
   assert.equal(await warm.locator('#scale-input').isVisible(),true);assert.equal(await warm.locator('#scale-input').isDisabled(),true);assert.equal(await warm.locator('#scale').isVisible(),false);assert.equal(await warm.locator('#sidebar-toggle').evaluate(n=>n.parentElement.id),'leading-actions');assert.equal(await warm.locator('#sidebar-toggle').isDisabled(),true);
   assert.equal(await warm.locator('.identity').isVisible(),false);assert.equal(await warm.locator('.file').isVisible(),false);
-  assert.equal(await warm.locator('#print').isDisabled(),true);assert.equal(await warm.locator('#properties').isDisabled(),true);assert.equal(await warm.locator('#download').isDisabled(),true);assert.equal(await warm.locator('#next').isDisabled(),true);assert.equal(await warm.locator('#native').isDisabled(),false);
+  assert.equal(await warm.locator('#print').isDisabled(),true);assert.equal(await warm.locator('#properties').isDisabled(),true);assert.equal(await warm.locator('#filename').isDisabled(),true);assert.equal(await warm.locator('#download').isDisabled(),true);assert.equal(await warm.locator('#next').isDisabled(),true);assert.equal(await warm.locator('#native').isDisabled(),false);
   const geometry=await warm.evaluate(()=>{const h=document.querySelector('header').getBoundingClientRect(),p=document.querySelector('#progress').getBoundingClientRect();return{height:h.height,aligned:Math.abs(h.bottom-p.bottom)<1&&p.height===2};});assert.equal(geometry.aligned,true);
   await warm.locator('#theme').click();await warm.waitForFunction(dark=>document.documentElement.dataset.dark===String(!dark),scheme==='dark');
   await warm.locator('#theme').click();await warm.waitForFunction(dark=>document.documentElement.dataset.dark===String(dark),scheme==='dark');
@@ -91,7 +91,7 @@ try{
  }
  await page.emulateMedia({colorScheme:'light'});report.checks.push('toolbar visible and interactive during slow loading in both themes; parser worker prewarmed; divider progress causes no layout shift; factory toolbar items hidden');
  // Preserve coverage of the optional original two-row layout as well.
- await worker.evaluate(async()=>{const {settings={}}=await chrome.storage.local.get('settings');await chrome.storage.local.set({settings:{...settings,showFilename:true,showBranding:true}});});
+ await worker.evaluate(async()=>{const {settings={}}=await chrome.storage.local.get('settings');await chrome.storage.local.set({settings:{...settings,showFilename:true,showBranding:true,toolbarHidden:Object.fromEntries(['pages','find','paging','zoom','fit','rotate','fullscreen','ocr','print','properties','native'].map(k=>[k,false]))}});});
  await go(base+'/links');await page.locator('a').click();await page.waitForURL(url=>url.href.startsWith(reader+'?source='));await page.waitForFunction(()=>document.documentElement.dataset.view==='reader');
  await page.goBack();await page.waitForURL(base+'/links');await page.goForward();await page.waitForURL(url=>url.href.startsWith(reader+'?source='));await page.waitForFunction(()=>document.documentElement.dataset.view==='reader');
  report.checks.push('website PDF link preserves Back/Forward history and restores the reader');
@@ -113,9 +113,10 @@ try{
  await frame.locator('#scale').selectOption('1');assert.equal(await frame.locator('#custom-scale').getAttribute('hidden'),'');await frame.evaluate(()=>{qaViewer.currentScaleValue='1.1';});await frame.locator('#scale').focus();await frame.locator('#scale').press('Space');await frame.locator('#scale').press('Escape');assert.deepEqual(await frame.locator('#custom-scale').evaluate(n=>[n.previousElementSibling?.value,n.nextElementSibling?.value]),['1','1.25']);await frame.locator('#scale').selectOption('1');
  report.checks.push('custom zoom locates between neighboring presets only when opened by pointer/keyboard, with no stale entry at a preset');
  await frame.locator('#theme').click();await frame.waitForFunction(()=>document.documentElement.dataset.dark==='true');assert.ok((await frame.locator('.canvasWrapper').first().evaluate(n=>getComputedStyle(n).filter)).includes('invert(0.96)'));
- assert.equal(await frame.locator('#theme-auto').isVisible(),true);
- await page.emulateMedia({colorScheme:'dark'});assert.equal(await frame.evaluate(()=>document.documentElement.dataset.dark),'true');
- await frame.locator('#theme-auto').click();await frame.waitForFunction(()=>document.documentElement.dataset.dark==='true');
+ assert.equal(await frame.locator('#theme-auto').count(),0);
+ assert.equal(await frame.locator('#theme').getAttribute('title'),'Switch light/dark mode');
+ await page.emulateMedia({colorScheme:'dark'});await frame.waitForFunction(()=>document.documentElement.dataset.dark==='false');
+ await frame.locator('#theme').click();await frame.waitForFunction(()=>document.documentElement.dataset.dark==='true');
  await page.emulateMedia({colorScheme:'light'});await frame.waitForFunction(()=>document.documentElement.dataset.dark==='false');
  await frame.locator('#theme').click();await frame.waitForFunction(()=>document.documentElement.dataset.dark==='true');
  assert.deepEqual(await frame.locator('#viewport').evaluate(n=>[getComputedStyle(n).overscrollBehaviorX,getComputedStyle(n).overscrollBehaviorY]),['auto','contain']);
@@ -123,7 +124,7 @@ try{
  await frame.locator('#scale').selectOption('3');await frame.locator('#viewport').hover();await page.mouse.wheel(350,0);await frame.waitForFunction(()=>document.querySelector('#viewport').scrollLeft>0);
  await frame.locator('#scale').selectOption('1');await frame.waitForFunction(()=>qaViewer.currentScale===1);report.checks.push('single default/opposite theme control, native history shortcuts and horizontal PDF scrolling');
  await page.screenshot({path:join(folder,'reader-dark.png')});report.checks.push('dark appearance and paper boundary');
- assert.deepEqual(await frame.locator('#primary-actions > button').evaluateAll(nodes=>nodes.map(n=>n.id)),['print','properties','settings','native','download']);
+ assert.deepEqual(await frame.locator('#primary-actions > button').evaluateAll(nodes=>nodes.map(n=>n.id)),['theme','print','properties','settings','native','download']);
  assert.equal(await frame.evaluate(()=>performance.getEntriesByType('resource').some(r=>r.name.endsWith('/properties.js'))),false,'properties module is not part of first-page loading');
  await frame.evaluate(()=>{window.qaMetadataCalls=0;const doc=qaViewer.pdfDocument,read=doc.getMetadata.bind(doc);doc.getMetadata=()=>{qaMetadataCalls++;return read();};});
  await frame.locator('#properties').click();await frame.waitForSelector('#properties-dialog[open]');await frame.waitForFunction(()=>document.querySelector('[data-property=author]').textContent==='Cosmic PDF tests');
@@ -131,6 +132,16 @@ try{
  assert.equal(await frame.locator('[data-property=pdfVersion]').textContent(),'1.7');assert.equal(await frame.locator('[data-property=pageCount]').textContent(),'6');assert.equal(await frame.locator('[data-property=fastWebView]').textContent(),'No');assert.equal(await frame.locator('[data-property=keywords]').textContent(),'—');
  assert.match(await frame.locator('[data-property=fileSize]').textContent(),/KB$/);assert.match(await frame.locator('[data-property=created]').textContent(),/2026/);assert.match(await frame.locator('[data-property=pageSize]').textContent(),/8.5 × 11.69 in/);
  await page.screenshot({path:join(folder,'properties-dark-en.png')});await frame.locator('#properties-close').click();await frame.locator('#properties').click();await frame.waitForFunction(()=>!document.querySelector('#properties-status').textContent);assert.equal(await frame.evaluate(()=>qaMetadataCalls),1);await frame.locator('#properties-close').press('Escape');
+ await frame.locator('#filename').click();await frame.waitForSelector('#properties-dialog[open]');await frame.waitForFunction(()=>!document.querySelector('#properties-status').textContent);assert.equal(await frame.evaluate(()=>qaMetadataCalls),1);await frame.locator('#properties-close').press('Escape');assert.equal(await frame.evaluate(()=>document.activeElement.id),'filename');await frame.locator('#filename').press('Enter');await frame.waitForSelector('#properties-dialog[open]');await frame.locator('#properties-close').click();
+ // Overflowing metadata dialogs open at the top, including after a bottom-scrolled close.
+ await page.setViewportSize({width:760,height:400});
+ for(let i=0;i<2;i++){
+  await frame.locator('#filename').click();await frame.waitForFunction(()=>!document.querySelector('#properties-status').textContent);
+  assert.deepEqual(await frame.locator('#properties-dialog').evaluate(n=>({overflow:n.scrollHeight>n.clientHeight,top:n.scrollTop,left:n.scrollLeft,focus:document.activeElement.id})),{overflow:true,top:0,left:0,focus:'properties-title'});
+  await frame.locator('#properties-dialog').evaluate(n=>{n.scrollTop=n.scrollHeight;});await frame.locator('#properties-close').click();
+  assert.equal(await frame.evaluate(()=>document.activeElement.id),'filename');
+ }
+ await page.setViewportSize({width:1360,height:960});
  await frame.locator('#theme').click();await frame.waitForFunction(()=>document.documentElement.dataset.dark==='false');await frame.locator('#properties').click();await frame.waitForFunction(()=>!document.querySelector('#properties-status').textContent);await page.screenshot({path:join(folder,'properties-light-en.png')});await frame.locator('#properties-close').click();await frame.locator('#theme').click();await frame.waitForFunction(()=>document.documentElement.dataset.dark==='true');
  report.checks.push('properties action order, on-demand module/metadata, safe selectable text, correct PDF fields and cached reopening');
  await frame.locator('#search-toggle').click();assert.equal(await frame.locator('#browser-find-hint').count(),0);assert.equal(await frame.locator('#query').isVisible(),true);
@@ -157,7 +168,7 @@ try{
  await frame.locator('#properties').click();await frame.waitForFunction(()=>!document.querySelector('#properties-status').textContent);assert.equal(await frame.locator('#properties-title').textContent(),'文档信息');
  await frame.evaluate(()=>window.qaLocaleDoc=qaViewer.pdfDocument);
  assert.match(await frame.locator('[data-property=created]').textContent(),/2026 年 1 月 2 日 12:34:56 \(UTC\)/);
- assert.ok((await frame.locator('#properties-dialog').boundingBox()).width<=600);assert.equal(await frame.locator('#properties-list').evaluate(n=>getComputedStyle(n).fontSize),'15px');
+ assert.deepEqual(await frame.locator('#properties-dialog').evaluate(n=>({width:n.getBoundingClientRect().width,height:n.getBoundingClientRect().height,font:getComputedStyle(n).fontSize})),{width:560,height:560,font:'15px'});assert.equal(await frame.locator('#properties-list').evaluate(n=>getComputedStyle(n).fontSize),'15px');
  for(const [format,date]of [['ymd','2026-01-02'],['ymd-slash','2026/01/02'],['dmy','02/01/2026'],['mdy','01/02/2026']]){await prefs.locator('#propertyDateFormat').selectOption(format);await frame.waitForFunction(value=>document.querySelector('[data-property=created]').textContent===value,date+' 12:34:56 (UTC)');}
  const languageHome=await context.newPage(),languageSettings=await context.newPage();observe(languageHome);observe(languageSettings);await languageHome.goto(reader);await languageSettings.goto(settings);await languageSettings.waitForSelector('#locale');
  await prefs.locator('#locale').selectOption('en-US');await frame.waitForFunction(()=>document.querySelector('#properties-title').textContent==='Document properties');await languageHome.waitForFunction(()=>document.querySelector('#open-file').textContent==='Open a PDF');await languageSettings.waitForFunction(()=>document.querySelector('#title').textContent==='Settings');assert.equal(await frame.locator('#ocr-toggle').getAttribute('title'),'Text recognition');assert.equal(await frame.evaluate(()=>qaViewer.pdfDocument===qaLocaleDoc),true);
@@ -166,7 +177,7 @@ try{
  await frame.locator('#properties-list').click();assert.equal(await frame.locator('#properties-dialog').evaluate(n=>n.open),true);await page.mouse.click(8,8);await frame.waitForFunction(()=>!document.querySelector('#properties-dialog').open);await frame.locator('#properties').click();await frame.waitForFunction(()=>!document.querySelector('#properties-status').textContent);
  report.checks.push('live date formats, explicit time zones, spaced Chinese dates, properties dialog outside dismissal; live reader localization without reparse');
 assert.match(await frame.locator('[data-property=pageSize]').textContent(),/215.9 × 297.04 mm/);
- await page.setViewportSize({width:360,height:850});assert.equal(await frame.evaluate(()=>document.querySelector('header .file').getBoundingClientRect().right<=document.querySelector('header .actions').getBoundingClientRect().left),true);assert.equal(await frame.locator('#properties-dialog').evaluate(n=>n.getBoundingClientRect().width<=innerWidth&&n.scrollWidth<=n.clientWidth),true);await page.screenshot({path:join(folder,'properties-dark-zh-narrow.png')});await frame.locator('#properties-close').click();await page.setViewportSize({width:1360,height:960});
+ await page.setViewportSize({width:360,height:850});await frame.waitForFunction(()=>document.documentElement.dataset.toolbarWrap==='true');assert.equal(await frame.evaluate(()=>document.querySelector('header .file').getBoundingClientRect().top>=document.querySelector('header .actions').getBoundingClientRect().bottom),true);assert.equal(await frame.locator('#properties-dialog').evaluate(n=>n.getBoundingClientRect().width<=innerWidth&&n.scrollWidth<=n.clientWidth),true);await page.screenshot({path:join(folder,'properties-dark-zh-narrow.png')});await frame.locator('#properties-close').click();await page.setViewportSize({width:1360,height:960});
  report.checks.push('localized document properties reflow within a narrow viewport');
  // Toolbar preferences update the existing reader without reparsing the PDF.
  await frame.evaluate(()=>window.qaOriginalDocument=qaViewer.pdfDocument);
@@ -174,21 +185,21 @@ assert.match(await frame.locator('[data-property=pageSize]').textContent(),/215.
  await frame.waitForFunction(()=>document.querySelector('.file').hidden);assert.equal(await frame.locator('.identity').isVisible(),true);
  assert.equal(await frame.evaluate(()=>qaViewer.pdfDocument===window.qaOriginalDocument),true);
  frame=await open('/branding');assert.equal(await frame.locator('.file').isVisible(),false);assert.equal(await frame.locator('.identity').isVisible(),true);
- assert.equal(await frame.locator('#appearance-actions').isVisible(),false);assert.equal(await frame.locator('#primary-actions > button').first().getAttribute('id'),'theme');
+ assert.equal(await frame.locator('#appearance-actions').count(),0);assert.equal(await frame.locator('#primary-actions > button').first().getAttribute('id'),'theme');
  const compactHeight=await frame.locator('header').evaluate(n=>n.getBoundingClientRect().height);assert.ok(compactHeight<60);
  await checkToolbarLayout(page,frame,1101,false);await checkToolbarLayout(page,frame,720,true);await page.setViewportSize({width:1360,height:960});
  await chooseToolbar(prefs,'filename');
  await frame.waitForFunction(()=>document.querySelector('.identity').hidden);
  frame=await open('/An exceptionally long PDF filename that must fit without overlapping other toolbar controls.pdf');
  assert.equal(await frame.locator('.identity').isVisible(),false);assert.equal(await frame.locator('#filename').isVisible(),true);
- const filenameBox=await frame.locator('.file').boundingBox();assert.ok(filenameBox.width<=320);assert.ok(filenameBox.x<25);
- assert.equal(await frame.locator('#filename').evaluate(n=>getComputedStyle(n).textOverflow),'ellipsis');
+ const filenameBox=await frame.locator('.file').boundingBox();assert.ok(filenameBox.width<=320);assert.ok(filenameBox.x>50);assert.ok(filenameBox.x-(await frame.locator('#sidebar-toggle').boundingBox()).x>=46);
+ assert.deepEqual(await frame.locator('#filename').evaluate(n=>{const s=getComputedStyle(n);return [s.textOverflow,s.fontWeight,s.fontSize];}),['ellipsis','400','15px']);
  await page.screenshot({path:join(folder,'toolbar-filename.png')});await page.setViewportSize({width:360,height:850});await page.screenshot({path:join(folder,'toolbar-filename-narrow.png')});
- assert.ok(await frame.evaluate(()=>{const a=document.querySelector('.file').getBoundingClientRect(),b=document.querySelector('.actions').getBoundingClientRect();return a.right<=b.left&&document.documentElement.scrollWidth<=innerWidth;}));
+ const narrowFilename=await frame.evaluate(()=>{const file=document.querySelector('.file'),a=file.getBoundingClientRect(),b=document.querySelector('.actions').getBoundingClientRect();return {file:a.toJSON(),actions:b.toJSON(),overflow:document.documentElement.scrollWidth,viewport:innerWidth,style:getComputedStyle(file).cssText,text:document.querySelector('#filename').textContent};});assert.ok(narrowFilename.file.right<=narrowFilename.actions.left&&narrowFilename.overflow<=narrowFilename.viewport,JSON.stringify(narrowFilename));
  await page.setViewportSize({width:1360,height:960});await prefs.reload();await prefs.waitForSelector('#showFilename');assert.equal(await prefs.locator('#showFilename').isChecked(),true);assert.equal(await prefs.locator('#showBranding').isChecked(),false);
  await frame.evaluate(()=>window.qaBeforeHideBoth=qaViewer.pdfDocument);
  await chooseToolbar(prefs,'none');await frame.waitForFunction(()=>document.querySelector('.identity').hidden&&document.querySelector('.file').hidden);
- assert.equal(await frame.locator('#appearance-actions').isVisible(),false);assert.equal(await frame.evaluate(()=>qaViewer.pdfDocument===window.qaBeforeHideBoth),true);
+ assert.equal(await frame.locator('#appearance-actions').count(),0);assert.equal(await frame.evaluate(()=>qaViewer.pdfDocument===window.qaBeforeHideBoth),true);
  for(const width of [1101,1180,1201,1360]){
   await page.setViewportSize({width,height:960});
   assert.equal(await frame.evaluate(()=>{const nav=document.querySelector('header nav'),last=nav.lastElementChild.getBoundingClientRect(),actions=document.querySelector('.actions').getBoundingClientRect();return last.right<=actions.left||last.top>=actions.bottom;}),true,`toolbar groups overlap at ${width}px`);
@@ -207,8 +218,8 @@ assert.match(await frame.locator('[data-property=pageSize]').textContent(),/215.
  await prefs.locator('#appearance').selectOption('dark');await prefs.waitForFunction(async()=>(await chrome.storage.local.get('settings')).settings.appearance==='dark');
  await chooseToolbar(prefs,'both');
  frame=await open('/both');assert.equal(await frame.locator('.identity').isVisible(),true);assert.equal(await frame.locator('.file').isVisible(),true);
- assert.equal(await frame.locator('header').evaluate(n=>getComputedStyle(n).paddingTop),'6px');assert.equal(await frame.locator('#appearance-actions').isVisible(),true);
- await frame.locator('#theme').click();await frame.waitForFunction(()=>document.documentElement.dataset.dark==='false');await frame.locator('#theme-auto').click();await frame.waitForFunction(()=>document.documentElement.dataset.dark==='true');
+ assert.equal(await frame.locator('header').evaluate(n=>getComputedStyle(n).paddingTop),'6px');assert.equal(await frame.locator('#appearance-actions').count(),0);
+ await frame.locator('#theme').click();await frame.waitForFunction(()=>document.documentElement.dataset.dark==='false');await frame.locator('#theme').click();await frame.waitForFunction(()=>document.documentElement.dataset.dark==='true');
  report.checks.push('persisted toolbar checkboxes, all four combinations, live preference updates, compact layouts, long filenames and explicit theme defaults');
  assert.deepEqual(await frame.locator('#ocr-languages input:checked').evaluateAll(nodes=>nodes.map(n=>n.value)),['eng','chi_tra']);
  const defaultChecks=await prefs.locator('#ocrLanguages input:checked').evaluateAll(nodes=>nodes.map(n=>n.value));await prefs.reload();await prefs.waitForSelector('#ocrLanguages input');assert.deepEqual(await prefs.locator('#ocrLanguages input:checked').evaluateAll(nodes=>nodes.map(n=>n.value)),defaultChecks);
@@ -273,7 +284,7 @@ assert.match(await frame.locator('[data-property=pageSize]').textContent(),/215.
   }
   await prefs.setViewportSize(savedViewport);
   const hiddenSuffix=zh?'（默认隐藏）':' (hidden by default)';
-  assert.deepEqual(await prefs.locator('#toolbarHidden label').evaluateAll((nodes,suffix)=>nodes.filter(n=>n.textContent.endsWith(suffix)).map(n=>n.querySelector('input').id),hiddenSuffix),['hide-find','hide-paging','hide-fit','hide-print','hide-properties']);
+  assert.deepEqual(await prefs.locator('#toolbarHidden label').evaluateAll((nodes,suffix)=>nodes.filter(n=>n.textContent.endsWith(suffix)).map(n=>n.querySelector('input').id),hiddenSuffix),['hide-find','hide-paging','hide-fit','hide-print','hide-properties','hide-native']);
   for(const key of ['locale'])assert.equal(await prefs.locator('#'+key+' option').evaluateAll((options,suffix)=>options.some(o=>o.textContent.endsWith(suffix)),suffix),false);
  }
  await checkDefaultLabels(false);
@@ -286,16 +297,44 @@ assert.match(await frame.locator('[data-property=pageSize]').textContent(),/215.
  };const readability=await prefs.evaluate(measureReadability);assert.ok(readability.label>=15&&readability.description>=14&&readability.language>=15);assert.ok(readability.contrast>=4.5);report.checks.push('readable type sizes and secondary-text contrast in both themes');
  await prefs.locator('#appearance').selectOption('light');await prefs.waitForFunction(()=>document.documentElement.dataset.dark==='false');assert.ok((await prefs.evaluate(measureReadability)).contrast>=4.5);await prefs.screenshot({path:join(folder,'settings-light.png'),fullPage:true});await prefs.setViewportSize({width:360,height:850});assert.equal(await prefs.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);await prefs.screenshot({path:join(folder,'settings-narrow.png'),fullPage:true});await prefs.locator('#locale').selectOption('zh-CN');await prefs.waitForFunction(()=>document.documentElement.lang==='zh-CN');assert.equal(await prefs.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);await prefs.screenshot({path:join(folder,'settings-zh-narrow.png'),fullPage:true});await checkDefaultLabels(true);report.checks.push('factory default labels in both languages, including Appearance');await page.bringToFront();await page.setViewportSize({width:560,height:850});await page.screenshot({path:join(folder,'reader-narrow.png')});report.checks.push('English settings and narrow layout');
  const local=join(folder,'local.pdf');await writeFile(local,viewerPdf(2));await page.locator('#file').setInputFiles(local);await page.waitForURL(reader);const lf=await(await page.waitForSelector('iframe')).contentFrame();await lf.waitForSelector('.page canvas');const popup=context.waitForEvent('page');await lf.locator('#native').click();const nativeLocal=await popup;await nativeLocal.waitForLoadState();assert.ok(nativeLocal.url().startsWith('blob:chrome-extension://'));await nativeLocal.close();report.checks.push('local file picker and native blob fallback');
+ // Clear QA-only explicit overrides before testing shared factory defaults.
+ await worker.evaluate(async()=>{const {settings}=await chrome.storage.local.get('settings');await chrome.storage.local.set({settings:{...settings,toolbarHidden:{}}});});
+ await prefs.reload();await prefs.waitForFunction(()=>document.querySelector('#hide-native')?.checked);
  // Configure overflow through the actual Settings controls, then exercise the existing commands.
  await prefs.setViewportSize({width:1100,height:900});await page.setViewportSize({width:1360,height:960});await chooseToolbar(prefs,'none');
  frame=await open('/overflow');await frame.evaluate(()=>window.qaOverflowDoc=qaViewer.pdfDocument);
  assert.equal(await frame.locator('#settings').getAttribute('aria-haspopup'),'menu');assert.equal(await frame.locator('#sidebar-toggle').evaluate(n=>n.getBoundingClientRect().left<25),true);
- assert.deepEqual(await prefs.locator('#toolbarHidden input:checked').evaluateAll(nodes=>nodes.map(n=>n.id)),['hide-find','hide-paging','hide-fit','hide-print','hide-properties']);
+ for(const mode of ['both','filename','branding','none']){
+  await chooseToolbar(prefs,mode);await frame.waitForFunction(mode=>document.documentElement.dataset.toolbar===mode,mode);
+  assert.deepEqual(await prefs.locator('#toolbarHidden input:checked').evaluateAll(nodes=>nodes.map(n=>n.id)),['hide-find','hide-paging','hide-fit','hide-print','hide-properties','hide-native']);
+  assert.equal(await frame.locator('#native').isVisible(),false);
+  assert.equal(await frame.locator('#sidebar-toggle').evaluate(n=>n.parentElement.id),'leading-actions');
+  await frame.waitForFunction(()=>{const p=document.querySelector('#sidebar-toggle').getBoundingClientRect(),nav=document.querySelector('nav').getBoundingClientRect();return Math.abs(p.top-nav.top)<1;});
+  assert.equal(await frame.locator('#theme').getAttribute('title'),'切换浅色／深色模式');
+  assert.equal(await frame.locator('#sidebar-toggle').evaluate(n=>n.getBoundingClientRect().left<25),true);
+  assert.equal(await frame.locator('#theme-auto').count(),0);
+  if(mode==='filename'||mode==='both'){await frame.locator('#filename').click();await frame.waitForSelector('#properties-dialog[open]');await frame.locator('#properties-close').click();}
+  if(mode==='filename'||mode==='branding'){
+   const layout=await frame.evaluate(mode=>{const page=document.querySelector('#sidebar-toggle').getBoundingClientRect(),content=document.querySelector(mode==='filename'?'.file':'.identity').getBoundingClientRect(),nav=document.querySelector('nav').getBoundingClientRect();return {gap:content.left-page.right,end:content.right,nav:nav.left};},mode);
+   assert.ok(layout.gap>=11&&layout.end<=layout.nav,JSON.stringify(layout));
+  }
+  await page.screenshot({path:join(folder,'default-hidden-'+mode+'.png')});
+ }
+ assert.equal(await frame.evaluate(()=>qaViewer.pdfDocument===qaOverflowDoc),true);
+ for(let i=0;i<3;i++){
+  await frame.locator('#settings').click();assert.equal(await frame.locator('#more-actions').isVisible(),true);
+  await frame.locator('#settings').click();assert.equal(await frame.locator('#more-actions').isVisible(),false);
+  assert.equal(await frame.locator('#settings').getAttribute('aria-expanded'),'false');
+ }
+ await frame.locator('#settings').focus();await frame.locator('#settings').press('Enter');assert.equal(await frame.locator('#more-actions').isVisible(),true);
+ await frame.locator('#settings').focus();await frame.locator('#settings').press('Enter');assert.equal(await frame.locator('#more-actions').isVisible(),false);
+
+ assert.deepEqual(await prefs.locator('#toolbarHidden input:checked').evaluateAll(nodes=>nodes.map(n=>n.id)),['hide-find','hide-paging','hide-fit','hide-print','hide-properties','hide-native']);
  for(const width of [1101,900,760])await checkToolbarLayout(page,frame,width,false);await page.screenshot({path:join(folder,'toolbar-compact-760.png')});await checkToolbarLayout(page,frame,360,true);await checkToolbarLayout(page,frame,900,false);
  async function menuAction(id){await frame.locator('#settings').click();await frame.locator('#more-actions [data-action='+id+']').click();}
- await frame.locator('#settings').click();assert.deepEqual(await frame.locator('#more-actions button').evaluateAll(nodes=>nodes.map(n=>n.dataset.action)),['search-toggle','previous','next','fit-width','fit-page','print','properties','open-settings']);assert.equal(await frame.locator('#more-actions button svg').count(),8);assert.equal(await frame.locator('[data-action=search-toggle] span').textContent(),'查找');
+ await frame.locator('#settings').click();assert.deepEqual(await frame.locator('#more-actions button').evaluateAll(nodes=>nodes.map(n=>n.dataset.action)),['search-toggle','previous','next','fit-width','fit-page','print','properties','native','open-settings']);assert.equal(await frame.locator('#more-actions button svg').count(),9);assert.equal(await frame.locator('[data-action=search-toggle] span').textContent(),'查找');
  async function checkMenuWidth(){const width=await frame.locator('#more-actions').evaluate(menu=>{const labels=[...menu.querySelectorAll('button span')].map(span=>{const r=document.createRange();r.selectNodeContents(span);return r.getBoundingClientRect().width;});return {actual:menu.getBoundingClientRect().width,expected:Math.max(...labels)+66};});assert.ok(Math.abs(width.actual-width.expected)<2,JSON.stringify(width));return width.actual;}
- const zhMenuWidth=await checkMenuWidth();await prefs.locator('#locale').selectOption('en-US');await frame.waitForFunction(()=>document.querySelector('[data-action=search-toggle] span').textContent==='Find');assert.equal(await frame.locator('[data-action=properties] span').textContent(),'Properties');assert.equal(await frame.locator('#properties').getAttribute('title'),'Document properties');assert.equal(await frame.locator('#search-toggle').getAttribute('title'),'Find');assert.equal(await prefs.locator('#hide-find + span').textContent(),'Find (hidden by default)');const enMenuWidth=await checkMenuWidth();assert.notEqual(zhMenuWidth,enMenuWidth);await checkDefaultLabels(false);
+ const zhMenuWidth=await checkMenuWidth();await prefs.locator('#locale').selectOption('en-US');await frame.waitForFunction(()=>document.querySelector('[data-action=search-toggle] span').textContent==='Find');assert.equal(await frame.locator('[data-action=properties] span').textContent(),'Properties');assert.equal(await frame.locator('[data-action=native] span').textContent(),'Chrome reader');assert.equal(await frame.locator('#properties').getAttribute('title'),'Document properties');assert.equal(await frame.locator('#search-toggle').getAttribute('title'),'Find');assert.equal(await prefs.locator('#hide-find + span').textContent(),'Find (hidden by default)');const enMenuWidth=await checkMenuWidth();assert.notEqual(zhMenuWidth,enMenuWidth);await checkDefaultLabels(false);
  await page.screenshot({path:join(folder,'more-actions-compact.png')});await frame.locator('#viewport').click({position:{x:10,y:30}});assert.equal(await frame.locator('#more-actions').isVisible(),false);
  for(const [value,expected]of [['125',1.25],['75%',.75],['bad',.75],['900',5],['1',.25],['100',1]]){await frame.locator('#scale-input').fill(value);await frame.locator('#scale-input').press('Enter');await frame.waitForFunction(n=>Math.abs(qaViewer.currentScale-n)<.001,expected);}
  await frame.locator('#scale-input').fill('150');await frame.locator('#scale-input').press('Escape');assert.equal(await frame.locator('#scale-input').inputValue(),'100%');assert.ok((await frame.locator('#scale-input').boundingBox()).width<100);

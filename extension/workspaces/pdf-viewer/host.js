@@ -2,7 +2,7 @@ import { normalizeSettings } from '../../core/settings.js';
 import { PDF_LIMITS } from './model.js';
 // This host is the only connection to a product. The opaque viewer has no
 // extension APIs, storage access, document URL, or arbitrary command channel.
-export function createPdfViewer({ container, locale, sampling, settings, filename = 'PDF', canUseNative = false, sharpening = false, dark, reversed, automatic, onDownload, onNative, onSettings, onTheme, onAuto, onReady, onError }) {
+export function createPdfViewer({ container, locale, sampling, settings, filename = 'PDF', canUseNative = false, sharpening = false, dark, onDownload, onNative, onSettings, onTheme, onReady, onError }) {
   const iframe = document.createElement('iframe');
   iframe.className = 'pdf-viewer-frame'; iframe.title = 'PDF Viewer';
   iframe.referrerPolicy = 'no-referrer';
@@ -40,7 +40,6 @@ export function createPdfViewer({ container, locale, sampling, settings, filenam
     else if (data.type === 'native') onNative();
     else if (data.type === 'settings') onSettings();
     else if (data.type === 'theme') onTheme();
-    else if (data.type === 'auto') onAuto();
     else if (data.type === 'fullscreen') {
       // User activation from the reader reaches its ancestor. Fullscreen belongs
       // to the trusted host; the opaque sandbox never receives extra privileges.
@@ -51,7 +50,7 @@ export function createPdfViewer({ container, locale, sampling, settings, filenam
   };
   iframe.addEventListener('load', () => {
     if (closed) return;
-    iframe.contentWindow.postMessage({ type: 'CP_PDF_INIT', filename, canUseNative, locale, settings, sampling, sharpening: sharpening === true, dark, reversed, automatic }, '*', [channel.port2]);
+    iframe.contentWindow.postMessage({ type: 'CP_PDF_INIT', filename, canUseNative, locale, settings, sampling, sharpening: sharpening === true, dark }, '*', [channel.port2]);
     frameLoaded = true; sendDocument();
   }, { once: true });
   container.append(iframe);
@@ -77,7 +76,7 @@ export function createPdfViewer({ container, locale, sampling, settings, filenam
       if (!closed) channel.port1.postMessage({ type: 'interface', locale, propertyDateFormat: next.propertyDateFormat, ocrAction: next.ocrAction, useChromeFind: next.useChromeFind });
     },
     setSharpening(value) { if (!closed) { sharpening = value === true; channel.port1.postMessage({ type: 'sharpening', enabled: sharpening }); } },
-    setTheme(nextDark, nextReversed, nextAutomatic) { dark = !!nextDark; reversed = !!nextReversed; automatic = !!nextAutomatic; if (!closed) channel.port1.postMessage({ type: 'theme', dark, reversed, automatic }); },
+    setTheme(nextDark) { dark = !!nextDark; if (!closed) channel.port1.postMessage({ type: 'theme', dark }); },
     destroy
   };
 }

@@ -6,7 +6,7 @@ Cosmic PDF is a Chrome PDF reader with comfortable light and dark themes, clear 
 
 ## Reading
 
-Open PDF links directly in Cosmic PDF, or choose a local file. Search text, navigate pages and outlines, adjust zoom, rotate left, enter full screen, print or download the original. A toolbar button returns to Chrome's PDF reader.
+Open PDF links directly in Cosmic PDF, or choose a local file. Search text, navigate pages and outlines, adjust zoom, rotate left, enter full screen, print or download the original. You can also return to Chrome's PDF reader.
 
 The reader's own extension page keeps website dark-mode extensions from applying a second theme. Light/dark appearance remains under your control.
 

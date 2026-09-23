@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.12
+
+- Open Document properties by clicking the regular-weight toolbar filename, and make properties dialogs more compact without reducing text size. Overflowing dialogs open at the top.
+- Let More actions close when its button is clicked again, and keep hidden controls consistent across toolbar layouts.
+- Use one light/dark appearance button in every layout and place Chrome reader in More actions by default.
+- Keep Pages and outline at the left edge, alongside a sole branding or filename and on the second row when both are shown.
+
 ## 1.2.11
 
 - Make the reader’s Find button always open built-in search, independently of the Chrome Find shortcut preference, and remove shortcut banners.
