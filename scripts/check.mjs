@@ -1,0 +1,10 @@
+import {readFile,readdir,stat}from'node:fs/promises';import{resolve,relative,join}from'node:path';import{createHash}from'node:crypto';import{spawnSync}from'node:child_process';
+const root=resolve('.'),manifest=JSON.parse(await readFile('extension/manifest.json')),pkg=JSON.parse(await readFile('package.json'));if(pkg.version!==manifest.version)throw Error('Version mismatch');
+async function walk(dir){const files=[];for(const name of await readdir(dir)){if(name==='.DS_Store'||name.startsWith('._')||['.git','node_modules','dist','sidenote'].includes(name))continue;const p=join(dir,name);if((await stat(p)).isDirectory())files.push(...await walk(p));else files.push(p);}return files;}
+for(const file of await walk('extension'))if(file.endsWith('.js')&&!file.includes('/vendor/')){const result=spawnSync(process.execPath,['--check',file],{encoding:'utf8'});if(result.status)throw Error(result.stderr);}
+for(const vendor of ['pdfjs','tesseract']){const folder='extension/vendor/'+vendor,entries=JSON.parse(await readFile(folder+'/integrity.json'));for(const[name,hash]of Object.entries(entries)){const actual=createHash('sha256').update(await readFile(folder+'/'+name)).digest('hex');if(actual!==hash)throw Error('Dependency changed: '+name);}}
+for(const f of [manifest.background.service_worker,manifest.options_page,...manifest.sandbox.pages,...Object.values(manifest.icons)])await stat('extension/'+f);
+if(manifest.content_scripts||manifest.permissions.includes('management'))throw Error('Do not inject into web pages or disable other extensions');
+if(!manifest.content_security_policy.sandbox.includes("connect-src 'self' blob:"))throw Error('Sandbox must not reach remote resources');
+for(const file of ['CHANGELOG.md','CHANGELOG_zh.md'])if(!(await readFile(file,'utf8')).includes('## '+pkg.version))throw Error('Missing release entry');
+const files=await walk('extension');let size=0;for(const f of files)size+=(await stat(f)).size;console.log(`Checks passed. ${files.length} runtime files; ${(size/1000000).toFixed(1)} MB unpacked.`);

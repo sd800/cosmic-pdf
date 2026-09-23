@@ -1,0 +1,14 @@
+{
+  "name": "cosmic-pdf",
+  "version": "1.1.6",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "check": "node scripts/check.mjs",
+    "test:browser": "node scripts/test-browser.mjs"
+  }
+}
