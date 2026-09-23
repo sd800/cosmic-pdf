@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.10
+
+- Refine the Document properties information icon’s proportions and spacing.
+
 ## 1.2.9
 
 - Use a plain information icon for Document properties in the PDF reader.
