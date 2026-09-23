@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.15
+
+- Add a default-on Preserve dark-paper colors setting to preserve original colors when strictly recognized black or gray paper would otherwise become brighter in dark mode, while keeping white-paper and mixed layouts under normal dark-mode processing. Reuse per-page decisions during zooming and rotation.
+
 ## 1.2.13
 
 - Slightly narrow the toolbar filename while preserving its size, ellipsis and document properties shortcut.

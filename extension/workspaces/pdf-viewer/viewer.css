@@ -98,3 +98,9 @@ header .actions{grid-column:3;grid-row:1;align-self:center}
 #filename:disabled{opacity:1}
 
 #properties-title:focus{outline:none}
+
+/* Decide from a completed page before exposing its first dark-mode raster.
+   Known pages keep progressive zoom rendering and reuse the same verdict. */
+:root[data-dark=true][data-preserve-dark-paper=true] .page:not([data-dark-checked]) .canvasWrapper{visibility:hidden}
+:root[data-dark=true][data-preserve-dark-paper=true] .page[data-original-dark] .canvasWrapper,
+:root[data-dark=true][data-preserve-dark-paper=true] .thumbnail[data-original-dark] canvas{filter:none}

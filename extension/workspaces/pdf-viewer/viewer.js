@@ -1,4 +1,5 @@
 import { createOcr } from './ocr.js';
+import { createDarkPaperGuard } from './dark-paper.js';
 import { normalizeSettings, toolbarMode as getToolbarMode } from '../../core/settings.js';
 import * as pdfjs from '../../vendor/pdfjs/pdf.min.mjs';
 import { PDFViewer, EventBus, PDFLinkService, PDFFindController, RenderingStates } from '../../vendor/pdfjs/pdf_viewer.mjs';
@@ -26,7 +27,7 @@ const workerReady = fetch(new URL('../../vendor/pdfjs/pdf.worker.min.mjs', impor
   return pdfWorker;
 });
 void workerReady.catch(() => {});
-let firstPageReady = false, themeDark = false;
+let firstPageReady = false, themeDark = false, darkPaper;
 let customZoomScale = null, toolbarMenu;
 let thumbnailObserver, thumbnailTask, thumbnailBusy = false, thumbnailGeneration = 0, outlineLoaded = false;
 const nearThumbnails = new Set(), thumbnailCache = new Map(), printUrls = new Set();
@@ -37,6 +38,7 @@ function status(key, loading = false) { $('status').textContent = key === 'loadi
 function theme(dark) {
   themeDark = !!dark;
   document.documentElement.dataset.dark = String(themeDark); document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+  if (themeDark) for (const view of viewer?.getCachedPageViews() || []) updateDarkPaper(view);
   setReaderIcon($('theme'), dark ? 'sun' : 'moon');
   $('theme').title = text.theme; $('theme').setAttribute('aria-label', text.theme);
 }
@@ -72,6 +74,20 @@ function localize(locale) {
   toolbarMenu?.refreshLabels();
   if(properties)void properties.then(dialog => { if (!destroyed) dialog.setInterface(document.documentElement.lang, settings.propertyDateFormat); });
 }
+function setDarkPaper(enabled) {
+  settings.preserveDarkPaper = enabled === true;
+  document.documentElement.dataset.preserveDarkPaper = String(settings.preserveDarkPaper);
+  if (themeDark && settings.preserveDarkPaper) for (const view of viewer?.getCachedPageViews() || []) updateDarkPaper(view);
+}
+function updateDarkPaper(view, failed = false) {
+  if (!darkPaper || !view || ((!themeDark || !settings.preserveDarkPaper) && !failed)) return;
+  // A detail canvas is only a crop; a partial base render can miss white areas.
+  if (!failed && view.renderingState !== RenderingStates.FINISHED) return;
+  const result = failed ? darkPaper.reject(view.id) : darkPaper.decide(view.id, view.canvas);
+  view.div.toggleAttribute('data-original-dark', result === 2);
+  view.div.setAttribute('data-dark-checked', '');
+  $('thumbnails').children[view.id - 1]?.toggleAttribute('data-original-dark', result === 2);
+}
 function updateCanvasSharpening(view, transformed = false) {
   const canvas = view?.canvas;
   if (!canvas) return;
@@ -94,7 +110,7 @@ function click(id, callback) { $(id).addEventListener('click', callback, { signa
 function cleanupPrint() { for (const url of printUrls) URL.revokeObjectURL(url); printUrls.clear(); $('print-pages').replaceChildren(); }
 function destroy() {
   if (destroyed) return; destroyed = true; lifetime.abort(); cancelAnimationFrame(zoomFrame); clearTimeout(parseTimer);
-  ocr?.destroy(); thumbnailGeneration++; thumbnailObserver?.disconnect(); thumbnailTask?.cancel(); printTask?.cancel();
+  ocr?.destroy(); darkPaper?.destroy(); thumbnailGeneration++; thumbnailObserver?.disconnect(); thumbnailTask?.cancel(); printTask?.cancel();
   viewer?.setDocument(null); void task?.destroy().catch(() => {}); cleanupPrint();
   pdfWorker?.destroy(); if (workerUrl) URL.revokeObjectURL(workerUrl); port?.close();
 }
@@ -103,6 +119,7 @@ window.addEventListener('message', event => {
   if (event.source !== parent || port || event.data?.type !== 'CP_PDF_INIT' || event.ports.length !== 1) return;
   const input = event.data;
   settings = normalizeSettings(input.settings);
+  setDarkPaper(settings.preserveDarkPaper);
   toolbarPreferences(getToolbarMode(settings));
   document.documentElement.style.setProperty('--page-gap', settings.gap + 'px');
   document.documentElement.style.setProperty('--dark-strength',settings.darkStrength);
@@ -128,6 +145,7 @@ window.addEventListener('message', event => {
       settings = { ...settings, showFilename: next.showFilename, showBranding: next.showBranding, toolbarHidden: next.toolbarHidden };
       toolbarPreferences(getToolbarMode(settings)); toolbarMenu?.update(settings);
     }
+    else if (data?.type === 'dark-paper') setDarkPaper(data.enabled);
     else if (data?.type === 'sharpening') setSharpening(data.enabled);
     else if (data?.type === 'host-error') { $('status').textContent = String(data.message || '').slice(0,1000); $('progress').hidden = true; }
     else if (data?.type === 'interface') {
@@ -192,6 +210,7 @@ async function open(bytes, sampling) {
   clearTimeout(parseTimer);
   if (destroyed) return;
   if (pdf.numPages > PDF_LIMITS.pages) { await task.destroy(); throw Error('PDF page budget'); }
+  darkPaper = createDarkPaperGuard(pdf.numPages, settings.darkStrength);
   emit('parsed'); $('properties').disabled = $('filename').disabled = false;
   const links = new PDFLinkService({ eventBus });
   // The annotation/form/editor/scripting layers are not instantiated. Only
@@ -231,7 +250,8 @@ async function open(bytes, sampling) {
     toolbarMenu.refresh();
     for (const node of $('thumbnails').children) node.setAttribute('aria-current', String(Number(node.dataset.page) === pageNumber));
   }, { signal });
-  eventBus.on('pagerendered', ({ pageNumber, cssTransform, error }) => {
+  eventBus.on('pagerendered', ({ pageNumber, cssTransform, isDetailView, error }) => {
+    if (!isDetailView && !cssTransform) updateDarkPaper(viewer.getPageView(pageNumber - 1), !!error);
     // A user may scroll away from page one before its render finishes.
     if (!firstPageReady) {
       firstPageReady = true; status(''); emit('ready');
@@ -370,7 +390,7 @@ async function renderLinks(number, linkService) {
 }
 function createThumbnails() {
   const fragment = document.createDocumentFragment();
-  for (let i = 1; i <= pdf.numPages; i++) { const button = document.createElement('button'); button.className = 'thumbnail'; button.dataset.page = i; button.textContent = String(i); button.title = text.page + ' ' + i; button.onclick = () => { viewer.currentPageNumber = i; }; fragment.append(button); }
+  for (let i = 1; i <= pdf.numPages; i++) { const button = document.createElement('button'); button.className = 'thumbnail'; button.dataset.page = i; button.toggleAttribute('data-original-dark', darkPaper.get(i) === 2); button.textContent = String(i); button.title = text.page + ' ' + i; button.onclick = () => { viewer.currentPageNumber = i; }; fragment.append(button); }
   $('thumbnails').append(fragment);
   thumbnailObserver = new IntersectionObserver(entries => { for (const entry of entries) { if (entry.isIntersecting) nearThumbnails.add(entry.target); else nearThumbnails.delete(entry.target); } void drawThumbnails(); }, { root: $('sidebar'), rootMargin: '160px' });
   for (const node of $('thumbnails').children) thumbnailObserver.observe(node);

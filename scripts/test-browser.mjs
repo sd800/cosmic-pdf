@@ -6,10 +6,12 @@ import {viewerPdf,scannedPdf} from '../test/fixtures/pdf-viewer.mjs';
 const {chromium}=await import(process.env.PDF_PLAYWRIGHT?pathToFileURL(process.env.PDF_PLAYWRIGHT).href:'playwright');
 const folder=await mkdtemp(join(tmpdir(),'cosmic-pdf-qa-')),ext=join(folder,'extension');await cp(resolve('extension'),ext,{recursive:true});
 // Expose renderer state in the disposable QA copy only.
-const viewerFile=join(ext,'workspaces/pdf-viewer/viewer.js');await writeFile(viewerFile,(await readFile(viewerFile,'utf8')).replace('links.setViewer(viewer);','window.qaViewer=viewer; window.qaSettings=()=>settings; links.setViewer(viewer);').replace('void workerReady.catch(() => {});', 'void workerReady.then(()=>{window.qaWorkerReady=true;}).catch(e=>{window.qaWorkerError=String(e);});'));
+const viewerFile=join(ext,'workspaces/pdf-viewer/viewer.js');await writeFile(viewerFile,(await readFile(viewerFile,'utf8')).replace('links.setViewer(viewer);','window.qaViewer=viewer; window.qaSettings=()=>settings; window.qaDarkPaper=darkPaper; window.qaEventBus=eventBus; links.setViewer(viewer);').replace('void workerReady.catch(() => {});', 'void workerReady.then(()=>{window.qaWorkerReady=true;}).catch(e=>{window.qaWorkerError=String(e);});'));
+// Count bounded sampling reads in this QA copy, never in shipped code.
+const guardFile=join(ext,'workspaces/pdf-viewer/dark-paper.js');await writeFile(guardFile,(await readFile(guardFile,'utf8')).replace('context.drawImage(source, 0, 0, size, size);', '(globalThis.qaPaperReads ||= []).push(size); context.drawImage(source, 0, 0, size, size);').replace('    try {\n      canvas ||= makeCanvas();', '    const qaStart=performance.now(); try {\n      canvas ||= makeCanvas();').replace('finally { if (canvas)', 'finally { (globalThis.qaPaperTimings ||= []).push(performance.now()-qaStart); if (canvas)'));
 // Delayed recognition in the disposable test copy makes in-flight UI assertions deterministic.
 const ocrClient=join(ext,'workspaces/pdf-viewer/ocr-worker-client.js');await writeFile(ocrClient,(await readFile(ocrClient,'utf8')).replace('const image=new Uint8Array','if(globalThis.qaOcrDelay)await new Promise(r=>setTimeout(r,globalThis.qaOcrDelay));const image=new Uint8Array'));
-const report={checks:[],errors:[],remoteRequests:[],screenshots:folder};let englishScan,chineseScan,batchScan;const slowResponses=new Set();
+const report={checks:[],errors:[],remoteRequests:[],screenshots:folder};let englishScan,chineseScan,batchScan,blackScan;const slowResponses=new Set();
 function releaseSlow(){for(const res of slowResponses)res.end(viewerPdf(6));slowResponses.clear();}
 const server=createServer((req,res)=>{
  const path=req.url.split('?')[0];
@@ -21,9 +23,14 @@ const server=createServer((req,res)=>{
  if(path==='/slow'&&req.headers['sec-fetch-dest']!=='document'){res.flushHeaders();slowResponses.add(res);res.on('close',()=>slowResponses.delete(res));return;}
  if(path==='/huge'){res.setHeader('Content-Length',String(90*1024*1024));res.end('%PDF-1.7');return;}
  if(path==='/bad'){res.end('not a PDF');return;}
+ if(path==='/black-paper'){
+  const bed='0.016 g 0 0 612 842 re f\n',writing='1 g BT /F1 12 Tf 65 730 Td (Sparse white writing on black paper.) Tj ET\n';
+  const stars=Array.from({length:150},(_,i)=>`${20+(i*137)%555} ${20+(i*233)%800} 1 1 re f`).join('\n');
+  res.end(viewerPdf(7,[bed+writing,undefined,'0 g 8 8 579 826 re f\n1 g\n'+stars+'\n',bed+'1 g 275 390 40 40 re f\n', '0.12 g 0 0 612 842 re f\n'+writing, '0.4 g 0 0 612 842 re f\n'+writing.replace('1 g','0 g'), '0.75 g 0 0 612 842 re f\n'+writing.replace('1 g','0 g')]));return;
+ }
  if(path==='/pages-128'){res.end(viewerPdf(128));return;}
  if(path==='/broken'){res.end('%PDF-1.7\nbroken');return;}
- res.end(path==='/scan-many'?batchScan:path==='/scan'?englishScan:path==='/chinese'?chineseScan:viewerPdf(6));
+ res.end(path==='/black-scan'?blackScan:path==='/scan-many'?batchScan:path==='/scan'?englishScan:path==='/chinese'?chineseScan:viewerPdf(6));
 });await new Promise(r=>server.listen(0,'127.0.0.1',r));const base='http://127.0.0.1:'+server.address().port;
 const context=await chromium.launchPersistentContext(join(folder,'profile'),{executablePath:process.env.PDF_CHROME,headless:true,viewport:{width:1360,height:960},deviceScaleFactor:2,args:['--force-device-scale-factor=2',`--disable-extensions-except=${ext}`,`--load-extension=${ext}`]});
 function observe(page){page.on('pageerror',e=>report.errors.push(e.message));page.on('console',m=>{if(m.type()==='error')report.errors.push(m.text());});page.on('request',r=>{if(/^https?:/.test(r.url())&&!r.url().startsWith(base))report.remoteRequests.push(r.url());});}
@@ -68,7 +75,7 @@ try{
  // Homepage Settings must add history within the same tab, without starting PDF workers.
  await page.goto(reader);await page.waitForSelector('#settings');assert.equal(await page.locator('iframe').count(),0);
  const tabsBefore=context.pages().length;await page.locator('#settings').click();await page.waitForURL(settings);
- assert.equal(context.pages().length,tabsBefore);assert.equal(await page.locator('#showFilename').isChecked(),false);assert.equal(await page.locator('#showBranding').isChecked(),false);assert.equal(await page.locator('#ocrAction').inputValue(),'page');assert.equal(await page.locator('#useChromeFind').isChecked(),true);assert.deepEqual(await page.locator('#ocrLanguages input:checked').evaluateAll(nodes=>nodes.map(n=>n.value)),['eng','chi_sim']);await page.locator('#ocrAction').selectOption('panel');await page.waitForFunction(async()=>(await chrome.storage.local.get('settings')).settings.ocrAction==='panel');await page.goBack();await page.waitForURL(reader);await page.waitForSelector('#open-file');
+ assert.equal(context.pages().length,tabsBefore);assert.equal(await page.locator('#preserveDarkPaper').isChecked(),true);assert.equal(await page.locator('#showFilename').isChecked(),false);assert.equal(await page.locator('#showBranding').isChecked(),false);assert.equal(await page.locator('#ocrAction').inputValue(),'page');assert.equal(await page.locator('#useChromeFind').isChecked(),true);assert.deepEqual(await page.locator('#ocrLanguages input:checked').evaluateAll(nodes=>nodes.map(n=>n.value)),['eng','chi_sim']);await page.locator('#ocrAction').selectOption('panel');await page.waitForFunction(async()=>(await chrome.storage.local.get('settings')).settings.ocrAction==='panel');await page.goBack();await page.waitForURL(reader);await page.waitForSelector('#open-file');
  await page.goForward();await page.waitForURL(settings);await page.goBack();await page.waitForSelector('#settings');
  report.checks.push('homepage Settings uses the same tab and restores with Back/Forward');
  for(const scheme of ['light','dark']){
@@ -362,6 +369,57 @@ assert.match(await frame.locator('[data-property=pageSize]').textContent(),/215.
  report.checks.push('content-measured single-row toolbar for each compact mode, hidden/visible groups, narrow fallback, and resize recovery without overlaps');
  const directPopup=context.waitForEvent('page');await frame.locator('#settings').click();const direct=await directPopup;await direct.waitForURL(settings);assert.equal((await direct.evaluate(()=>chrome.tabs.getCurrent())).index,(await page.evaluate(()=>chrome.tabs.getCurrent())).index+1);await direct.close();await spacer.close();await prefs.reload();await prefs.waitForSelector('#toolbarHidden');assert.equal(await prefs.locator('#toolbarHidden input:checked').count(),0);
  report.checks.push('explicit all-visible settings persist and restore direct adjacent Settings navigation');
+ // The rare black-paper exception uses completed full pages, never dark photos inside white paper.
+ await prefs.locator('#appearance').selectOption('dark');await prefs.locator('#sampling').selectOption('4');
+ await prefs.waitForFunction(async()=>{const s=(await chrome.storage.local.get('settings')).settings;return s.appearance==='dark'&&s.sampling===4;});
+ frame=await open('/black-paper');assert.equal(await frame.evaluate(()=>qaDarkPaper.get(7)),0,'distant pages are not analyzed eagerly');
+ const pageFilter=async n=>frame.locator(`.page[data-page-number="${n}"] .canvasWrapper`).evaluate(n=>getComputedStyle(n).filter);
+ for(let n=1;n<=7;n++){
+  await frame.evaluate(n=>{qaViewer.currentPageNumber=n;},n);
+  await frame.waitForFunction(n=>qaViewer.getPageView(n-1).renderingState===3&&qaViewer.getPageView(n-1).div.hasAttribute('data-dark-checked'),n);
+  assert.equal(await frame.evaluate(n=>qaDarkPaper.get(n),n),[1,5,6].includes(n)?2:1,`paper verdict for page ${n}`);
+  assert.equal((await pageFilter(n))==='none',[1,5,6].includes(n));
+ }
+ const readCount=await frame.evaluate(()=>qaPaperReads.length);
+ assert.ok(readCount<=14,'white/light-gray/white-margin pages stop at preflight');
+ await frame.evaluate(()=>{qaViewer.currentPageNumber=1;});await frame.waitForFunction(()=>qaViewer.getPageView(0).renderingState===3);
+ await frame.locator('#sidebar-toggle').click();await frame.waitForSelector('.thumbnail[data-page="1"] canvas');
+ assert.equal(await frame.locator('.thumbnail[data-page="1"] canvas').evaluate(n=>getComputedStyle(n).filter),'none');
+ await page.screenshot({path:join(folder,'black-paper.png')});
+ await frame.locator('#rotate').click();await frame.waitForFunction(()=>qaViewer.pagesRotation===270&&qaViewer.getPageView(0).renderingState===3);
+ await frame.evaluate(()=>{qaViewer.currentScaleValue='3';});await frame.waitForFunction(()=>qaViewer.getPageView(0).detailView?.renderingState===3);
+ assert.equal(await pageFilter(1),'none');assert.equal(await frame.evaluate(()=>qaPaperReads.length),readCount);
+ await frame.locator('#theme').click();await frame.waitForFunction(()=>document.documentElement.dataset.dark==='false');assert.equal(await pageFilter(1),'none');
+ await frame.locator('#theme').click();await frame.waitForFunction(()=>document.documentElement.dataset.dark==='true');assert.equal(await pageFilter(1),'none');assert.equal(await frame.evaluate(()=>qaPaperReads.length),readCount);
+ // The default-on switch updates existing pages without reparsing or resampling cached decisions.
+ await frame.evaluate(()=>window.qaPaperDocument=qaViewer.pdfDocument);
+ await prefs.locator('#preserveDarkPaper').uncheck();await frame.waitForFunction(()=>document.documentElement.dataset.preserveDarkPaper==='false');
+ assert.ok((await pageFilter(1)).includes('invert'));assert.ok((await frame.locator('.thumbnail[data-page="1"] canvas').evaluate(n=>getComputedStyle(n).filter)).includes('invert'));
+ await prefs.locator('#preserveDarkPaper').check();await frame.waitForFunction(()=>document.documentElement.dataset.preserveDarkPaper==='true');
+ assert.equal(await pageFilter(1),'none');assert.equal(await frame.evaluate(()=>qaPaperReads.length),readCount);assert.equal(await frame.evaluate(()=>qaViewer.pdfDocument===qaPaperDocument),true);
+ report.paperTimingsMs=await frame.evaluate(()=>qaPaperTimings);
+ await prefs.locator('#preserveDarkPaper').uncheck();await prefs.waitForFunction(async()=>(await chrome.storage.local.get('settings')).settings.preserveDarkPaper===false);
+ frame=await open('/black-paper');assert.equal(await frame.evaluate(()=>globalThis.qaPaperReads),undefined);assert.ok((await pageFilter(1)).includes('invert'));assert.equal(await frame.locator('.page .canvasWrapper').first().evaluate(n=>getComputedStyle(n).visibility),'visible');
+ await prefs.locator('#preserveDarkPaper').check();await frame.waitForFunction(()=>qaDarkPaper.get(1)===2);assert.equal(await pageFilter(1),'none');
+ await prefs.locator('#locale').selectOption('zh-CN');await prefs.waitForFunction(()=>document.documentElement.lang==='zh-CN');assert.equal(await prefs.locator('#preserveDarkPaper-title').textContent(),'保留深色纸张原色');
+ await prefs.waitForFunction(()=>document.querySelector('#saved').textContent==='已保存');await prefs.locator('#preserveDarkPaper').scrollIntoViewIfNeeded();await prefs.screenshot({path:join(folder,'black-paper-settings-zh.png')});
+ await prefs.locator('#locale').selectOption('en-US');await prefs.waitForFunction(()=>document.documentElement.lang==='en-US');assert.equal(await prefs.locator('#preserveDarkPaper-title').textContent(),'Preserve dark-paper colors');
+ await prefs.waitForFunction(()=>document.querySelector('#saved').textContent==='Saved');await prefs.screenshot({path:join(folder,'black-paper-settings-en.png')});
+ // A compressed image-only scan must qualify without invoking the OCR engine.
+ const blackJpeg=await page.evaluate(async()=>{const c=document.createElement('canvas');c.width=1000;c.height=1400;const g=c.getContext('2d');g.fillStyle='#040404';g.fillRect(0,0,c.width,c.height);g.fillStyle='white';g.font='22px sans-serif';g.fillText('White writing on black paper',100,200);return Array.from(new Uint8Array(await(await new Promise(r=>c.toBlob(r,'image/jpeg',.9))).arrayBuffer()));});
+ blackScan=scannedPdf(Buffer.from(blackJpeg),1000,1400);
+ for(const strength of ['0.85','0.9','0.96','1']){
+  await prefs.locator('#darkStrength').selectOption(strength);await prefs.waitForFunction(async value=>(await chrome.storage.local.get('settings')).settings.darkStrength===Number(value),strength);
+  frame=await open('/black-scan');assert.equal(await frame.evaluate(()=>qaDarkPaper.get(1)),2,'image-only black paper at strength '+strength);assert.equal(await pageFilter(1),'none');
+ }
+ await page.screenshot({path:join(folder,'black-paper-scan.png')});
+ // A new light reader does no sampling until dark mode; failure never leaves its canvas hidden.
+ await prefs.locator('#appearance').selectOption('light');await prefs.waitForFunction(async()=>(await chrome.storage.local.get('settings')).settings.appearance==='light');
+ frame=await open('/black-paper');assert.equal(await frame.evaluate(()=>globalThis.qaPaperReads?.length).catch(()=>undefined),undefined);
+ await frame.evaluate(()=>{const original=CanvasRenderingContext2D.prototype.getImageData;CanvasRenderingContext2D.prototype.getImageData=function(){throw Error('QA blocked pixels');};window.qaRestorePixels=()=>CanvasRenderingContext2D.prototype.getImageData=original;});
+ await frame.locator('#theme').click();await frame.waitForFunction(()=>document.documentElement.dataset.dark==='true');assert.equal(await frame.evaluate(()=>qaDarkPaper.get(1)),1);assert.ok((await pageFilter(1)).includes('invert'));
+ assert.equal(await frame.locator('.page .canvasWrapper').first().evaluate(n=>getComputedStyle(n).visibility),'visible');await frame.evaluate(()=>qaRestorePixels());
+ report.checks.push('strict black-paper exception; white-paper starfield, white inset, ordinary white and light-gray pages rejected; dark-gray paper with white/black writing preserved; thumbnails/detail zoom/rotation/theme reuse decisions; no light-mode/disabled reads; default-on bilingual setting syncs live without reparsing; read failure retains normal inversion');
  await go(base+'/bad');await page.waitForFunction(()=>!!document.querySelector('#message')?.textContent&&document.documentElement.dataset.view==='home'&&!document.querySelector('iframe'));await page.waitForSelector('#native');assert.ok(await page.locator('#native').isVisible());report.checks.push('invalid PDF fallback');
  await go(base+'/broken');await page.waitForFunction(()=>!!document.querySelector('#message')?.textContent&&!document.querySelector('iframe'));report.checks.push('parse failure removes shell and releases worker');
  await page.goto(reader);await page.waitForFunction(()=>document.querySelector('#intro').textContent.length>0);await page.screenshot({path:join(folder,'opening.png')});

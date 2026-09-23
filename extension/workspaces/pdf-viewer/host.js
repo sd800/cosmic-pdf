@@ -75,6 +75,10 @@ export function createPdfViewer({ container, locale, sampling, settings, filenam
       settings = { ...settings, propertyDateFormat: next.propertyDateFormat, ocrAction: next.ocrAction, useChromeFind: next.useChromeFind };
       if (!closed) channel.port1.postMessage({ type: 'interface', locale, propertyDateFormat: next.propertyDateFormat, ocrAction: next.ocrAction, useChromeFind: next.useChromeFind });
     },
+    setDarkPaper(value) {
+      settings = { ...settings, preserveDarkPaper: value === true };
+      if (!closed) channel.port1.postMessage({ type: 'dark-paper', enabled: settings.preserveDarkPaper });
+    },
     setSharpening(value) { if (!closed) { sharpening = value === true; channel.port1.postMessage({ type: 'sharpening', enabled: sharpening }); } },
     setTheme(nextDark) { dark = !!nextDark; if (!closed) channel.port1.postMessage({ type: 'theme', dark }); },
     destroy

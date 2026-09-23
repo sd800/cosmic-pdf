@@ -59,7 +59,9 @@ chrome.storage.onChanged.addListener((changes,area)=>{
   settings=next;
   const nextLocale=uiLocale(next,chrome.i18n.getUILanguage()),changed=toolbarSignature(activeSettings)!==toolbarSignature(next);
   const interfaceChanged=locale!==nextLocale||activeSettings.propertyDateFormat!==next.propertyDateFormat||activeSettings.ocrAction!==next.ocrAction||activeSettings.useChromeFind!==next.useChromeFind;
-  activeSettings={...activeSettings,locale:next.locale,propertyDateFormat:next.propertyDateFormat,ocrAction:next.ocrAction,useChromeFind:next.useChromeFind,showFilename:next.showFilename,showBranding:next.showBranding,toolbarHidden:next.toolbarHidden};
+  const paperChanged=activeSettings.preserveDarkPaper!==next.preserveDarkPaper;
+  activeSettings={...activeSettings,preserveDarkPaper:next.preserveDarkPaper,locale:next.locale,propertyDateFormat:next.propertyDateFormat,ocrAction:next.ocrAction,useChromeFind:next.useChromeFind,showFilename:next.showFilename,showBranding:next.showBranding,toolbarHidden:next.toolbarHidden};
+  if(paperChanged)reader?.setDarkPaper(next.preserveDarkPaper);
   if(changed)reader?.setToolbar(next);
   if(interfaceChanged){localize(nextLocale);reader?.setInterface(nextLocale,next);}
   // Sampling, OCR languages and recognition detail stay fixed for this reader.

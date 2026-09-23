@@ -1,6 +1,6 @@
 {
   "name": "cosmic-pdf",
-  "version": "1.2.13",
+  "version": "1.2.15",
   "private": true,
   "type": "module",
   "engines": {

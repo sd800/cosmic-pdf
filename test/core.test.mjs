@@ -73,3 +73,68 @@ test('OCR word separators preserve English spaces and Chinese continuity',()=>{
  const result=ocrWords([{paragraphs:[{lines:[{words:['中','文','测试'].map((text,i)=>({text,bbox:{x0:i*10,y0:1,x1:i*10+8,y1:12}}))},{words:['COSMIC','PDF'].map((text,i)=>({text,bbox:{x0:i*30,y0:20,x1:i*30+25,y1:35}}))}]}]}],100,100);
  assert.equal(result.map(word=>word.text+word.separator).join(''),'中文测试\nCOSMIC PDF\n');
 });
+
+
+function paperSample(size = 128, pixel = () => [0, 0, 0, 255]) {
+  const data = new Uint8ClampedArray(size * size * 4);
+  for (let y = 0, i = 0; y < size; y++) for (let x = 0; x < size; x++, i += 4) data.set(pixel(x, y), i);
+  return { data, width: size, height: size };
+}
+const black = [4, 4, 4, 255], white = [255, 255, 255, 255];
+const { isDarkPaper, createDarkPaperGuard } = await import('../extension/workspaces/pdf-viewer/dark-paper.js');
+test('dark-paper exception requires a uniform neutral bed across the whole page and all edges', () => {
+  for (const size of [128, 257]) {
+    assert.equal(isDarkPaper(paperSample(size, () => black)), true);
+    // Sparse strokes spread across the page, leaving uninterrupted black margins.
+    assert.equal(isDarkPaper(paperSample(size, (x,y) => x > 16 && x < size - 16 && y > 16 && y < size - 16 && x % 12 < 2 && y % 24 < 2 ? white : black)), true);
+    for (const pixel of [
+      () => white, () => [160,160,160,255], () => [3,9,17,255],
+      (x,y) => x < 2 || y < 2 || x >= size-2 || y >= size-2 ? white : black, // star field on white paper
+      (x,y) => x === 0 ? white : black, // even one thin white edge
+      (x,y) => x > size*.45 && x < size*.55 && y > size*.45 && y < size*.55 ? white : black, // small white inset
+      (x,y) => x%2 === y%2 ? white : black,
+      (x,y) => { const n=(x*31+y*17)%16; return [n,n,n,255]; }, // noisy night photograph
+      x => { const n=Math.floor(x/size*16); return [n,n,n,255]; }, // dark gradient
+      (x,y) => x > 16 && x < 32 && y > 16 && y < 32 ? [255,0,0,255] : black,
+      () => [0,0,0,0]
+    ]) assert.equal(isDarkPaper(paperSample(size, pixel)), false);
+  }
+  for (const shade of [0,4,32,64,96,120,127]) {
+    const paper = [shade,shade,shade,255];
+    for (const strength of [.85,.9,.96,1]) assert.equal(isDarkPaper(paperSample(128,()=>paper),strength),true);
+    assert.equal(isDarkPaper(paperSample(128,(x,y)=>x>16&&x<112&&y>16&&y<112&&x%12<2&&y%24<2?[0,0,0,255]:paper)),true);
+    assert.equal(isDarkPaper(paperSample(128,(x,y)=>x<2||y<2||x>=126||y>=126?white:paper)),false);
+  }
+  for (const shade of [128,160,200,240,255]) assert.equal(isDarkPaper(paperSample(128,()=>[shade,shade,shade,255])),false);
+  assert.equal(isDarkPaper(paperSample(128,(x,y)=>{const n=80+(x*31+y*17)%16;return[n,n,n,255];})),false);
+  for (const strength of [.5,NaN,2]) assert.equal(isDarkPaper(paperSample(), strength), false);
+  for (const strength of [.85,.9,.96,1]) assert.equal(isDarkPaper(paperSample(), strength), true);
+  assert.equal(isDarkPaper(), false);
+  assert.equal(isDarkPaper({data:new Uint8ClampedArray(4),width:128,height:128}), false);
+});
+test('black-paper guard stages rare candidates, caches failures and decisions, and releases buffers', () => {
+  const reads = [], source = {width:612,height:842}; let sample = size => paperSample(size, () => white), fail = false;
+  const canvas = {width:0,height:0,getContext:()=>({drawImage(){},getImageData(x,y,size){reads.push(size);if(fail)throw Error('read failed');return sample(size);}})};
+  const guard = createDarkPaperGuard(5,.96,()=>canvas);
+  assert.equal(guard.get(1),0); assert.equal(guard.decide(1,source),1); assert.deepEqual(reads,[32]);
+  sample = size => paperSample(size, () => black);
+  assert.equal(guard.decide(1,source),1); assert.deepEqual(reads,[32]); // cached rejection
+  assert.equal(guard.decide(2,source),2); assert.deepEqual(reads,[32,32,128,257]);
+  assert.equal(canvas.width,0); assert.equal(canvas.height,0);
+  assert.equal(guard.decide(2,{width:4000,height:5000}),2); assert.equal(reads.length,4); // zoom cache
+  assert.equal(guard.reject(2),2); // a later interrupted/failed redraw cannot overturn the original verdict
+  sample = size => paperSample(size, () => size === 257 ? white : black);
+  assert.equal(guard.decide(3,source),1); assert.deepEqual(reads.slice(-3),[32,128,257]); // confirmation veto
+  fail = true; assert.equal(guard.decide(4,source),1); const count=reads.length;
+  assert.equal(guard.decide(4,source),1); assert.equal(reads.length,count); assert.equal(canvas.width,0);
+  assert.equal(guard.decide(5,{width:100,height:100}),1); assert.equal(reads.length,count);
+  guard.destroy(); assert.equal(guard.get(2),1); assert.equal(guard.decide(2,source),1);
+  let allocations=0; const weak=createDarkPaperGuard(1,NaN,()=>{allocations++;return canvas;});
+  assert.equal(weak.decide(1,source),1); assert.equal(allocations,0);
+});
+
+test('black-paper preference defaults on and preserves explicit boolean opt-out', () => {
+  assert.equal(DEFAULTS.preserveDarkPaper, true);
+  for (const value of [true, false]) assert.equal(normalizeSettings({preserveDarkPaper:value}).preserveDarkPaper, value);
+  assert.equal(normalizeSettings({preserveDarkPaper:'false'}).preserveDarkPaper, true);
+});
