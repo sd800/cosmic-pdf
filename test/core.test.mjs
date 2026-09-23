@@ -43,10 +43,11 @@ test('zoom input accepts percent or bare decimals and keeps rendering bounds',()
 });
 
 test('document date formats preserve source wall time and explicit offsets',()=>{
- assert.equal(formatPdfDate("D:20250610181400+08'00'",'zh-CN'),'2025 年 6 月 10 日 18:14:00 (UTC+08:00)');
+ assert.equal(formatPdfDate("D:20250610181400+08'00'",'zh-CN'),'2025 年 6 月 10 日 18:14:00 (UTC+8)');
  assert.equal(formatPdfDate('D:20250610181400','zh-CN'),'2025 年 6 月 10 日 18:14:00');
+ for(const [offset,zone] of [['+0800','UTC+8'],['-0500','UTC-5'],['-0030','UTC-0:30'],['+1245','UTC+12:45'],['+0000','UTC+0']])assert.equal(formatPdfDate('D:202506101814'+offset,'en-US','ymd'),`2025-06-10 18:14 (${zone})`);
  assert.equal(formatPdfDate('D:20250610181400Z','en-US'),'Jun 10, 2025, 6:14:00 PM (UTC)');
- for(const [format,expected]of [['ymd','2025-06-10'],['ymd-slash','2025/06/10'],['dmy','10/06/2025'],['mdy','06/10/2025']])assert.equal(formatPdfDate("D:20250610181400-03'30'",'en-US',format),expected+' 18:14:00 (UTC-03:30)');
+ for(const [format,expected]of [['ymd','2025-06-10'],['ymd-slash','2025/06/10'],['dmy','10/06/2025'],['mdy','06/10/2025']])assert.equal(formatPdfDate("D:20250610181400-03'30'",'en-US',format),expected+' 18:14:00 (UTC-3:30)');
  assert.equal(formatPdfDate('D:202502','zh-CN'),'2025 年 2 月 1 日 00:00');
  assert.equal(formatPdfDate('D:202506101814','zh-CN'),'2025 年 6 月 10 日 18:14');
  assert.equal(formatPdfDate('D:20250610181439','zh-CN'),'2025 年 6 月 10 日 18:14:39');

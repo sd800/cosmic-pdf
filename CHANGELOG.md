@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.11
+
+- Make the reader’s Find button always open built-in search, independently of the Chrome Find shortcut preference, and remove shortcut banners.
+- Highlight PDF search matches in orange and simplify the Chrome Find setting description.
+- Abbreviate document-property time zones, keeping minutes only for non-whole-hour offsets.
+
 ## 1.2.10
 
 - Refine the Document properties information icon’s proportions and spacing.

@@ -9,7 +9,7 @@ export function parsePdfDate(value) {
   const date = new Date(0); date.setUTCFullYear(parts[0], parts[1] - 1, parts[2]); date.setUTCHours(parts[3], parts[4], parts[5], 0);
   if (date.getUTCFullYear() !== parts[0] || date.getUTCMonth() !== parts[1] - 1 || date.getUTCDate() !== parts[2] || date.getUTCHours() !== parts[3] || date.getUTCMinutes() !== parts[4] || date.getUTCSeconds() !== parts[5]) return null;
   if (sign && (Number(zoneHour) > 23 || Number(zoneMinute) > 59)) return null;
-  const zone = utc ? 'UTC' : sign ? `UTC${sign}${zoneHour}:${zoneMinute}` : '';
+  const zone = utc ? 'UTC' : sign ? `UTC${sign}${Number(zoneHour)}${Number(zoneMinute) ? ':' + zoneMinute : ''}` : '';
   return { date, zone, seconds: match[6] !== undefined };
 }
 export function formatPdfDate(value, locale = 'en-US', format = 'auto') {

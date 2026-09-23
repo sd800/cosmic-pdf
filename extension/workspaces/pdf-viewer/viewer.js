@@ -59,9 +59,6 @@ function localize(locale) {
   document.documentElement.lang = locale === 'zh-CN' ? locale : 'en-US';
   for (const node of document.querySelectorAll('[data-text]')) node.textContent = text[node.dataset.text];
   for (const node of document.querySelectorAll('[data-label]')) { node.title = text[node.dataset.label]; node.setAttribute('aria-label', node.title); }
-  const browserFind = settings.useChromeFind;
-  $('find-controls').hidden = browserFind; $('browser-find-hint').hidden = !browserFind;
-  $('browser-find-hint').textContent = text.browserFindHint.replace('{shortcut}', /Mac/i.test(navigator.platform) ? '⌘F' : 'Ctrl+F');
   for (const id of ['status','password-message','print-error','matches']) {
     const key = Object.keys(previous).find(key => previous[key] === $(id).textContent);
     if (key) $(id).textContent = text[key];
@@ -133,7 +130,6 @@ window.addEventListener('message', event => {
     else if (data?.type === 'host-error') { $('status').textContent = String(data.message || '').slice(0,1000); $('progress').hidden = true; }
     else if (data?.type === 'interface') {
       const next = normalizeSettings(data);
-      if (settings.useChromeFind !== next.useChromeFind) { $('findbar').hidden = true; eventBus.dispatch('findbarclose', { source: window }); }
       settings = {...settings, propertyDateFormat:next.propertyDateFormat, ocrAction:next.ocrAction, useChromeFind:next.useChromeFind};
       localize(data.locale);
     }
@@ -306,7 +302,7 @@ async function open(bytes, sampling) {
     wheelFactor *= Math.exp(-Math.max(-100, Math.min(100, event.deltaY)) * .004); wheelOrigin = [event.clientX, event.clientY];
     if (!zoomFrame) zoomFrame = requestAnimationFrame(() => { zoomFrame = 0; zoomTo(viewer.currentScale * wheelFactor, wheelOrigin); wheelFactor = 1; });
   }, { passive: false, signal });
-  function openFind() { $('findbar').hidden = false; if (settings.useChromeFind) $('find-close').focus(); else { $('query').focus(); $('query').select(); } }
+  function openFind() { $('findbar').hidden = false; $('query').focus(); $('query').select(); }
   function closeFind() { $('findbar').hidden = true; eventBus.dispatch('findbarclose', { source: window }); viewport.focus(); }
   function search(again = false, previous = false) {
     eventBus.dispatch('find', { source: window, type: again ? 'again' : '', query: $('query').value, caseSensitive: $('match-case').checked,
