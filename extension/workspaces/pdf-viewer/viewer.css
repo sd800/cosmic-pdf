@@ -17,6 +17,10 @@ header button,header select{border-color:transparent;background:transparent}
 header button:hover,header select:hover{background:var(--soft)}
 #page,#count,#scale{font-size:15px}
 .tool-group+.tool-group::before{content:"";flex:0 0 1px;width:1px;height:20px;background:var(--line);margin-inline:4px 9px}
+/* Tighten navigation controls without shrinking their click targets or group separators. */
+.page-navigation,.zoom-controls{gap:2px}
+.page-navigation .page-indicator{gap:4px;padding-inline:0}
+.tool-group.page-navigation::before,.tool-group.zoom-controls::before{margin-inline-end:12px}
 @media(max-width:640px){.tool-group+.tool-group::before{display:none}}
 
 button.reader-icon{width:34px;height:34px;min-height:34px;flex:0 0 34px;padding:6px;display:inline-grid;place-items:center}button.reader-icon svg{display:block;width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}

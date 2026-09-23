@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.2
+
+- Tighten spacing within the page-navigation and zoom controls while preserving button sizes and other toolbar spacing.
+
 ## 1.2.1
 
 - Simplify PDF loading to the Cosmic PDF logo, name, and progress bar, and prepare the reader while the file loads.
