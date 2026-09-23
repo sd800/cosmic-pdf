@@ -7,7 +7,8 @@ export function pdfDetailCanvasPixels(sampling) {
   return Math.min(PDF_LIMITS.detailCanvasPixels, normalizePdfSampling(sampling) ** 2 * 1024 * 1024);
 }
 export function safePdfLink(value) {
-  try { const url = new URL(value); return ['https:', 'http:', 'mailto:'].includes(url.protocol) ? url.href : null; } catch { return null; }
+  if (typeof value !== 'string' || value.length > 8192 || /[\u0000-\u001f\u007f]|%00/i.test(value)) return null;
+  try { const url = new URL(value); return !url.username && !url.password && ['https:', 'http:', 'mailto:', 'tel:', 'sms:'].includes(url.protocol) ? url.href : null; } catch { return null; }
 }
 export function pdfScale(value) { return Math.max(0.25, Math.min(5, Number(value) || 1)); }
 export function stepPdfScale(value, direction) { return pdfScale((Math.round(value * 100) + Math.sign(direction) * 10) / 100); }

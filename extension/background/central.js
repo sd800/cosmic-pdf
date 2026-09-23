@@ -12,7 +12,8 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
   let job;
   if(message?.type==='NATIVE_READER') job=standing.useNative(sender);
   else if(message?.type==='OPEN_SETTINGS' && sender.frameId===0 && Number.isInteger(sender.tab?.id) && sender.url?.startsWith(chrome.runtime.getURL('workspaces/pdf-reader/index.html'))) job=start().then(()=>operations.openSettings(sender.tab.id));
-  else if(message?.type==='SETTINGS_SAVED' && sender.url===chrome.runtime.getURL('settings/index.html')) job=start();
+  else if(message?.type==='SETTINGS_OPENED') job=operations.settingsOpened(sender,message.openedAt);
+  else if(message?.type==='SETTINGS_SAVED' && sender.frameId===0 && operations.isSettingsPage(sender.url)) job=start();
   else return;
   job.then(()=>respond({ok:true}),()=>respond({ok:false}));return true;
 });

@@ -58,9 +58,9 @@ chrome.storage.onChanged.addListener((changes,area)=>{
  void readSettings().then(next=>{
   settings=next;
   const nextLocale=uiLocale(next,chrome.i18n.getUILanguage()),changed=toolbarSignature(activeSettings)!==toolbarSignature(next);
-  const interfaceChanged=locale!==nextLocale||activeSettings.propertyDateFormat!==next.propertyDateFormat||activeSettings.ocrAction!==next.ocrAction||activeSettings.useChromeFind!==next.useChromeFind;
+  const interfaceChanged=locale!==nextLocale||activeSettings.propertyDateFormat!==next.propertyDateFormat||activeSettings.ocrAction!==next.ocrAction||activeSettings.useChromeFind!==next.useChromeFind||activeSettings.captureLinks!==next.captureLinks;
   const paperChanged=activeSettings.preserveDarkPaper!==next.preserveDarkPaper;
-  activeSettings={...activeSettings,preserveDarkPaper:next.preserveDarkPaper,locale:next.locale,propertyDateFormat:next.propertyDateFormat,ocrAction:next.ocrAction,useChromeFind:next.useChromeFind,showFilename:next.showFilename,showBranding:next.showBranding,toolbarHidden:next.toolbarHidden};
+  activeSettings={...activeSettings,preserveDarkPaper:next.preserveDarkPaper,locale:next.locale,propertyDateFormat:next.propertyDateFormat,ocrAction:next.ocrAction,useChromeFind:next.useChromeFind,captureLinks:next.captureLinks,showFilename:next.showFilename,showBranding:next.showBranding,toolbarHidden:next.toolbarHidden};
   if(paperChanged)reader?.setDarkPaper(next.preserveDarkPaper);
   if(changed)reader?.setToolbar(next);
   if(interfaceChanged){localize(nextLocale);reader?.setInterface(nextLocale,next);}

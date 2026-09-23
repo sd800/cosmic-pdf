@@ -21,10 +21,10 @@ function hasDarkPaperBase({ data, width, height }) {
     if (black) dark++;
     else if (x === 0 || y === 0 || x === width - 1 || y === height - 1) return false;
   }
-  return dark / (width * height) >= .9;
+  return dark / (width * height) >= .15;
 }
 
-export function isDarkPaper({ data, width, height } = {}, strength = .96) {
+export function isDarkPaper({ data, width, height } = {}, strength = .96, provenShade = null) {
   if (!Number.isInteger(width) || !Number.isInteger(height) || width < COARSE || height < COARSE ||
       width > CONFIRM || height > CONFIRM || !(data instanceof Uint8ClampedArray) || data.length !== width * height * 4 ||
       !Number.isFinite(strength) || strength < .85 || strength > 1) return false;
@@ -32,11 +32,18 @@ export function isDarkPaper({ data, width, height } = {}, strength = .96) {
   // For neutral paper, hue rotation preserves luminance. Do not exempt light
   // gray paper that the existing inversion would already make darker.
   if (shade === null || 255 * strength + (1 - 2 * strength) * shade <= shade) return false;
+  const proven = Number.isFinite(provenShade) && provenShade >= 0 && provenShade < 127.5 && Math.abs(provenShade - shade) <= 6;
+  const whites = new Uint32Array(GRID * GRID);
+  // Reject solid white panels even when a small panel straddles tile borders.
+  // This is a one-row bounded square scan, not OCR/component segmentation.
+  const whiteSquares = proven ? new Uint16Array(width + 1) : null;
+  const whiteBlockLimit = Math.ceil(Math.min(width, height) * .02);
   const counts = new Uint32Array(GRID * GRID), dark = new Uint32Array(GRID * GRID), sums = new Float64Array(GRID * GRID);
   const edges = new Uint32Array(4), edgeDark = new Uint32Array(4);
   const bandX = Math.ceil(width * .025), bandY = Math.ceil(height * .025);
   let darkCount = 0, sum = 0, background = 0, squared = 0, colored = 0;
   for (let y = 0, i = 0; y < height; y++) {
+    let diagonal = 0;
     for (let x = 0; x < width; x++, i += 4) {
       if (data[i + 3] !== 255) return false;
       const r = data[i], g = data[i + 1], b = data[i + 2];
@@ -45,6 +52,14 @@ export function isDarkPaper({ data, width, height } = {}, strength = .96) {
       const tile = Math.floor(y * GRID / height) * GRID + Math.floor(x * GRID / width);
       counts[tile]++; sums[tile] += luminance; sum += luminance;
       if (hi - lo > 24) colored++;
+      const white = lo > 200 && hi - lo <= 8;
+      if (white) whites[tile]++;
+      if (whiteSquares) {
+        const above = whiteSquares[x + 1];
+        whiteSquares[x + 1] = white ? Math.min(whiteSquares[x], above, diagonal) + 1 : 0;
+        diagonal = above;
+        if (whiteSquares[x + 1] >= whiteBlockLimit) return false;
+      }
       if (nearPaper) { dark[tile]++; darkCount++; background += luminance; squared += luminance * luminance; }
       // Even a thin white paper margin disqualifies a dark image on white paper.
       if ((x === 0 || y === 0 || x === width - 1 || y === height - 1) && !nearPaper) return false;
@@ -55,11 +70,20 @@ export function isDarkPaper({ data, width, height } = {}, strength = .96) {
     }
   }
   const total = width * height;
-  if (darkCount / total < .97 || Math.abs(sum / total - shade) > 12 || colored / total > .003) return false;
+  if (proven) {
+    // A verified full-page paper fill permits dense type, colored callouts and
+    // inset pictures, but never a mostly light page or an exposed white panel.
+    if (darkCount / total < .35 || sum / total > Math.min(135, shade + 65)) return false;
+  } else if (darkCount / total < .97 || Math.abs(sum / total - shade) > 12 || colored / total > .003) return false;
   // A very flat neutral paper bed, not merely a low average exposure.
   if (squared / darkCount - (background / darkCount) ** 2 > 6.25) return false;
-  for (let i = 0; i < counts.length; i++) if (dark[i] / counts[i] < .9 || Math.abs(sums[i] / counts[i] - shade) > 28) return false;
-  for (let i = 0; i < edges.length; i++) if (edgeDark[i] / edges[i] < .995) return false;
+  for (let i = 0; i < counts.length; i++) {
+    if (proven ? whites[i] / counts[i] > .12 : dark[i] / counts[i] < .9 || Math.abs(sums[i] / counts[i] - shade) > 28) return false;
+  }
+  // A confirmed full-paper fill may have text/callouts close to the edge.
+  // Its outermost perimeter still must match; only the pixel-only route also
+  // needs broad, almost empty edge bands as evidence of an actual paper bed.
+  if (!proven) for (let i = 0; i < edges.length; i++) if (edgeDark[i] / edges[i] < .995) return false;
   return true;
 }
 
@@ -69,7 +93,7 @@ export function createDarkPaperGuard(pageCount, strength, makeCanvas = () => doc
   const valid = page => Number.isInteger(page) && page > 0 && page <= decisions.length;
   const get = page => valid(page) ? decisions[page - 1] : 1;
   function reject(page) { if (valid(page) && !get(page)) decisions[page - 1] = 1; return get(page); }
-  function decide(page, source) {
+  function decide(page, source, readPaperFill) {
     if (disposed || !valid(page)) return 1;
     if (get(page)) return get(page);
     reject(page); // Errors and insufficient information never enable an exception.
@@ -77,12 +101,18 @@ export function createDarkPaperGuard(pageCount, strength, makeCanvas = () => doc
     try {
       canvas ||= makeCanvas();
       context ||= canvas.getContext('2d', { willReadFrequently: true });
+      let provenShade;
       for (const size of [PREFLIGHT, COARSE, CONFIRM]) {
         canvas.width = canvas.height = size;
         context.imageSmoothingEnabled = true; context.imageSmoothingQuality = 'high';
         context.drawImage(source, 0, 0, size, size);
         const sample = context.getImageData(0, 0, size, size);
-        if (size === PREFLIGHT ? !hasDarkPaperBase(sample) : !isDarkPaper(sample, strength)) return 1;
+        if (size === PREFLIGHT) { if (!hasDarkPaperBase(sample)) return 1; continue; }
+        if (isDarkPaper(sample, strength)) continue;
+        // Only rare framed candidates that fail the narrow pixel route reach
+        // this callback. It reads existing render state, never reparses a PDF.
+        if (provenShade === undefined) provenShade = readPaperFill?.(context) ?? null;
+        if (!isDarkPaper(sample, strength, provenShade)) return 1;
       }
       decisions[page - 1] = 2;
       return 2;

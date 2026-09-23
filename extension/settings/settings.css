@@ -5,3 +5,8 @@
 /* Only the longer OCR action labels need a wider desktop column.
    Narrow layouts share the standard select width and must not overflow cards. */
 @media(min-width:681px){#ocrAction{width:310px}.row:has(#ocrAction){grid-template-columns:minmax(0,1fr) 310px}}
+
+/* Match reader glyphs without shrinking the label or checkbox target. */
+.toolbar-options .option-icon{display:inline-flex;width:18px;height:18px;flex:0 0 18px;color:var(--muted)}.toolbar-options .option-icon svg{width:100%;height:100%;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}.toolbar-options .language-options label>span:last-child{min-width:0}
+
+.toolbar-options .default-hint{color:var(--muted)}

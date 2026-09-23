@@ -25,6 +25,9 @@ header button:hover,header select:hover{background:var(--soft)}
 
 button.reader-icon{width:34px;height:34px;min-height:34px;flex:0 0 34px;padding:6px;display:inline-grid;place-items:center}button.reader-icon svg{display:block;width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 
+/* Keep page interiors quiet; waiting feedback belongs to the toolbar divider. */
+.pdfViewer .page.loadingIcon::after{display:none!important;content:none!important;background:none!important}
+
 /* Smooth the supersampled detail canvas at fractional zoom; never use nearest-neighbour text scaling. */
 .pdfViewer .canvasWrapper canvas.detailView{image-rendering:auto}
 :root[data-sharpen=true] .pdfViewer .canvasWrapper canvas.detailView,:root[data-sharpen=true] .pdfViewer .canvasWrapper canvas.pdf-sharpen{filter:url(#pdf-detail-sharpen)}
@@ -104,3 +107,7 @@ header .actions{grid-column:3;grid-row:1;align-self:center}
 :root[data-dark=true][data-preserve-dark-paper=true] .page:not([data-dark-checked]) .canvasWrapper{visibility:hidden}
 :root[data-dark=true][data-preserve-dark-paper=true] .page[data-original-dark] .canvasWrapper,
 :root[data-dark=true][data-preserve-dark-paper=true] .thumbnail[data-original-dark] canvas{filter:none}
+/* Mailto Capture family presentation; no document styles/content enter this UI. */
+.link-capture{width:min(380px,calc(100vw - 28px));max-width:none;max-height:min(500px,calc(100vh - 28px));padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--text);box-shadow:0 10px 26px #0003;font-size:14px;overflow:auto;overscroll-behavior:contain}
+.link-capture::backdrop{background:#0002}.link-heading{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px}.link-heading strong{font-size:15px}.link-close{border:0;background:transparent;min-width:26px;padding:0;font-size:20px;color:var(--muted)}.link-details{display:grid;gap:9px}.link-field{display:grid;gap:3px}.link-field>span{color:var(--muted);font-size:14px;font-weight:600}.link-value{max-height:120px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;unicode-bidi:plaintext;user-select:text;background:var(--surface-raised);border-radius:7px;padding:7px 9px;font:14px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace}.link-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}.link-actions>*{display:inline-flex;align-items:center;justify-content:center;min-height:34px;border:1px solid var(--line);border-radius:8px;padding:5px 11px;text-decoration:none;color:var(--text);font-size:14px;cursor:pointer}.link-actions>.link-primary{background:var(--blue);border-color:var(--blue);color:var(--on-blue)}.link-open:hover{background:var(--surface-raised)}.link-status{margin:8px 0 0;color:var(--muted);font-size:14px}.link-status:empty{display:none}.link-copy-buffer{position:fixed;opacity:0;left:0;top:0;width:1px;height:1px}
+@media(prefers-reduced-motion:no-preference){.link-capture[open]{animation:link-in 120ms ease-out}@keyframes link-in{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:none}}}

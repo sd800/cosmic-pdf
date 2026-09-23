@@ -1,10 +1,11 @@
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';import assert from 'node:assert/strict';
 import { DEFAULTS,normalizeSettings,uiLocale,toolbarMode,TOOLBAR_ACTIONS,hiddenToolbarActions } from '../extension/core/settings.js';
 import { formatPdfDate,parsePdfDate } from '../extension/workspaces/pdf-viewer/document-dates.js';
 import { safeSource,sourceFromReader,filenameFrom,isPdf } from '../extension/core/source.js';
 import { ocrScale,ocrRange,ocrWords,OCR_LIMITS,quickOcrRange } from '../extension/workspaces/pdf-viewer/ocr-model.js';
 import { pdfDetailCanvasPixels,stepPdfScale,rotateLeft,safePdfLink,pdfOptions,pdfFileSize,parsePdfZoom } from '../extension/workspaces/pdf-viewer/model.js';
-test('settings whitelist, defaults and all six sampling levels',()=>{assert.deepEqual(normalizeSettings(null),DEFAULTS);assert.equal(DEFAULTS.useChromeFind,true);for(const useChromeFind of [true,false])assert.equal(normalizeSettings({useChromeFind}).useChromeFind,useChromeFind);assert.equal(normalizeSettings({useChromeFind:'false'}).useChromeFind,true);for(let n=1;n<=6;n++)assert.equal(normalizeSettings({sampling:n}).sampling,n);assert.equal(normalizeSettings({sampling:Infinity}).sampling,4);assert.equal(normalizeSettings({sharpening:'true'}).sharpening,false);assert.equal(normalizeSettings({ocrQuality:99}).ocrQuality,2);assert.equal(normalizeSettings({locale:'zh-TW'}).locale,'auto');assert.equal(normalizeSettings({obsolete:true}).obsolete,undefined);for(const [showFilename,showBranding,mode]of [[true,true,'both'],[false,true,'branding'],[true,false,'filename'],[false,false,'none']])assert.equal(toolbarMode(normalizeSettings({showFilename,showBranding})),mode);assert.equal(toolbarMode(normalizeSettings({showFilename:'false',showBranding:null})),'none');});
+test('settings whitelist, defaults and all six sampling levels',()=>{assert.deepEqual(normalizeSettings(null),DEFAULTS);assert.equal(DEFAULTS.captureLinks,true);for(const captureLinks of [true,false])assert.equal(normalizeSettings({captureLinks}).captureLinks,captureLinks);assert.equal(normalizeSettings({captureLinks:'false'}).captureLinks,true);assert.equal(DEFAULTS.useChromeFind,true);for(const useChromeFind of [true,false])assert.equal(normalizeSettings({useChromeFind}).useChromeFind,useChromeFind);assert.equal(normalizeSettings({useChromeFind:'false'}).useChromeFind,true);for(let n=1;n<=6;n++)assert.equal(normalizeSettings({sampling:n}).sampling,n);assert.equal(normalizeSettings({sampling:Infinity}).sampling,4);assert.equal(normalizeSettings({sharpening:'true'}).sharpening,false);assert.equal(normalizeSettings({ocrQuality:99}).ocrQuality,2);assert.equal(normalizeSettings({locale:'zh-TW'}).locale,'auto');assert.equal(normalizeSettings({obsolete:true}).obsolete,undefined);for(const [showFilename,showBranding,mode]of [[true,true,'both'],[false,true,'branding'],[true,false,'filename'],[false,false,'none']])assert.equal(toolbarMode(normalizeSettings({showFilename,showBranding})),mode);assert.equal(toolbarMode(normalizeSettings({showFilename:'false',showBranding:null})),'filename');});
 test('UI supports only English/Simplified Chinese',()=>{assert.equal(uiLocale(DEFAULTS,'zh-TW'),'zh-CN');assert.equal(uiLocale(DEFAULTS,'ja'),'en-US');assert.equal(uiLocale({...DEFAULTS,locale:'en-US'},'zh-CN'),'en-US');});
 test('raw DNR source preserves all signed query parameters and fragments',()=>{const reader='chrome-extension://id/workspaces/pdf-reader/index.html',source='https://example.com/a?one=1&signed=A%2BB%3D&source=2#page=2';assert.equal(sourceFromReader(reader+'?source='+source,reader),source);assert.equal(sourceFromReader('https://evil.test/?source='+source,reader),null);for(const value of ['javascript:alert(1)','data:application/pdf,abc','https://u:p@example.com/a'])assert.equal(safeSource(value),null);assert.equal(safeSource('file:///tmp/a.pdf'),'file:///tmp/a.pdf');});
 test('safe filenames and PDF content sniffing',()=>{assert.equal(filenameFrom('https://e.com/download','attachment; filename*=UTF-8\'\'report%20one.pdf'),'report one.pdf');assert.equal(filenameFrom('https://e.com/abc'), 'abc.pdf');assert.equal(isPdf(new TextEncoder().encode('%PDF-1.7\n').buffer),true);assert.equal(isPdf(new TextEncoder().encode('<html>error</html>').buffer),false);});
@@ -137,4 +138,91 @@ test('black-paper preference defaults on and preserves explicit boolean opt-out'
   assert.equal(DEFAULTS.preserveDarkPaper, true);
   for (const value of [true, false]) assert.equal(normalizeSettings({preserveDarkPaper:value}).preserveDarkPaper, value);
   assert.equal(normalizeSettings({preserveDarkPaper:'false'}).preserveDarkPaper, true);
+});
+
+
+test('proven paper permits dense colored content without relaxing the pixel-only fallback', () => {
+  const sample = paperSample(257, (x,y) => x>20&&x<230&&y>20&&y<230&&y%20<5 ? [0,140,120,255] : black);
+  assert.equal(isDarkPaper(sample),false);
+  assert.equal(isDarkPaper(sample,.96,4),true);
+  assert.equal(isDarkPaper(sample,.96,80),false,'fill must match the observed paper edge');
+  assert.equal(isDarkPaper(paperSample(257,(x,y)=>x<4||y<4?white:black),.96,4),false);
+  assert.equal(isDarkPaper(paperSample(257,(x,y)=>x>100&&x<135&&y>100&&y<135?white:black),.96,4),false,'white-panel veto survives structural confirmation');
+  for (const size of [128,257]) {
+    assert.equal(isDarkPaper(paperSample(size,(x,y)=>x>size*.46&&x<size*.54&&y>size*.46&&y<size*.54?white:black),.96,4),false,'white block straddling four tiles');
+    const footer=paperSample(size,(x,y)=>x>10&&x<size-10&&y>size-9&&y<size-1?[0,140,120,255]:black);
+    assert.equal(isDarkPaper(footer),false,'pixels alone cannot prove a colorful footer');
+    assert.equal(isDarkPaper(footer,.96,4),true,'confirmed dark paper allows content near the edge');
+  }
+  let reads=0;
+  const canvas={width:0,height:0,getContext:()=>({drawImage(){},getImageData(x,y,size){return paperSample(size,(x,y)=>x>10&&x<size-10&&y>10&&y<size-10&&y%20<5?[0,140,120,255]:black);}})};
+  const guard=createDarkPaperGuard(2,.96,()=>canvas),source={width:600,height:800};
+  assert.equal(guard.decide(1,source,()=>{reads++;return 4;}),2);assert.equal(reads,1);
+  assert.equal(guard.decide(1,source,()=>{throw Error('cached');}),2);
+  assert.equal(guard.decide(2,source,()=>null),1);
+});
+
+const {parseExternalLink,linkCopyText}=await import('../extension/workspaces/pdf-viewer/link-capture-model.js');
+test('link capture reuses mail/telephone/SMS parsing with explicit safe protocol limits',()=>{
+ const labels={to:'To',cc:'CC',bcc:'BCC',subject:'Subject',message:'Message'};
+ const mail=parseExternalLink('mailto:a+tag@example.com?to=b%40example.com&cc=c%40example.com&subject=Hello%20%3Cb%3E&body=one%0D%0Atwo&x-key=a%2Bb');
+ assert.deepEqual(mail.to,['a+tag@example.com','b@example.com']);assert.equal(mail.subject,'Hello <b>');assert.equal(mail.body,'one\ntwo');assert.equal(mail.otherFields[0].values[0],'a+b');assert.match(linkCopyText(mail,labels),/CC: c@example.com/);
+ assert.equal(linkCopyText(parseExternalLink('mailto:a@example.com'),labels),'a@example.com');
+ assert.equal(linkCopyText(parseExternalLink('tel:+13125550123;ext=4'),labels),'+13125550123;ext=4');
+ const sms=parseExternalLink('sms:+13125550123,+13125550124?body=Hello%20%3Cb%3E');assert.equal(sms.recipients.length,2);assert.equal(sms.body,'Hello <b>');assert.match(linkCopyText(sms,labels),/Message: Hello <b>/);
+ assert.equal(parseExternalLink('https://example.com/?signed=a%2Bb#part').href,'https://example.com/?signed=a%2Bb#part');
+ for(const value of ['javascript:alert(1)','data:text/html,hi','file:///etc/passwd','ftp://example.com','https://user:secret@example.com','https://example.com/\u0000','mailto:a%00b','https://e.com/'+ 'a'.repeat(8192)])assert.equal(parseExternalLink(value),null);
+ assert.equal(parseExternalLink('tel:'),null);assert.equal(parseExternalLink('sms:'),null);
+});
+
+const { createPdfWorker } = await import('../extension/workspaces/pdf-viewer/worker.js');
+test('sandbox PDF worker owns its native port across startup, failure and disposal', async t => {
+  const bundle = 'globalThis.pdfjsWorker={};const source=import.meta.url;export{WorkerMessageHandler};';
+  for (const mode of ['ready','abort','error','invalid','constructor']) await t.test(mode, async t => {
+    const controller = new AbortController(); let native, revoked = 0, bytes, terminated = 0;
+    t.mock.method(globalThis,'fetch',async()=>({ok:true,text:async()=>mode==='invalid'?'unexpected bundle':bundle}));
+    t.mock.method(URL,'createObjectURL',blob=>{bytes=blob;return 'blob:fixed-local-code';});
+    t.mock.method(URL,'revokeObjectURL',()=>revoked++);
+    class Native extends EventTarget {
+      constructor(url) {
+        super(); assert.equal(url,'blob:fixed-local-code');
+        if(mode==='constructor')throw Error('worker creation failed');
+        native=this;
+        queueMicrotask(()=>{
+          if(mode==='abort')controller.abort();
+          else if(mode==='error')this.dispatchEvent(new Event('error'));
+          else this.dispatchEvent(new MessageEvent('message',{data:{action:'ready'}}));
+        });
+      }
+      terminate(){terminated++;}
+    }
+    const descriptor=Object.getOwnPropertyDescriptor(globalThis,'Worker');globalThis.Worker=Native;t.after(()=>{if(descriptor)Object.defineProperty(globalThis,'Worker',descriptor);else delete globalThis.Worker;});
+    class PDFWorker {
+      constructor({port}){this.port=port;this.promise=Promise.resolve();}
+      destroy(){this.destroyed=true;}
+    }
+    const pending=createPdfWorker({PDFWorker},controller.signal);
+    if(mode==='ready') {
+      const worker=await pending; assert.equal(worker.port,native);
+      const source=await bytes.text(); assert.doesNotMatch(source,/import\.meta|export\{/);assert.match(source,/vendor\/pdfjs\/pdf\.worker\.min\.mjs/);
+      controller.abort();assert.equal(worker.destroyed,true);worker.destroy();
+    }else await assert.rejects(pending);
+    assert.equal(terminated,mode==='invalid'||mode==='constructor'?0:1);
+    assert.equal(revoked,mode==='invalid'?0:1);
+  });
+});
+
+test('opaque PDF dialog markup has no blocked cross-origin autofocus attributes', async () => {
+  const source = await readFile(new URL('../extension/workspaces/pdf-viewer/viewer.html', import.meta.url), 'utf8');
+  assert.doesNotMatch(source, /\bautofocus(?:\s|=|>)/i);
+  assert.match(source, /id="properties-title" tabindex="-1"/);
+});
+
+const { showReaderDialog } = await import('../extension/workspaces/pdf-viewer/dialog.js');
+test('reader dialogs choose explicit focus without implicit cross-origin autofocus', () => {
+  const dialog={inert:false,showModal(){assert.equal(this.inert,true);this.open=true;}};
+  let focused=false;
+  showReaderDialog(dialog,{focus(options){assert.equal(dialog.inert,false);assert.equal(dialog.open,true);assert.deepEqual(options,{preventScroll:true});focused=true;}});
+  assert.equal(focused,true);
+  assert.throws(()=>showReaderDialog({inert:false,showModal(){throw Error('detached');}},null));
 });

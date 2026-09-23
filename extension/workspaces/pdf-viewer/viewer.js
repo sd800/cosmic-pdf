@@ -1,5 +1,8 @@
+import { showReaderDialog } from './dialog.js';
+import { createPdfWorker } from './worker.js';
 import { createOcr } from './ocr.js';
 import { createDarkPaperGuard } from './dark-paper.js';
+import { renderedPaperShade } from './paper-background.js';
 import { normalizeSettings, toolbarMode as getToolbarMode } from '../../core/settings.js';
 import * as pdfjs from '../../vendor/pdfjs/pdf.min.mjs';
 import { PDFViewer, EventBus, PDFLinkService, PDFFindController, RenderingStates } from '../../vendor/pdfjs/pdf_viewer.mjs';
@@ -10,31 +13,42 @@ import { normalizePdfSampling } from '../../core/pdf-sampling.js';
 import { PDF_LIMITS, pdfDetailCanvasPixels, pdfOptions, pdfScale, parsePdfZoom, stepPdfScale, printRange, rotateLeft, safePdfLink } from './model.js';
 
 const $ = id => document.getElementById(id);
-let port, task, pdf, viewer, workerUrl, pdfWorker, parseTimer, destroyed = false, text = {...labels['en-US']}, fullscreenActive = false;
+let port, task, pdf, viewer, pdfWorker, parseTimer, destroyed = false, text = {...labels['en-US']}, fullscreenActive = false;
 const lifetime = new AbortController(), signal = lifetime.signal;
 const eventBus = new EventBus(), viewport = $('viewport');
 // Prepare the parser concurrently with the host download, without starting OCR.
-const workerReady = fetch(new URL('../../vendor/pdfjs/pdf.worker.min.mjs', import.meta.url), { signal }).then(response => {
-  if (!response.ok) throw Error('PDF worker unavailable');
-  return response.text();
-}).then(async code => {
-  if (destroyed) return;
-  // Only fixed packaged code enters this opaque sandbox's blob worker.
-  workerUrl = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }));
-  pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
-  pdfWorker = new pdfjs.PDFWorker();
-  await pdfWorker.promise;
-  return pdfWorker;
+const workerReady = createPdfWorker(pdfjs, signal).then(worker => {
+  pdfWorker = worker;
+  return worker;
 });
 void workerReady.catch(() => {});
 let firstPageReady = false, themeDark = false, darkPaper;
-let customZoomScale = null, toolbarMenu;
+let customZoomScale = null, toolbarMenu, linkCapture, linkRequest = 0;
 let thumbnailObserver, thumbnailTask, thumbnailBusy = false, thumbnailGeneration = 0, outlineLoaded = false;
 const nearThumbnails = new Set(), thumbnailCache = new Map(), printUrls = new Set();
 let sharpening = false, settings, ocr, documentFilename, documentBytes = 0, properties;
 let printing = false, printTask, zoomFrame = 0, wheelFactor = 1, wheelOrigin, passwordCancelled = false;
 const emit = type => port?.postMessage({ type });
-function status(key, loading = false) { $('status').textContent = key === 'loading' ? '' : text[key] || ''; $('progress').hidden = !loading; $('workspace').setAttribute('aria-busy', String(loading)); }
+let taskBusy = false, renderBusy = false, renderProgressTimer = 0, visiblePageViews = [];
+function paintProgress() {
+  const busy = taskBusy || renderBusy;
+  $('progress').hidden = !busy; $('workspace').setAttribute('aria-busy', String(busy));
+}
+function status(key, loading = false) { $('status').textContent = key === 'loading' ? '' : text[key] || ''; taskBusy = loading; paintProgress(); }
+function syncRenderProgress() {
+  const pending = () => !destroyed && firstPageReady && !document.hidden && !printing &&
+    visiblePageViews.some(view => view.renderingState !== RenderingStates.FINISHED);
+  if (!pending()) {
+    clearTimeout(renderProgressTimer); renderProgressTimer = 0;
+    if (renderBusy) { renderBusy = false; paintProgress(); }
+  } else if (!renderBusy && !renderProgressTimer) {
+    // One delayed notification, no polling or extra page/geometry scans.
+    renderProgressTimer = setTimeout(() => {
+      renderProgressTimer = 0;
+      if (pending()) { renderBusy = true; paintProgress(); }
+    }, 200);
+  }
+}
 function theme(dark) {
   themeDark = !!dark;
   document.documentElement.dataset.dark = String(themeDark); document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
@@ -72,6 +86,7 @@ function localize(locale) {
   $('fullscreen').setAttribute('aria-label', $('fullscreen').title);
   ocr?.setInterface(settings.ocrAction);
   toolbarMenu?.refreshLabels();
+  if(linkCapture)void linkCapture.then(dialog=>dialog.setLocale(document.documentElement.lang)).catch(()=>{});
   if(properties)void properties.then(dialog => { if (!destroyed) dialog.setInterface(document.documentElement.lang, settings.propertyDateFormat); });
 }
 function setDarkPaper(enabled) {
@@ -83,7 +98,7 @@ function updateDarkPaper(view, failed = false) {
   if (!darkPaper || !view || ((!themeDark || !settings.preserveDarkPaper) && !failed)) return;
   // A detail canvas is only a crop; a partial base render can miss white areas.
   if (!failed && view.renderingState !== RenderingStates.FINISHED) return;
-  const result = failed ? darkPaper.reject(view.id) : darkPaper.decide(view.id, view.canvas);
+  const result = failed ? darkPaper.reject(view.id) : darkPaper.decide(view.id, view.canvas, context => renderedPaperShade(view.pdfPage, pdfjs.OPS, context));
   view.div.toggleAttribute('data-original-dark', result === 2);
   view.div.setAttribute('data-dark-checked', '');
   $('thumbnails').children[view.id - 1]?.toggleAttribute('data-original-dark', result === 2);
@@ -109,10 +124,10 @@ function setSharpening(enabled) {
 function click(id, callback) { $(id).addEventListener('click', callback, { signal }); }
 function cleanupPrint() { for (const url of printUrls) URL.revokeObjectURL(url); printUrls.clear(); $('print-pages').replaceChildren(); }
 function destroy() {
-  if (destroyed) return; destroyed = true; lifetime.abort(); cancelAnimationFrame(zoomFrame); clearTimeout(parseTimer);
+  if (destroyed) return; destroyed = true; lifetime.abort(); cancelAnimationFrame(zoomFrame); clearTimeout(parseTimer); clearTimeout(renderProgressTimer); visiblePageViews = [];
   ocr?.destroy(); darkPaper?.destroy(); thumbnailGeneration++; thumbnailObserver?.disconnect(); thumbnailTask?.cancel(); printTask?.cancel();
   viewer?.setDocument(null); void task?.destroy().catch(() => {}); cleanupPrint();
-  pdfWorker?.destroy(); if (workerUrl) URL.revokeObjectURL(workerUrl); port?.close();
+  pdfWorker?.destroy(); port?.close();
 }
 window.addEventListener('pagehide', destroy, { once: true });
 window.addEventListener('message', event => {
@@ -147,10 +162,11 @@ window.addEventListener('message', event => {
     }
     else if (data?.type === 'dark-paper') setDarkPaper(data.enabled);
     else if (data?.type === 'sharpening') setSharpening(data.enabled);
-    else if (data?.type === 'host-error') { $('status').textContent = String(data.message || '').slice(0,1000); $('progress').hidden = true; }
+    else if (data?.type === 'host-error') { $('status').textContent = String(data.message || '').slice(0,1000); taskBusy = false; paintProgress(); }
     else if (data?.type === 'interface') {
       const next = normalizeSettings(data);
       settings = {...settings, propertyDateFormat:next.propertyDateFormat, ocrAction:next.ocrAction, useChromeFind:next.useChromeFind};
+      setLinkCapture(next.captureLinks);
       localize(data.locale);
     }
     else if (data?.type === 'fullscreen-error') status('fullScreenFailed');
@@ -200,7 +216,7 @@ async function open(bytes, sampling) {
     clearTimeout(parseTimer);
     emit('password'); status('');
     $('password-message').textContent = text[reason === pdfjs.PasswordResponses.INCORRECT_PASSWORD ? 'passwordWrong' : 'passwordNeeded'];
-    $('password').value = ''; $('password-dialog').showModal(); $('password').focus();
+    $('password').value = ''; showReaderDialog($('password-dialog'), $('password'));
     $('password-dialog').onclose = () => {
       if ($('password-dialog').returnValue === 'open') { status('loading', true); armParseDeadline(); accept($('password').value); $('password').value = ''; }
       else { passwordCancelled = true; status('cancelled'); void task.destroy().catch(() => {}); pdfWorker?.destroy(); }
@@ -228,10 +244,16 @@ async function open(bytes, sampling) {
     imagesRightClickMinSize: -1, abortSignal: signal });
   links.setViewer(viewer); links.setDocument(pdf);
   const render = viewer.renderingQueue.renderHighestPriority.bind(viewer.renderingQueue);
-  viewer.renderingQueue.renderHighestPriority = (...args) => { if (!destroyed && !document.hidden && !printing) render(...args); };
+  viewer.renderingQueue.renderHighestPriority = (...args) => {
+    // Reuse the renderer's existing visible set; do not inspect every page on scroll.
+    if (args[0]?.views) visiblePageViews = args[0].views.filter(item=>item.percent>0).map(item=>item.view);
+    if (!destroyed && !document.hidden && !printing) render(...args);
+    syncRenderProgress();
+  };
   document.addEventListener('visibilitychange', () => {
     thumbnailTask?.cancel();
     if (document.hidden) viewer.cleanup(); else { viewer.update(); void drawThumbnails(); }
+    syncRenderProgress();
   }, { signal });
   eventBus.on('pagesinit', () => {
     for (const control of document.querySelectorAll('header nav button, header nav input, header nav select, #sidebar-toggle')) control.disabled = false;
@@ -261,6 +283,7 @@ async function open(bytes, sampling) {
     if (error) status('pageError');
     if (sharpening) updateCanvasSharpening(viewer.getPageView(pageNumber - 1), cssTransform || error);
     if (settings.links && !cssTransform && !destroyed) void renderLinks(pageNumber, links).catch(() => {});
+    syncRenderProgress();
   }, { signal });
   eventBus.on('scalechanging', ({ scale, presetValue }) => {
     if (sharpening) for (const view of viewer.getCachedPageViews()) view.canvas?.classList.remove('pdf-sharpen');
@@ -368,6 +391,33 @@ async function open(bytes, sampling) {
   window.addEventListener('afterprint', cleanupPrint, { signal });
 }
 
+async function captureExternalLink(url,anchor) {
+  const request=++linkRequest;
+  linkCapture ||= import('./link-capture.js').then(({createLinkCapture})=>createLinkCapture({signal,locale:document.documentElement.lang}));
+  try { const dialog=await linkCapture;if(!destroyed&&settings.links&&linkNeedsCapture(url)&&anchor.isConnected&&request===linkRequest)dialog.show(url,anchor); } catch {}
+}
+
+// Protocol links are copy-only even when ordinary web-link capture is off.
+function linkNeedsCapture(url) { return settings.captureLinks || !/^https?:/i.test(url); }
+function setLinkCapture(enabled) {
+  settings.captureLinks = enabled === true;
+  for (const link of document.querySelectorAll('.pdf-links a[data-external-link]')) link.href = linkNeedsCapture(link.dataset.externalLink) ? '#' : link.dataset.externalLink;
+  if (!settings.captureLinks) {
+    if(linkCapture)void linkCapture.then(dialog=>dialog.closeWeb()).catch(()=>{});
+  }
+}
+function bindExternalLink(node, url) {
+  node.dataset.externalLink = url; node.title = url;
+  if (node.tagName === 'A') { node.href = linkNeedsCapture(url) ? '#' : url; node.target = '_blank'; node.rel = 'noopener noreferrer'; }
+  const activate = event => {
+    if (!event.isTrusted || !settings.links) { event.preventDefault(); return; }
+    if (event.type !== 'click' && event.button !== 1) return;
+    if (linkNeedsCapture(url)) { event.preventDefault(); event.stopPropagation(); void captureExternalLink(url,node); }
+    else if (node.tagName !== 'A') { event.preventDefault(); window.open(url,'_blank','noopener,noreferrer'); }
+  };
+  node.addEventListener('click',activate); node.addEventListener('auxclick',activate);
+}
+
 async function renderLinks(number, linkService) {
   const pageView = viewer.getPageView(number - 1), viewport = pageView?.viewport;
   if (!pageView?.pdfPage || !viewport || destroyed) return;
@@ -377,11 +427,14 @@ async function renderLinks(number, linkService) {
   const layer = document.createElement('div'); layer.className = 'pdf-links';
   for (const item of annotations.slice(0, 1000)) {
     if (item.subtype !== 'Link' || item.actions || !Array.isArray(item.rect) || item.rect.length !== 4 || !item.rect.every(Number.isFinite)) continue;
-    const url = safePdfLink(item.url); if (!url && !item.dest) continue;
+    const url = safePdfLink(item.url || item.unsafeUrl); if (!url && !item.dest) continue;
     const rect = [...viewport.convertToViewportPoint(item.rect[0], item.rect[1]), ...viewport.convertToViewportPoint(item.rect[2], item.rect[3])];
     if (!rect.every(Number.isFinite)) continue;
     const link = document.createElement('a');
-    if (url) { link.href = url; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.title = url; }
+    if (url) {
+      // Capture mode carries no external href, including for modifier clicks.
+      bindExternalLink(link,url);
+    }
     else { link.href = '#'; link.onclick = e => { e.preventDefault(); void linkService.goToDestination(item.dest).catch(() => {}); }; link.title = text.page; }
     link.style.cssText = `left:${Math.min(rect[0],rect[2])/viewport.width*100}%;top:${Math.min(rect[1],rect[3])/viewport.height*100}%;width:${Math.abs(rect[2]-rect[0])/viewport.width*100}%;height:${Math.abs(rect[3]-rect[1])/viewport.height*100}%`;
     link.setAttribute('aria-label', link.title); layer.append(link);
@@ -434,7 +487,10 @@ async function showOutline(links) {
     if (depth > 20) return;
     for (const item of items) { if (++count > 2000) break;
       const button = document.createElement('button'); button.textContent = String(item.title || text.page).slice(0, 512); button.style.paddingInlineStart = (8 + depth * 10) + 'px';
-      button.disabled = !item.dest; button.onclick = () => void links.goToDestination(item.dest).catch(() => {}); container.append(button);
+      const url = safePdfLink(item.url || item.unsafeUrl);
+      if (url) { button.disabled = !settings.links; bindExternalLink(button,url); }
+      else { button.disabled = !item.dest; button.onclick = () => void links.goToDestination(item.dest).catch(() => {}); }
+      container.append(button);
       if (Array.isArray(item.items)) add(item.items, container, depth + 1);
     }
   }
@@ -442,11 +498,11 @@ async function showOutline(links) {
 }
 function openPrint() {
   if (!pdf || !viewer?.printingAllowed || printing || destroyed) return;
-  $('print-error').textContent = ''; $('print-dialog').showModal();
+  $('print-error').textContent = ''; showReaderDialog($('print-dialog'), $('print-from'));
 }
 async function printDocument() {
   const range = printRange($('print-from').value, $('print-to').value, pdf.numPages);
-  if (!range) { $('print-error').textContent = text.invalidRange; $('print-dialog').showModal(); return; }
+  if (!range) { $('print-error').textContent = text.invalidRange; showReaderDialog($('print-dialog'), $('print-from')); return; }
   printing = true; $('print').disabled = true; thumbnailTask?.cancel(); status('printing', true); cleanupPrint();
   let pixels = 0;
   try {

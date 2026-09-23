@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.1.1
+
+- Avoid OCR WASM loading warnings without expanding network access.
+- Place the product name above Settings and add matching tool icons and muted default-hidden notes to More actions choices.
+- Fix PDF background-worker startup and whole-document copying in the isolated reader, and avoid cross-frame dialog autofocus.
+- Remove page-interior loading symbols while scrolling; show a toolbar-divider progress line only when a visible page needs longer to render.
+- Improve dark-paper recognition for dense text, colored callouts, and inset images using existing page-rendering evidence, while retaining conservative protection for white paper and light content panels.
+- Hide Preserve dark-paper colors when Appearance is set to Light, retaining its saved preference when returning to Auto or Dark.
+- Show Filename by default in Toolbar content, without changing existing saved choices.
+- Keep only the newest Settings tab open, automatically closing earlier Settings tabs without affecting PDF readers.
+- Return from Settings to Open a PDF in the same tab.
+- Add a default-on Capture external links setting: document and outline web links show an Open/Copy prompt, with direct opening available when capture is off. Email/telephone/SMS links always offer copying only.
+
 ## 1.2.15
 
 - Add a default-on Preserve dark-paper colors setting to preserve original colors when strictly recognized black or gray paper would otherwise become brighter in dark mode, while keeping white-paper and mixed layouts under normal dark-mode processing. Reuse per-page decisions during zooming and rotation.

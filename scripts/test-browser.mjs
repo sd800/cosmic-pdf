@@ -6,7 +6,7 @@ import {viewerPdf,scannedPdf} from '../test/fixtures/pdf-viewer.mjs';
 const {chromium}=await import(process.env.PDF_PLAYWRIGHT?pathToFileURL(process.env.PDF_PLAYWRIGHT).href:'playwright');
 const folder=await mkdtemp(join(tmpdir(),'cosmic-pdf-qa-')),ext=join(folder,'extension');await cp(resolve('extension'),ext,{recursive:true});
 // Expose renderer state in the disposable QA copy only.
-const viewerFile=join(ext,'workspaces/pdf-viewer/viewer.js');await writeFile(viewerFile,(await readFile(viewerFile,'utf8')).replace('links.setViewer(viewer);','window.qaViewer=viewer; window.qaSettings=()=>settings; window.qaDarkPaper=darkPaper; window.qaEventBus=eventBus; links.setViewer(viewer);').replace('void workerReady.catch(() => {});', 'void workerReady.then(()=>{window.qaWorkerReady=true;}).catch(e=>{window.qaWorkerError=String(e);});'));
+const viewerFile=join(ext,'workspaces/pdf-viewer/viewer.js');await writeFile(viewerFile,(await readFile(viewerFile,'utf8')).replace('links.setViewer(viewer);','window.qaViewer=viewer; window.qaSettings=()=>settings; window.qaDarkPaper=darkPaper; window.qaEventBus=eventBus; links.setViewer(viewer);').replace('void workerReady.catch(() => {});', 'void workerReady.then(worker=>{window.qaWorkerReady=worker.port instanceof Worker;}).catch(e=>{window.qaWorkerError=String(e);});'));
 // Count bounded sampling reads in this QA copy, never in shipped code.
 const guardFile=join(ext,'workspaces/pdf-viewer/dark-paper.js');await writeFile(guardFile,(await readFile(guardFile,'utf8')).replace('context.drawImage(source, 0, 0, size, size);', '(globalThis.qaPaperReads ||= []).push(size); context.drawImage(source, 0, 0, size, size);').replace('    try {\n      canvas ||= makeCanvas();', '    const qaStart=performance.now(); try {\n      canvas ||= makeCanvas();').replace('finally { if (canvas)', 'finally { (globalThis.qaPaperTimings ||= []).push(performance.now()-qaStart); if (canvas)'));
 // Delayed recognition in the disposable test copy makes in-flight UI assertions deterministic.
@@ -18,11 +18,20 @@ const server=createServer((req,res)=>{
  if(path==='/html.pdf'){res.setHeader('Content-Type','text/html');res.end('<h1>Not a PDF</h1>');return;}
  if(path==='/links'){res.setHeader('Content-Type','text/html');res.end('<a href="/history.pdf">Read PDF</a>');return;}
  if(path==='/form'){res.setHeader('Content-Type','text/html');res.end('<form method="post" action="/post"><button>Submit</button></form>');return;}
+ if(path==='/link-target'){res.setHeader('Content-Type','text/html');res.end('<h1>Link opened</h1>');return;}
+ if(path==='/link-capture'){res.setHeader('Content-Type','application/pdf');res.end(viewerPdf(1,[],[base+'/link-target?token=a%2Bb','mailto:a+tag@example.com?subject=Hello%20%3Cb%3E&body=line1%0Aline2','tel:+13125550123;ext=4','sms:+13125550123?body=Hello%20%3Cb%3E']));return;}
  if(path==='/attachment'){res.setHeader('Content-Disposition','attachment; filename="download.pdf"');}
  res.setHeader('Content-Type',path==='/binary.pdf'?'application/octet-stream':'application/pdf');
  if(path==='/slow'&&req.headers['sec-fetch-dest']!=='document'){res.flushHeaders();slowResponses.add(res);res.on('close',()=>slowResponses.delete(res));return;}
  if(path==='/huge'){res.setHeader('Content-Length',String(90*1024*1024));res.end('%PDF-1.7');return;}
  if(path==='/bad'){res.end('not a PDF');return;}
+ if(path==='/designed-paper'){
+  const content=Array.from({length:20},(_,i)=>`1 g BT /F1 10 Tf 35 ${785-i*30} Td (A line of small outlined or typeset content, with a colorful heading.) Tj ET\n0 .7 .6 rg 35 ${790-i*30} 150 2 re f`).join('\n');
+  const panels='0 .25 .2 rg 35 35 240 100 re f\n0 .6 .5 rg 300 35 250 100 re f\n';
+  const dark='0 g 0 0 612 842 re f\n',gray='0.25 g 0 0 612 842 re f\n';
+  const photo='0 g 8 8 579 826 re f\n'+content;
+  res.end(viewerPdf(6,[dark+content+panels,gray+content+panels,'1 g 0 0 612 842 re f\n'+photo,'0 g 0 0 m 612 0 l 0 842 l h f\n'+photo, '0 0 250 842 re W n\n'+dark+content, '1 g 0 0 612 842 re f\n'+dark+content+panels]));return;
+ }
  if(path==='/black-paper'){
   const bed='0.016 g 0 0 612 842 re f\n',writing='1 g BT /F1 12 Tf 65 730 Td (Sparse white writing on black paper.) Tj ET\n';
   const stars=Array.from({length:150},(_,i)=>`${20+(i*137)%555} ${20+(i*233)%800} 1 1 re f`).join('\n');
@@ -33,8 +42,26 @@ const server=createServer((req,res)=>{
  res.end(path==='/black-scan'?blackScan:path==='/scan-many'?batchScan:path==='/scan'?englishScan:path==='/chinese'?chineseScan:viewerPdf(6));
 });await new Promise(r=>server.listen(0,'127.0.0.1',r));const base='http://127.0.0.1:'+server.address().port;
 const context=await chromium.launchPersistentContext(join(folder,'profile'),{executablePath:process.env.PDF_CHROME,headless:true,viewport:{width:1360,height:960},deviceScaleFactor:2,args:['--force-device-scale-factor=2',`--disable-extensions-except=${ext}`,`--load-extension=${ext}`]});
-function observe(page){page.on('pageerror',e=>report.errors.push(e.message));page.on('console',m=>{if(m.type()==='error')report.errors.push(m.text());});page.on('request',r=>{if(/^https?:/.test(r.url())&&!r.url().startsWith(base))report.remoteRequests.push(r.url());});}
+function observe(page){page.on('pageerror',e=>report.errors.push(e.message));page.on('console',m=>{if(m.type()==='error'||/fake worker|autofocusing|permissions policy|Content Security Policy|cross-origin redirects/i.test(m.text()))report.errors.push(m.text());});page.on('request',r=>{if(/^https?:/.test(r.url())&&!r.url().startsWith(base))report.remoteRequests.push(r.url());});}
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
+
+  async function checkCopyAll(frame) {
+    const allowed = await frame.evaluate(() => ({write:document.featurePolicy.allowsFeature('clipboard-write'),read:document.featurePolicy.allowsFeature('clipboard-read')}));
+    assert.equal(allowed.write, true); assert.equal(allowed.read, false);
+    await frame.evaluate(() => {
+      // Test the real PDF.js extraction path without replacing the OS clipboard.
+      const original = Object.getOwnPropertyDescriptor(navigator.clipboard, 'writeText');
+      window.qaRestoreCopy = () => { if (original) Object.defineProperty(navigator.clipboard,'writeText',original); else delete navigator.clipboard.writeText; };
+      Object.defineProperty(navigator.clipboard,'writeText',{configurable:true,value:async text=>{window.qaAllCopied=text;}});
+      document.addEventListener('copy',event=>event.preventDefault(),{once:true});
+    });
+    await frame.locator('.textLayer span').first().click();
+    await frame.page().keyboard.press(process.platform==='darwin'?'Meta+a':'Control+a');
+    await frame.page().keyboard.press(process.platform==='darwin'?'Meta+c':'Control+c');
+    await frame.waitForFunction(() => typeof window.qaAllCopied === 'string');
+    assert.match(await frame.evaluate(()=>window.qaAllCopied), /PDF Viewer page 1/);
+    await frame.evaluate(()=>{qaRestoreCopy();getSelection().removeAllRanges();});
+  }
 async function chooseToolbar(root,mode){
  const showFilename=mode==='both'||mode==='filename',showBranding=mode==='both'||mode==='branding';
  await root.locator('#showFilename').setChecked(showFilename);await root.locator('#showBranding').setChecked(showBranding);
@@ -70,13 +97,40 @@ try{
  for(let i=0;i<50;i++){if((await worker.evaluate(()=>chrome.declarativeNetRequest.getDynamicRules())).length>=3)break;await delay(100);}
  async function go(url){await page.goto(url).catch(e=>{if(!/net::ERR_ABORTED|Download is starting/.test(e.message))throw e;});}
  async function open(path='/document?token=a%2Bb&sig=x%3D#page=2'){
-  await page.bringToFront();await go(base+path);await page.waitForURL(url=>url.href.startsWith(reader+'?source='));const element=await page.waitForSelector('iframe');const frame=await element.contentFrame();await frame.waitForFunction(()=>document.querySelector('.page canvas')?.width>0&&document.querySelector('#count').textContent!=='—');await frame.waitForFunction(()=>window.qaViewer?.getPageView(0)?.renderingState===3);return frame;
+  await page.bringToFront();await go(base+path);await page.waitForURL(url=>url.href.startsWith(reader+'?source='));const element=await page.waitForSelector('iframe');const frame=await element.contentFrame();await frame.waitForFunction(()=>document.querySelector('.page canvas')?.width>0&&document.querySelector('#count').textContent!=='—');await frame.waitForFunction(()=>window.qaViewer?.getPageView(0)?.renderingState===3);assert.equal(await frame.evaluate(()=>window.qaWorkerReady),true,'PDF parsing uses a real background Worker');return frame;
  }
  // Homepage Settings must add history within the same tab, without starting PDF workers.
  await page.goto(reader);await page.waitForSelector('#settings');assert.equal(await page.locator('iframe').count(),0);
  const tabsBefore=context.pages().length;await page.locator('#settings').click();await page.waitForURL(settings);
- assert.equal(context.pages().length,tabsBefore);assert.equal(await page.locator('#preserveDarkPaper').isChecked(),true);assert.equal(await page.locator('#showFilename').isChecked(),false);assert.equal(await page.locator('#showBranding').isChecked(),false);assert.equal(await page.locator('#ocrAction').inputValue(),'page');assert.equal(await page.locator('#useChromeFind').isChecked(),true);assert.deepEqual(await page.locator('#ocrLanguages input:checked').evaluateAll(nodes=>nodes.map(n=>n.value)),['eng','chi_sim']);await page.locator('#ocrAction').selectOption('panel');await page.waitForFunction(async()=>(await chrome.storage.local.get('settings')).settings.ocrAction==='panel');await page.goBack();await page.waitForURL(reader);await page.waitForSelector('#open-file');
- await page.goForward();await page.waitForURL(settings);await page.goBack();await page.waitForSelector('#settings');
+ assert.equal(context.pages().length,tabsBefore);assert.equal(await page.locator('.wordmark h1').textContent(),'Cosmic PDF');assert.equal(await page.locator('.wordmark>span').textContent(),'Settings');assert.equal(await page.locator('#toolbarHidden label svg').count(),11);assert.equal(await page.locator('#toolbarHidden .default-hint').first().evaluate(n=>getComputedStyle(n).color!==getComputedStyle(n.parentElement).color),true);assert.equal(await page.locator('#preserveDarkPaper').isChecked(),true);assert.equal(await page.locator('#showFilename').isChecked(),true);assert.equal(await page.locator('#showBranding').isChecked(),false);assert.equal(await page.locator('#ocrAction').inputValue(),'page');assert.equal(await page.locator('#useChromeFind').isChecked(),true);assert.deepEqual(await page.locator('#ocrLanguages input:checked').evaluateAll(nodes=>nodes.map(n=>n.value)),['eng','chi_sim']);await page.locator('#ocrAction').selectOption('panel');await page.waitForFunction(async()=>(await chrome.storage.local.get('settings')).settings.ocrAction==='panel');await page.goBack();await page.waitForURL(reader);await page.waitForSelector('#open-file');
+ await page.goForward();await page.waitForURL(settings);
+ const beforeReturn=context.pages().length;await page.locator('#open-reader').click();await page.waitForURL(reader);assert.equal(context.pages().length,beforeReturn);await page.goBack();await page.waitForURL(settings);
+ // Hide the complete dark-paper row only for an explicitly Light appearance,
+ // without resetting either stored checkbox value, in either interface language.
+ for(const locale of ['en-US','zh-CN']){
+  await page.locator('#locale').selectOption(locale);await page.waitForFunction(locale=>document.documentElement.lang===locale,locale);
+  for(const enabled of [true,false]){
+   await page.locator('#preserveDarkPaper').setChecked(enabled);
+   await page.waitForFunction(async enabled=>(await chrome.storage.local.get('settings')).settings.preserveDarkPaper===enabled,enabled);
+   for(const appearance of ['light','dark','light','auto']){
+    await page.locator('#appearance').selectOption(appearance);
+    await page.waitForFunction(light=>document.querySelector('#preserveDarkPaper')?.closest('.row').hidden===light,appearance==='light');
+    assert.equal(await page.locator('#preserveDarkPaper-title').isVisible(),appearance!=='light');
+    assert.equal(await page.locator('#preserveDarkPaper').isVisible(),appearance!=='light');
+    assert.equal(await page.locator('#preserveDarkPaper').isChecked(),enabled);
+    assert.equal(await page.evaluate(async()=>(await chrome.storage.local.get('settings')).settings.preserveDarkPaper),enabled);
+    if(appearance==='light'){
+     await page.reload();await page.waitForSelector('#appearance');assert.equal(await page.locator('#preserveDarkPaper').isVisible(),false);
+     assert.equal(await page.locator('#preserveDarkPaper').isChecked(),enabled);
+    }
+   }
+  }
+ }
+ await page.emulateMedia({colorScheme:'light'});assert.equal(await page.locator('#preserveDarkPaper').isVisible(),true,'Auto keeps the preference available even in a light browser');
+ await page.locator('#preserveDarkPaper').check();await page.waitForFunction(async()=>(await chrome.storage.local.get('settings')).settings.preserveDarkPaper===true);
+ await page.locator('#locale').selectOption('auto');await page.waitForFunction(()=>document.querySelector('#locale')?.value==='auto'&&document.documentElement.lang==='en-US');
+ report.checks.push('dark-paper setting hidden only for explicit Light appearance, restored for Auto/Dark; on/off preference survives transitions and reloads in both languages');
+ await page.goBack();await page.waitForSelector('#settings');
  report.checks.push('homepage Settings uses the same tab and restores with Back/Forward');
  for(const scheme of ['light','dark']){
   await page.emulateMedia({colorScheme:scheme});await go(base+'/slow');await page.waitForURL(url=>url.href.startsWith(reader+'?source='));
@@ -86,7 +140,7 @@ try{
   assert.equal(await page.locator('#splash').count(),0);assert.equal(await warm.locator('header').isVisible(),true);
   assert.equal(await warm.locator('#progress').isVisible(),true);assert.equal(await warm.locator('#status').textContent(),'');assert.equal(await warm.locator('#scale').inputValue(),'1');
   assert.equal(await warm.locator('#scale-input').isVisible(),true);assert.equal(await warm.locator('#scale-input').isDisabled(),true);assert.equal(await warm.locator('#scale').isVisible(),false);assert.equal(await warm.locator('#sidebar-toggle').evaluate(n=>n.parentElement.id),'leading-actions');assert.equal(await warm.locator('#sidebar-toggle').isDisabled(),true);
-  assert.equal(await warm.locator('.identity').isVisible(),false);assert.equal(await warm.locator('.file').isVisible(),false);
+  assert.equal(await warm.locator('.identity').isVisible(),false);assert.equal(await warm.locator('.file').isVisible(),true);
   assert.equal(await warm.locator('#print').isDisabled(),true);assert.equal(await warm.locator('#properties').isDisabled(),true);assert.equal(await warm.locator('#filename').isDisabled(),true);assert.equal(await warm.locator('#download').isDisabled(),true);assert.equal(await warm.locator('#next').isDisabled(),true);assert.equal(await warm.locator('#native').isDisabled(),false);
   const geometry=await warm.evaluate(()=>{const h=document.querySelector('header').getBoundingClientRect(),p=document.querySelector('#progress').getBoundingClientRect();return{height:h.height,aligned:Math.abs(h.bottom-p.bottom)<1&&p.height===2};});assert.equal(geometry.aligned,true);
   await warm.locator('#theme').click();await warm.waitForFunction(dark=>document.documentElement.dataset.dark===String(!dark),scheme==='dark');
@@ -109,7 +163,7 @@ try{
  frame=await open();assert.equal(page.url(),reader+'?source='+base+'/document?token=a%2Bb&sig=x%3D#page=2');report.checks.push('MIME takeover and signed URL preservation');
  assert.equal(await frame.locator('#page').inputValue(),'1');assert.equal(await frame.locator('#scale').inputValue(),'1');assert.equal(await frame.locator('#viewport').evaluate(n=>n.scrollTop),0);
  assert.equal(await frame.evaluate(()=>typeof chrome==='undefined'||!chrome.runtime),true);assert.equal(await frame.evaluate(()=>globalThis.PDF_ATTACK),undefined);
- await frame.locator('#zoom-in').click();await frame.locator('#zoom-in').click();await frame.waitForFunction(()=>Math.abs(window.qaViewer.currentScale-1.2)<.001);report.checks.push('100% initial scale, 10-point zoom and sandbox isolation');
+ await frame.locator('#zoom-in').click();await frame.locator('#zoom-in').click();await frame.waitForFunction(()=>Math.abs(window.qaViewer.currentScale-1.2)<.001);report.checks.push('100% initial scale, 10-point zoom and sandbox isolation');await checkCopyAll(frame);
  for(const [scale,lower,upper]of [[1.2,'1','1.25'],[.25,'page-fit','0.5'],[4.5,'4','5']]){
   const orderBefore=await frame.locator('#scale option').evaluateAll(nodes=>nodes.map(n=>n.value));
   await frame.evaluate(scale=>{qaViewer.currentScaleValue=String(scale);},scale);
@@ -169,7 +223,7 @@ try{
  const attachment=page.waitForEvent('download');await go(base+'/attachment');await (await attachment).cancel();report.checks.push('attachment stays a download');
  await go(base+'/form');await page.locator('button').click();await delay(500);assert.equal(page.url(),base+'/post');report.checks.push('POST is not replayed/intercepted');
  frame=await open('/binary.pdf');report.checks.push('binary MIME with PDF filename');
- const prefs=await context.newPage();observe(prefs);await prefs.goto(settings);await prefs.locator('#locale').selectOption('zh-CN');await prefs.waitForFunction(()=>document.documentElement.lang==='zh-CN');await prefs.locator('#sampling').selectOption('1');await prefs.locator('#gap').selectOption('24');await chooseLanguages(prefs,'#ocrLanguages',['eng','chi_tra']);await prefs.locator('#appearance').selectOption('dark');await prefs.waitForFunction(async()=>{const s=(await chrome.storage.local.get('settings')).settings;return s?.sampling===1&&s?.appearance==='dark'&&s?.gap===24&&s?.ocrLanguages?.join('+')==='eng+chi_tra';});
+ let prefs=await context.newPage();observe(prefs);await prefs.goto(settings);await prefs.locator('#locale').selectOption('zh-CN');await prefs.waitForFunction(()=>document.documentElement.lang==='zh-CN');await prefs.locator('#sampling').selectOption('1');await prefs.locator('#gap').selectOption('24');await chooseLanguages(prefs,'#ocrLanguages',['eng','chi_tra']);await prefs.locator('#appearance').selectOption('dark');await prefs.waitForFunction(async()=>{const s=(await chrome.storage.local.get('settings')).settings;return s?.sampling===1&&s?.appearance==='dark'&&s?.gap===24&&s?.ocrLanguages?.join('+')==='eng+chi_tra';});
  assert.equal(await frame.evaluate(()=>qaViewer.getPageView(0).getRenderPixelRatio()),4,'existing reader sampling snapshot');await prefs.screenshot({path:join(folder,'settings-zh.png'),fullPage:true});report.checks.push('localized settings and immutable open-reader sampling');
  frame=await open('/new');assert.equal(await frame.evaluate(()=>qaViewer.getPageView(0).getRenderPixelRatio()),1);assert.equal(await frame.evaluate(()=>document.documentElement.dataset.dark),'true');assert.equal(await frame.locator('#viewport').evaluate(n=>n.scrollTop),0);report.checks.push('new-reader preferences');
  await frame.locator('#properties').click();await frame.waitForFunction(()=>!document.querySelector('#properties-status').textContent);assert.equal(await frame.locator('#properties-title').textContent(),'文档信息');
@@ -177,10 +231,10 @@ try{
  assert.match(await frame.locator('[data-property=created]').textContent(),/2026 年 1 月 2 日 12:34:56 \(UTC\)/);
  assert.deepEqual(await frame.locator('#properties-dialog').evaluate(n=>({width:n.getBoundingClientRect().width,height:n.getBoundingClientRect().height,font:getComputedStyle(n).fontSize})),{width:560,height:560,font:'15px'});assert.equal(await frame.locator('#properties-list').evaluate(n=>getComputedStyle(n).fontSize),'15px');
  for(const [format,date]of [['ymd','2026-01-02'],['ymd-slash','2026/01/02'],['dmy','02/01/2026'],['mdy','01/02/2026']]){await prefs.locator('#propertyDateFormat').selectOption(format);await frame.waitForFunction(value=>document.querySelector('[data-property=created]').textContent===value,date+' 12:34:56 (UTC)');}
- const languageHome=await context.newPage(),languageSettings=await context.newPage();observe(languageHome);observe(languageSettings);await languageHome.goto(reader);await languageSettings.goto(settings);await languageSettings.waitForSelector('#locale');
- await prefs.locator('#locale').selectOption('en-US');await frame.waitForFunction(()=>document.querySelector('#properties-title').textContent==='Document properties');await languageHome.waitForFunction(()=>document.querySelector('#open-file').textContent==='Open a PDF');await languageSettings.waitForFunction(()=>document.querySelector('#title').textContent==='Settings');assert.equal(await frame.locator('#ocr-toggle').getAttribute('title'),'Text recognition');assert.equal(await frame.evaluate(()=>qaViewer.pdfDocument===qaLocaleDoc),true);
+ const languageHome=await context.newPage();observe(languageHome);await languageHome.goto(reader);
+ await prefs.locator('#locale').selectOption('en-US');await frame.waitForFunction(()=>document.querySelector('#properties-title').textContent==='Document properties');await languageHome.waitForFunction(()=>document.querySelector('#open-file').textContent==='Open a PDF');assert.equal(await prefs.locator('#title').textContent(),'Settings');assert.equal(await frame.locator('#ocr-toggle').getAttribute('title'),'Text recognition');assert.equal(await frame.evaluate(()=>qaViewer.pdfDocument===qaLocaleDoc),true);
  await prefs.locator('#propertyDateFormat').selectOption('auto');await frame.waitForFunction(()=>document.querySelector('[data-property=created]').textContent==='Jan 2, 2026, 12:34:56 PM (UTC)');
- await prefs.locator('#locale').selectOption('zh-CN');await frame.waitForFunction(()=>document.querySelector('#properties-title').textContent==='文档信息');await frame.waitForFunction(()=>document.querySelector('[data-property=created]').textContent==='2026 年 1 月 2 日 12:34:56 (UTC)');await languageHome.waitForFunction(()=>document.querySelector('#open-file').textContent==='打开 PDF 文件');await languageSettings.waitForFunction(()=>document.querySelector('#title').textContent==='设置');await languageHome.close();await languageSettings.close();await page.bringToFront();
+ await prefs.locator('#locale').selectOption('zh-CN');await frame.waitForFunction(()=>document.querySelector('#properties-title').textContent==='文档信息');await frame.waitForFunction(()=>document.querySelector('[data-property=created]').textContent==='2026 年 1 月 2 日 12:34:56 (UTC)');await languageHome.waitForFunction(()=>document.querySelector('#open-file').textContent==='打开 PDF 文件');assert.equal(await prefs.locator('#title').textContent(),'设置');await languageHome.close();await page.bringToFront();
  await frame.locator('#properties-list').click();assert.equal(await frame.locator('#properties-dialog').evaluate(n=>n.open),true);await page.mouse.click(8,8);await frame.waitForFunction(()=>!document.querySelector('#properties-dialog').open);await frame.locator('#properties').click();await frame.waitForFunction(()=>!document.querySelector('#properties-status').textContent);
  report.checks.push('live date formats, explicit time zones, spaced Chinese dates, properties dialog outside dismissal; live reader localization without reparse');
 assert.match(await frame.locator('[data-property=pageSize]').textContent(),/215.9 × 297.04 mm/);
@@ -240,12 +294,14 @@ assert.match(await frame.locator('[data-property=pageSize]').textContent(),/215.
  frame=await open('/scan');await frame.locator('#ocr-toggle').click();await chooseLanguages(frame,'#ocr-languages',['eng']);
  assert.equal(await frame.locator('#ocr-languages input[value=eng]').getAttribute('aria-disabled'),'true');
  await frame.locator('#ocr-languages input[value=eng]').focus();await frame.locator('#ocr-languages input[value=eng]').press('Space');assert.equal(await frame.locator('#ocr-languages input[value=eng]').isChecked(),true,'retain final language');
+ // Track this recognition run, not stale CDP handles from earlier navigations.
+ const ocrWorkers=new Set(),trackOcrWorker=w=>{ocrWorkers.add(w);w.once('close',()=>ocrWorkers.delete(w));};page.on('worker',trackOcrWorker);
  const start=performance.now();await frame.locator('#ocr-start').click();await frame.waitForFunction(()=>!document.querySelector('#ocr-start').disabled,{timeout:130000});assert.match((await frame.locator('.ocr-text-layer').allTextContents()).join(''),/COSMIC PDF READER/);assert.ok(await frame.locator('.ocr-text-layer span').count()>2);assert.equal(await frame.locator('#ocr-result,#ocr-result-page,#ocr-copy').count(),0);
  // Intercept the real Copy event in QA only, without touching the OS clipboard.
  await frame.evaluate(()=>{const layer=document.querySelector('.ocr-text-layer'),range=document.createRange();range.selectNodeContents(layer);getSelection().removeAllRanges();getSelection().addRange(range);document.addEventListener('copy',event=>{event.preventDefault();window.qaCopied=getSelection().toString();},{once:true,capture:true});});await page.keyboard.press('Meta+c');await frame.waitForFunction(()=>window.qaCopied?.includes('12345'));await frame.evaluate(()=>getSelection().removeAllRanges());report.ocrMs=Math.round(performance.now()-start);
  const words=await frame.locator('.ocr-text-layer span').count();await frame.locator('#rotate').click();await frame.waitForFunction(()=>qaViewer.pagesRotation===270);await frame.waitForSelector('.ocr-text-layer span');assert.equal(await frame.locator('.ocr-text-layer span').count(),words);await frame.locator('#zoom-in').click();await delay(300);assert.ok(await frame.locator('.ocr-text-layer span').count()>2);await page.screenshot({path:join(folder,'ocr-dark.png')});report.checks.push('local OCR, native selection/copy and zoom/rotation overlay without a separate transcript');
  await frame.locator('#ocr-start').click();await frame.locator('#ocr-cancel').click();await frame.waitForFunction(()=>!document.querySelector('#ocr-start').disabled);assert.equal(await frame.locator('#ocr-cancel').isVisible(),false);report.checks.push('immediate OCR cancellation');
- for(let i=0;i<30&&page.workers().length>1;i++)await delay(50);assert.ok(page.workers().length<=1,'OCR worker released after completion/cancellation');report.checks.push('OCR worker teardown');
+ for(let i=0;i<30&&ocrWorkers.size;i++)await delay(50);assert.equal(ocrWorkers.size,0,'new OCR workers released after completion/cancellation');page.off('worker',trackOcrWorker);report.checks.push('OCR worker teardown');
 
  frame=await open('/chinese');await frame.locator('#ocr-toggle').click();await chooseLanguages(frame,'#ocr-languages',['eng','chi_sim']);await frame.locator('#ocr-start').click();await frame.waitForFunction(()=>!document.querySelector('#ocr-start').disabled,{timeout:130000});const simplified=(await frame.locator('.ocr-text-layer').allTextContents()).join('');assert.match(simplified,/中文/);assert.match(simplified,/COSMIC/);await chooseLanguages(frame,'#ocr-languages',['eng','chi_tra']);await frame.locator('#ocr-start').click();await frame.waitForFunction(()=>!document.querySelector('#ocr-start').disabled,{timeout:130000});const traditional=(await frame.locator('.ocr-text-layer').allTextContents()).join('');assert.match(traditional,/中文/);report.checks.push('Simplified/Traditional Chinese and mixed English recognition');
  await chooseLanguages(frame,'#ocr-languages',['chi_sim','chi_tra']);await frame.locator('#ocr-start').click();await frame.waitForFunction(()=>!document.querySelector('#ocr-start').disabled,{timeout:130000});assert.match((await frame.locator('.ocr-text-layer').allTextContents()).join(''),/中文/);assert.equal(await frame.locator('.ocr-text-layer span').first().evaluate(n=>getComputedStyle(n).letterSpacing),'normal','UI tracking does not affect recognized word positions');report.checks.push('combined Chinese recognition without English selected');
@@ -342,7 +398,7 @@ assert.match(await frame.locator('[data-property=pageSize]').textContent(),/215.
  async function menuAction(id){await frame.locator('#settings').click();await frame.locator('#more-actions [data-action='+id+']').click();}
  await frame.locator('#settings').click();assert.deepEqual(await frame.locator('#more-actions button').evaluateAll(nodes=>nodes.map(n=>n.dataset.action)),['search-toggle','previous','next','fit-width','fit-page','print','properties','native','open-settings']);assert.equal(await frame.locator('#more-actions button svg').count(),9);assert.equal(await frame.locator('[data-action=search-toggle] span').textContent(),'查找');
  async function checkMenuWidth(){const width=await frame.locator('#more-actions').evaluate(menu=>{const labels=[...menu.querySelectorAll('button span')].map(span=>{const r=document.createRange();r.selectNodeContents(span);return r.getBoundingClientRect().width;});return {actual:menu.getBoundingClientRect().width,expected:Math.max(...labels)+66};});assert.ok(Math.abs(width.actual-width.expected)<2,JSON.stringify(width));return width.actual;}
- const zhMenuWidth=await checkMenuWidth();await prefs.locator('#locale').selectOption('en-US');await frame.waitForFunction(()=>document.querySelector('[data-action=search-toggle] span').textContent==='Find');assert.equal(await frame.locator('[data-action=properties] span').textContent(),'Properties');assert.equal(await frame.locator('[data-action=native] span').textContent(),'Chrome reader');assert.equal(await frame.locator('#properties').getAttribute('title'),'Document properties');assert.equal(await frame.locator('#search-toggle').getAttribute('title'),'Find');assert.equal(await prefs.locator('#hide-find + span').textContent(),'Find (hidden by default)');const enMenuWidth=await checkMenuWidth();assert.notEqual(zhMenuWidth,enMenuWidth);await checkDefaultLabels(false);
+ const zhMenuWidth=await checkMenuWidth();await prefs.locator('#locale').selectOption('en-US');await frame.waitForFunction(()=>document.querySelector('[data-action=search-toggle] span').textContent==='Find');assert.equal(await frame.locator('[data-action=properties] span').textContent(),'Properties');assert.equal(await frame.locator('[data-action=native] span').textContent(),'Chrome reader');assert.equal(await frame.locator('#properties').getAttribute('title'),'Document properties');assert.equal(await frame.locator('#search-toggle').getAttribute('title'),'Find');assert.equal(await prefs.locator('#hide-find ~ span:last-child').textContent(),'Find (hidden by default)');const enMenuWidth=await checkMenuWidth();assert.notEqual(zhMenuWidth,enMenuWidth);await checkDefaultLabels(false);
  await page.screenshot({path:join(folder,'more-actions-compact.png')});await frame.locator('#viewport').click({position:{x:10,y:30}});assert.equal(await frame.locator('#more-actions').isVisible(),false);
  for(const [value,expected]of [['125',1.25],['75%',.75],['bad',.75],['900',5],['1',.25],['100',1]]){await frame.locator('#scale-input').fill(value);await frame.locator('#scale-input').press('Enter');await frame.waitForFunction(n=>Math.abs(qaViewer.currentScale-n)<.001,expected);}
  await frame.locator('#scale-input').fill('150');await frame.locator('#scale-input').press('Escape');assert.equal(await frame.locator('#scale-input').inputValue(),'100%');assert.ok((await frame.locator('#scale-input').boundingBox()).width<100);
@@ -359,7 +415,7 @@ assert.match(await frame.locator('[data-property=pageSize]').textContent(),/215.
  await frame.locator('#settings').focus();await frame.locator('#settings').press('ArrowDown');await frame.waitForSelector('#more-actions:popover-open');await frame.locator('#more-actions').press('End');assert.equal(await frame.evaluate(()=>document.activeElement.dataset.action),'open-settings');await frame.locator('#more-actions').press('Escape');assert.equal(await frame.evaluate(()=>document.activeElement.id),'settings');
  await page.setViewportSize({width:360,height:850});await frame.locator('#settings').click();assert.equal(await frame.locator('#more-actions').evaluate(n=>{const b=n.getBoundingClientRect();return b.left>=0&&b.right<=innerWidth&&b.bottom<=innerHeight;}),true);await page.screenshot({path:join(folder,'more-actions-all-narrow.png')});await frame.locator('#more-actions').press('Escape');await page.setViewportSize({width:1360,height:960});
  const spacer=await context.newPage();await spacer.goto('about:blank');await page.bringToFront();
- const settingsPopup=context.waitForEvent('page');await menuAction('open-settings');const adjacent=await settingsPopup;await adjacent.waitForURL(settings);const sourceTab=await page.evaluate(()=>chrome.tabs.getCurrent()),settingsTab=await adjacent.evaluate(()=>chrome.tabs.getCurrent());assert.equal(settingsTab.index,sourceTab.index+1);assert.equal(settingsTab.windowId,sourceTab.windowId);await adjacent.close();
+ const oldSettingsClosed=prefs.waitForEvent('close');const settingsPopup=context.waitForEvent('page');await menuAction('open-settings');const adjacent=await settingsPopup;await adjacent.waitForURL(settings);const sourceTab=await page.evaluate(()=>chrome.tabs.getCurrent()),settingsTab=await adjacent.evaluate(()=>chrome.tabs.getCurrent());assert.equal(settingsTab.index,sourceTab.index+1);assert.equal(settingsTab.windowId,sourceTab.windowId);await oldSettingsClosed;assert.equal(page.isClosed(),false);prefs=adjacent;observe(prefs);
  await menuAction('native');await page.waitForURL(base+'/overflow');report.checks.push('content-sized localized More actions, concise menu labels and factory-hidden markers; all overflow actions keep icons and behavior, numeric zoom validation, keyboard/outside dismissal, live settings, and adjacent Settings tab');
  // With no hidden actions, the same button goes straight to Settings again.
  for(const key of actionKeys)await prefs.locator('#hide-'+key).uncheck();await prefs.waitForFunction(async keys=>{const h=(await chrome.storage.local.get('settings')).settings.toolbarHidden;return keys.every(k=>h[k]===false);},actionKeys);
@@ -367,11 +423,30 @@ assert.match(await frame.locator('[data-property=pageSize]').textContent(),/215.
  await checkToolbarLayout(page,frame,1101,false);await checkToolbarLayout(page,frame,760,true);await checkToolbarLayout(page,frame,1101,false);
  for(const mode of ['filename','branding']){await chooseToolbar(prefs,mode);await frame.waitForFunction(mode=>document.documentElement.dataset.toolbar===mode,mode);await checkToolbarLayout(page,frame,1101,false);await checkToolbarLayout(page,frame,760,true);await checkToolbarLayout(page,frame,1101,false);}
  report.checks.push('content-measured single-row toolbar for each compact mode, hidden/visible groups, narrow fallback, and resize recovery without overlaps');
- const directPopup=context.waitForEvent('page');await frame.locator('#settings').click();const direct=await directPopup;await direct.waitForURL(settings);assert.equal((await direct.evaluate(()=>chrome.tabs.getCurrent())).index,(await page.evaluate(()=>chrome.tabs.getCurrent())).index+1);await direct.close();await spacer.close();await prefs.reload();await prefs.waitForSelector('#toolbarHidden');assert.equal(await prefs.locator('#toolbarHidden input:checked').count(),0);
+ const priorSettingsClosed=prefs.waitForEvent('close');const directPopup=context.waitForEvent('page');await frame.locator('#settings').click();const direct=await directPopup;await direct.waitForURL(settings);assert.equal((await direct.evaluate(()=>chrome.tabs.getCurrent())).index,(await page.evaluate(()=>chrome.tabs.getCurrent())).index+1);await priorSettingsClosed;prefs=direct;observe(prefs);await spacer.close();await prefs.reload();await prefs.waitForSelector('#toolbarHidden');assert.equal(await prefs.locator('#toolbarHidden input:checked').count(),0);
  report.checks.push('explicit all-visible settings persist and restore direct adjacent Settings navigation');
+ // Direct URL/duplicate tabs and a different window keep only the newest Settings tab.
+ const beforeDuplicate=prefs.waitForEvent('close'),duplicated=context.waitForEvent('page');
+ const duplicateTab=await worker.evaluate(async()=>{const contexts=await chrome.runtime.getContexts({contextTypes:['TAB']});const tab=contexts.find(t=>t.documentUrl===chrome.runtime.getURL('settings/index.html'));return chrome.tabs.duplicate(tab.tabId);});
+ prefs=await duplicated;observe(prefs);await beforeDuplicate;await prefs.waitForSelector('#locale');await prefs.reload();await prefs.waitForSelector('#locale');
+ const beforeWindow=prefs.waitForEvent('close'),windowPage=context.waitForEvent('page');
+ await worker.evaluate(()=>chrome.windows.create({url:chrome.runtime.getURL('settings/index.html')+'#appearance',focused:false}));
+ prefs=await windowPage;observe(prefs);await beforeWindow;await prefs.waitForSelector('#locale');
+ const singleSettings=await worker.evaluate(async()=>{const url=chrome.runtime.getURL('settings/index.html');return(await chrome.runtime.getContexts({contextTypes:['TAB']})).filter(t=>t.documentUrl?.startsWith(url)).length;});assert.equal(singleSettings,1);assert.equal(page.isClosed(),false);
+ // Two rapid creations cannot let delayed cleanup close the newest tab.
+ const rapidIds=await worker.evaluate(async()=>{const url=chrome.runtime.getURL('settings/index.html');const a=await chrome.tabs.create({url,active:false});const b=await chrome.tabs.create({url,active:false});return[a.id,b.id];});
+ await worker.evaluate(async ids=>{for(let i=0;i<100;i++){const contexts=await chrome.runtime.getContexts({contextTypes:['TAB']}),settings=contexts.filter(t=>t.documentUrl?.includes('/settings/index.html'));if(settings.length===1&&settings[0].tabId===ids[1])return;await new Promise(r=>setTimeout(r,25));}throw Error('Settings cleanup did not converge');},rapidIds);
+ prefs=context.pages().find(p=>!p.isClosed()&&p.url()===settings);assert.ok(prefs);await prefs.waitForSelector('#locale');
+ report.checks.push('newest Settings replaces previous across reader/home/direct/duplicate/window entry points; rapid opens converge, reload is stable and PDF tabs survive');
  // The rare black-paper exception uses completed full pages, never dark photos inside white paper.
  await prefs.locator('#appearance').selectOption('dark');await prefs.locator('#sampling').selectOption('4');
  await prefs.waitForFunction(async()=>{const s=(await chrome.storage.local.get('settings')).settings;return s.appearance==='dark'&&s.sampling===4;});
+ frame=await open('/designed-paper');
+ for(let n=1;n<=6;n++){
+  await frame.evaluate(n=>{qaViewer.currentPageNumber=n;},n);await frame.waitForFunction(n=>qaViewer.getPageView(n-1).renderingState===3,n);
+  assert.equal(await frame.evaluate(n=>qaDarkPaper.get(n),n),n<=2?2:1,'designed paper structural evidence, page '+n);
+ }
+ report.checks.push('cached full-paper fill permits dense/colorful black and gray layouts; white-first, triangular and clipped fills cannot bypass conservative pixels');
  frame=await open('/black-paper');assert.equal(await frame.evaluate(()=>qaDarkPaper.get(7)),0,'distant pages are not analyzed eagerly');
  const pageFilter=async n=>frame.locator(`.page[data-page-number="${n}"] .canvasWrapper`).evaluate(n=>getComputedStyle(n).filter);
  for(let n=1;n<=7;n++){
@@ -420,6 +495,83 @@ assert.match(await frame.locator('[data-property=pageSize]').textContent(),/215.
  await frame.locator('#theme').click();await frame.waitForFunction(()=>document.documentElement.dataset.dark==='true');assert.equal(await frame.evaluate(()=>qaDarkPaper.get(1)),1);assert.ok((await pageFilter(1)).includes('invert'));
  assert.equal(await frame.locator('.page .canvasWrapper').first().evaluate(n=>getComputedStyle(n).visibility),'visible');await frame.evaluate(()=>qaRestorePixels());
  report.checks.push('strict black-paper exception; white-paper starfield, white inset, ordinary white and light-gray pages rejected; dark-gray paper with white/black writing preserved; thumbnails/detail zoom/rotation/theme reuse decisions; no light-mode/disabled reads; default-on bilingual setting syncs live without reparsing; read failure retains normal inversion');
+ // Link capture stays sandboxed and lazy, with no external action before a choice.
+ await prefs.locator('#links').check();await prefs.waitForFunction(async()=>(await chrome.storage.local.get('settings')).settings.links===true);
+ frame=await open('/link-capture');await frame.waitForSelector('.pdf-links a');
+ assert.equal(await frame.locator('.pdf-links a').count(),5);assert.equal(await frame.evaluate(()=>performance.getEntriesByType('resource').some(r=>r.name.endsWith('/link-capture.js'))),false);
+ await frame.evaluate(()=>document.addEventListener('copy',event=>{event.preventDefault();window.qaCopiedLink=document.activeElement.value;},true));
+ const linkTests=[['mailto:', 'To: a+tag@example.com'],['tel:','+13125550123;ext=4'],['sms:','Hello <b>']];
+ for(const [prefix,expected]of linkTests){
+  const originalTabs=context.pages().length;
+  const anchor=frame.locator(`.pdf-links a[title^="${prefix}"]`);
+  if(prefix==='tel:')await anchor.click({button:'middle'});else await anchor.click();
+  await frame.waitForSelector('.link-capture[open]');assert.equal(context.pages().length,originalTabs);
+  assert.equal(await frame.locator('.link-capture b').count(),0);assert.equal(await frame.locator('.link-open').count(),0,'protocol capture is copy-only');
+  await frame.locator('.link-primary').click();assert.ok((await frame.evaluate(()=>qaCopiedLink)).includes(expected));
+  await frame.locator('.link-capture').press('Escape');await frame.waitForFunction(()=>!document.querySelector('.link-capture'));
+ }
+ const web=frame.locator('.pdf-links a[title*="/link-target"]'),originalTabs=context.pages().length;await web.click({modifiers:['Meta']});await frame.waitForSelector('.link-capture[open]');assert.equal(context.pages().length,originalTabs);
+ assert.equal(await frame.locator('.link-open').getAttribute('rel'),'noopener noreferrer');
+ await prefs.locator('#locale').selectOption('zh-CN');await frame.waitForFunction(()=>document.querySelector('.link-heading strong').textContent==='外部链接');await page.setViewportSize({width:360,height:850});
+ assert.equal(await frame.locator('.link-capture').evaluate(n=>n.getBoundingClientRect().width<=innerWidth&&n.scrollWidth<=n.clientWidth),true);await frame.locator('.link-capture').evaluate(async n=>{await Promise.all(n.getAnimations().map(a=>a.finished));});await page.screenshot({path:join(folder,'link-capture-zh-narrow.png')});
+ await prefs.locator('#locale').selectOption('en-US');await frame.waitForFunction(()=>document.querySelector('.link-heading strong').textContent==='External link');
+ const external=context.waitForEvent('page');await frame.locator('.link-open').click();const destination=await external;await destination.waitForURL(base+'/link-target?token=a%2Bb');assert.equal(await destination.evaluate(()=>opener===null),true);await destination.close();await page.bringToFront();await frame.locator('.link-capture').press('Escape');await frame.waitForFunction(()=>!document.querySelector('.link-capture'));
+ await page.setViewportSize({width:1360,height:960});await frame.locator('#theme').click();await web.click();await frame.waitForSelector('.link-capture[open]');await frame.locator('.link-capture').evaluate(async n=>{await Promise.all(n.getAnimations().map(a=>a.finished));});await page.screenshot({path:join(folder,'link-capture-dark.png')});await page.mouse.click(4,100);await frame.waitForFunction(()=>!document.querySelector('.link-capture'));
+ // External outlines use the same capture path, while destinations remain direct.
+ await frame.locator('#sidebar-toggle').click();await frame.locator('#show-outline').click();await frame.waitForSelector('#outline button[data-external-link]');
+ assert.equal(await frame.locator('#outline button[data-external-link]').count(),4);
+ const outlineWeb=frame.locator('#outline button[data-external-link*="/link-target"]');await outlineWeb.click();await frame.waitForSelector('.link-capture[open]');assert.equal(context.pages().length,originalTabs);
+ // Capture is independent, persisted, and immediately changes an open reader.
+ assert.equal(await prefs.locator('#captureLinks').isChecked(),true);
+ await prefs.locator('#captureLinks').uncheck();await frame.waitForFunction(()=>!qaSettings().captureLinks&&!document.querySelector('.link-capture'));
+ assert.ok((await web.getAttribute('href')).startsWith(base+'/link-target'));
+ for(const prefix of ['mailto:','tel:','sms:']){
+  const protocol=frame.locator(`.pdf-links a[title^="${prefix}"]`);assert.equal(await protocol.getAttribute('href'),'#');await protocol.click();await frame.waitForSelector('.link-capture[open]');assert.equal(await frame.locator('.link-open').count(),0);assert.equal(await frame.locator('.link-primary').isEnabled(),true);await frame.locator('.link-capture').press('Escape');await frame.waitForFunction(()=>!document.querySelector('.link-capture'));
+ }
+ const directTab=context.waitForEvent('page');await web.click();const directPage=await directTab;await directPage.waitForURL(base+'/link-target?token=a%2Bb');assert.equal(await directPage.evaluate(()=>opener===null),true);await directPage.close();await page.bringToFront();
+ const directOutline=context.waitForEvent('page');await outlineWeb.click();const outlinePage=await directOutline;await outlinePage.waitForURL(base+'/link-target?token=a%2Bb');assert.equal(await outlinePage.evaluate(()=>opener===null),true);await outlinePage.close();await page.bringToFront();
+ await prefs.reload();await prefs.waitForSelector('#captureLinks');assert.equal(await prefs.locator('#captureLinks').isChecked(),false);
+ await prefs.locator('#captureLinks').check();await frame.waitForFunction(()=>qaSettings().captureLinks);assert.equal(await web.getAttribute('href'),'#');
+ await outlineWeb.focus();await outlineWeb.press('Enter');await frame.waitForSelector('.link-capture[open]');await frame.locator('.link-capture').press('Escape');await frame.waitForFunction(()=>!document.querySelector('.link-capture'));
+ await frame.locator('#outline button').first().click();assert.equal(await frame.locator('.link-capture').count(),0);
+ await prefs.locator('#links').uncheck();await prefs.waitForFunction(async()=>(await chrome.storage.local.get('settings')).settings.links===false);frame=await open('/link-capture');assert.equal(await frame.locator('.pdf-links a').count(),0);assert.equal(await frame.locator('.link-capture').count(),0);
+ await frame.locator('#sidebar-toggle').click();await frame.locator('#show-outline').click();await frame.waitForSelector('#outline button[data-external-link]');assert.equal(await frame.locator('#outline button[data-external-link]:disabled').count(),4);assert.equal(await frame.locator('#outline button').first().isEnabled(),true);await prefs.locator('#links').check();
+ report.checks.push('lazy sandboxed web-link capture and copy-only mail/tel/SMS; safe decoded copy without system clipboard writes, middle/modifier clicks, explicit noopener navigation, live/persisted separate capture toggle, outline links/internal destinations, locale/theme/narrow layout and disabled-link gating');
+  async function checkRenderFeedback(frame) {
+    await frame.waitForFunction(()=>document.querySelector('#progress').hidden);
+    const before=await frame.evaluate(async()=>{
+      const viewer=window.qaViewer||window.qaPdfViewer,number=viewer.pagesCount;
+      const page=await viewer.pdfDocument.getPage(number),original=page.render;
+      window.qaProgressNumber=number;window.qaRestoreRender=()=>{page.render=original;};
+      page.render=function(...args){
+        const task=original.apply(this,args),gate=new Promise(resolve=>{window.qaReleaseRender=resolve;});
+        const promise=task.promise.then(()=>gate);
+        return new Proxy(task,{get(target,key){if(key==='promise')return promise;const value=Reflect.get(target,key,target);return typeof value==='function'?value.bind(target):value;}});
+      };
+      const y=document.querySelector('#workspace').getBoundingClientRect().top;
+      viewer.currentPageNumber=number;
+      return {y,hidden:document.querySelector('#progress').hidden};
+    });
+    assert.equal(before.hidden,true,'no immediate progress flash on navigation');
+    await frame.waitForFunction(()=>typeof qaReleaseRender==='function'&&!document.querySelector('#progress').hidden);
+    const waiting=await frame.evaluate(()=>{
+      const viewer=window.qaViewer||window.qaPdfViewer,style=getComputedStyle(viewer.getPageView(qaProgressNumber-1).div,'::after');
+      return{display:style.display,content:style.content,background:style.backgroundImage,y:document.querySelector('#workspace').getBoundingClientRect().top,
+        line:document.querySelector('#progress').getBoundingClientRect().top,header:document.querySelector('header').getBoundingClientRect().bottom,status:document.querySelector('#status').textContent};
+    });
+    assert.equal(waiting.display,'none');assert.equal(waiting.content,'none');assert.equal(waiting.background,'none');
+    assert.equal(waiting.y,before.y,'progress never moves the document');assert.ok(Math.abs(waiting.line-waiting.header)<=2,'progress sits on the toolbar divider');assert.equal(waiting.status,'');
+    await frame.evaluate(()=>{qaRestoreRender();qaReleaseRender();});
+    await frame.waitForFunction(()=>document.querySelector('#progress').hidden);
+    await frame.evaluate(()=>{const viewer=window.qaViewer||window.qaPdfViewer;viewer.currentPageNumber=1;});
+    await frame.waitForFunction(()=>document.querySelector('#progress').hidden&&(window.qaViewer||window.qaPdfViewer).getPageView(0).renderingState===3);
+    // Offscreen pending state must not participate in visible-page feedback.
+    assert.equal(await frame.evaluate(async()=>{
+      const viewer=window.qaViewer||window.qaPdfViewer,offscreen=viewer.getPageView(qaProgressNumber-1),state=offscreen.renderingState;
+      offscreen.renderingState=1;viewer.update();await new Promise(resolve=>setTimeout(resolve,260));const hidden=document.querySelector('#progress').hidden;offscreen.renderingState=state;return hidden;
+    }),true);
+  }
+ frame=await open('/render-progress');await checkRenderFeedback(frame);report.checks.push('toolbar-divider feedback only for delayed visible rendering; no page loading icons, background feedback or layout shift');
  await go(base+'/bad');await page.waitForFunction(()=>!!document.querySelector('#message')?.textContent&&document.documentElement.dataset.view==='home'&&!document.querySelector('iframe'));await page.waitForSelector('#native');assert.ok(await page.locator('#native').isVisible());report.checks.push('invalid PDF fallback');
  await go(base+'/broken');await page.waitForFunction(()=>!!document.querySelector('#message')?.textContent&&!document.querySelector('iframe'));report.checks.push('parse failure removes shell and releases worker');
  await page.goto(reader);await page.waitForFunction(()=>document.querySelector('#intro').textContent.length>0);await page.screenshot({path:join(folder,'opening.png')});

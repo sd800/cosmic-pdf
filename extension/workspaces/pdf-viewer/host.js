@@ -6,6 +6,9 @@ export function createPdfViewer({ container, locale, sampling, settings, filenam
   const iframe = document.createElement('iframe');
   iframe.className = 'pdf-viewer-frame'; iframe.title = 'PDF Viewer';
   iframe.referrerPolicy = 'no-referrer';
+  // Grant write-only clipboard access to this fixed opaque reader (e.g. Copy
+  // all PDF text). No clipboard read access or privileged host copy command.
+  iframe.allow = 'clipboard-write *';
   // Reveal the real toolbar after localization/preferences are applied, without
   // waiting for document bytes. No placeholder toolbar or loading cover.
   iframe.style.visibility = 'hidden';
@@ -72,8 +75,8 @@ export function createPdfViewer({ container, locale, sampling, settings, filenam
     setInterface(nextLocale, nextSettings) {
       const next = normalizeSettings(nextSettings);
       locale = nextLocale === 'zh-CN' ? nextLocale : 'en-US';
-      settings = { ...settings, propertyDateFormat: next.propertyDateFormat, ocrAction: next.ocrAction, useChromeFind: next.useChromeFind };
-      if (!closed) channel.port1.postMessage({ type: 'interface', locale, propertyDateFormat: next.propertyDateFormat, ocrAction: next.ocrAction, useChromeFind: next.useChromeFind });
+      settings = { ...settings, propertyDateFormat: next.propertyDateFormat, ocrAction: next.ocrAction, useChromeFind: next.useChromeFind, captureLinks: next.captureLinks };
+      if (!closed) channel.port1.postMessage({ type: 'interface', locale, propertyDateFormat: next.propertyDateFormat, ocrAction: next.ocrAction, useChromeFind: next.useChromeFind, captureLinks: next.captureLinks });
     },
     setDarkPaper(value) {
       settings = { ...settings, preserveDarkPaper: value === true };

@@ -16,7 +16,7 @@ Recognize scanned pages in English, Simplified Chinese or Traditional Chinese, i
 
 ## Make it yours
 
-Settings cover appearance, toolbar layout, 1×–6× rendering quality, optional sharpening, initial zoom, page spacing, thumbnails, document links and OCR preferences. The interface supports English and Simplified Chinese.
+Settings cover appearance, toolbar layout, 1×–6× rendering quality, optional sharpening, initial zoom, page spacing, thumbnails, document links, external-link capture and OCR preferences. The interface supports English and Simplified Chinese.
 
 ## Install
 
