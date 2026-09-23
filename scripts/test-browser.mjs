@@ -19,7 +19,7 @@ const server=createServer((req,res)=>{
  if(path==='/links'){res.setHeader('Content-Type','text/html');res.end('<a href="/history.pdf">Read PDF</a>');return;}
  if(path==='/form'){res.setHeader('Content-Type','text/html');res.end('<form method="post" action="/post"><button>Submit</button></form>');return;}
  if(path==='/link-target'){res.setHeader('Content-Type','text/html');res.end('<h1>Link opened</h1>');return;}
- if(path==='/link-capture'){res.setHeader('Content-Type','application/pdf');res.end(viewerPdf(1,[],[base+'/link-target?token=a%2Bb','mailto:a+tag@example.com?subject=Hello%20%3Cb%3E&body=line1%0Aline2','tel:+13125550123;ext=4','sms:+13125550123?body=Hello%20%3Cb%3E']));return;}
+ if(path==='/link-capture'){res.setHeader('Content-Type','application/pdf');res.end(viewerPdf(1,[],[base+'/link-target?token=a%2Bb','mailto:a+tag@example.com?subject=Hello%20%3Cb%3E&body=line1%0Aline2','tel:+13125550123;ext=4','sms:+13125550123?body=Hello%20%3Cb%3E','ms-word:ofe|u|https://example.com/report.docx']));return;}
  if(path==='/attachment'){res.setHeader('Content-Disposition','attachment; filename="download.pdf"');}
  res.setHeader('Content-Type',path==='/binary.pdf'?'application/octet-stream':'application/pdf');
  if(path==='/slow'&&req.headers['sec-fetch-dest']!=='document'){res.flushHeaders();slowResponses.add(res);res.on('close',()=>slowResponses.delete(res));return;}
@@ -498,7 +498,7 @@ assert.match(await frame.locator('[data-property=pageSize]').textContent(),/215.
  // Link capture stays sandboxed and lazy, with no external action before a choice.
  await prefs.locator('#links').check();await prefs.waitForFunction(async()=>(await chrome.storage.local.get('settings')).settings.links===true);
  frame=await open('/link-capture');await frame.waitForSelector('.pdf-links a');
- assert.equal(await frame.locator('.pdf-links a').count(),5);assert.equal(await frame.evaluate(()=>performance.getEntriesByType('resource').some(r=>r.name.endsWith('/link-capture.js'))),false);
+ assert.equal(await frame.locator('.pdf-links a').count(),6);assert.equal(await frame.evaluate(()=>performance.getEntriesByType('resource').some(r=>r.name.endsWith('/capture.js'))),false);
  await frame.evaluate(()=>document.addEventListener('copy',event=>{event.preventDefault();window.qaCopiedLink=document.activeElement.value;},true));
  const linkTests=[['mailto:', 'To: a+tag@example.com'],['tel:','+13125550123;ext=4'],['sms:','Hello <b>']];
  for(const [prefix,expected]of linkTests){
@@ -510,6 +510,15 @@ assert.match(await frame.locator('[data-property=pageSize]').textContent(),/215.
   await frame.locator('.link-primary').click();assert.ok((await frame.evaluate(()=>qaCopiedLink)).includes(expected));
   await frame.locator('.link-capture').press('Escape');await frame.waitForFunction(()=>!document.querySelector('.link-capture'));
  }
+ const appLink=frame.locator('.pdf-links a[title^="ms-word:"]');
+ assert.equal(await appLink.getAttribute('href'),'#');const appTabs=context.pages().length;
+ await appLink.click({button:'middle'});await frame.waitForSelector('.link-capture[open]');
+ assert.equal(context.pages().length,appTabs);assert.equal(await frame.locator('.link-open').textContent(),'Open application');
+ assert.equal(await frame.locator('.link-open').getAttribute('href'),'ms-word:ofe|u|https://example.com/report.docx');
+ // Observe the second trusted action without launching any installed application.
+ await frame.locator('.link-open').evaluate(node=>node.addEventListener('click',event=>{event.preventDefault();window.qaAppConfirmed=event.isTrusted;},{once:true}));
+ await frame.locator('.link-open').click();assert.equal(await frame.evaluate(()=>qaAppConfirmed),true);
+ await frame.locator('.link-capture').press('Escape');await frame.waitForFunction(()=>!document.querySelector('.link-capture'));
  const web=frame.locator('.pdf-links a[title*="/link-target"]'),originalTabs=context.pages().length;await web.click({modifiers:['Meta']});await frame.waitForSelector('.link-capture[open]');assert.equal(context.pages().length,originalTabs);
  assert.equal(await frame.locator('.link-open').getAttribute('rel'),'noopener noreferrer');
  await prefs.locator('#locale').selectOption('zh-CN');await frame.waitForFunction(()=>document.querySelector('.link-heading strong').textContent==='外部链接');await page.setViewportSize({width:360,height:850});
@@ -519,7 +528,7 @@ assert.match(await frame.locator('[data-property=pageSize]').textContent(),/215.
  await page.setViewportSize({width:1360,height:960});await frame.locator('#theme').click();await web.click();await frame.waitForSelector('.link-capture[open]');await frame.locator('.link-capture').evaluate(async n=>{await Promise.all(n.getAnimations().map(a=>a.finished));});await page.screenshot({path:join(folder,'link-capture-dark.png')});await page.mouse.click(4,100);await frame.waitForFunction(()=>!document.querySelector('.link-capture'));
  // External outlines use the same capture path, while destinations remain direct.
  await frame.locator('#sidebar-toggle').click();await frame.locator('#show-outline').click();await frame.waitForSelector('#outline button[data-external-link]');
- assert.equal(await frame.locator('#outline button[data-external-link]').count(),4);
+ assert.equal(await frame.locator('#outline button[data-external-link]').count(),5);
  const outlineWeb=frame.locator('#outline button[data-external-link*="/link-target"]');await outlineWeb.click();await frame.waitForSelector('.link-capture[open]');assert.equal(context.pages().length,originalTabs);
  // Capture is independent, persisted, and immediately changes an open reader.
  assert.equal(await prefs.locator('#captureLinks').isChecked(),true);
@@ -531,11 +540,12 @@ assert.match(await frame.locator('[data-property=pageSize]').textContent(),/215.
  const directTab=context.waitForEvent('page');await web.click();const directPage=await directTab;await directPage.waitForURL(base+'/link-target?token=a%2Bb');assert.equal(await directPage.evaluate(()=>opener===null),true);await directPage.close();await page.bringToFront();
  const directOutline=context.waitForEvent('page');await outlineWeb.click();const outlinePage=await directOutline;await outlinePage.waitForURL(base+'/link-target?token=a%2Bb');assert.equal(await outlinePage.evaluate(()=>opener===null),true);await outlinePage.close();await page.bringToFront();
  await prefs.reload();await prefs.waitForSelector('#captureLinks');assert.equal(await prefs.locator('#captureLinks').isChecked(),false);
+ await appLink.click();await frame.waitForSelector('.link-capture[open]');assert.equal(await frame.locator('.link-open').count(),1);await frame.locator('.link-capture').press('Escape');await frame.waitForFunction(()=>!document.querySelector('.link-capture'));
  await prefs.locator('#captureLinks').check();await frame.waitForFunction(()=>qaSettings().captureLinks);assert.equal(await web.getAttribute('href'),'#');
  await outlineWeb.focus();await outlineWeb.press('Enter');await frame.waitForSelector('.link-capture[open]');await frame.locator('.link-capture').press('Escape');await frame.waitForFunction(()=>!document.querySelector('.link-capture'));
  await frame.locator('#outline button').first().click();assert.equal(await frame.locator('.link-capture').count(),0);
  await prefs.locator('#links').uncheck();await prefs.waitForFunction(async()=>(await chrome.storage.local.get('settings')).settings.links===false);frame=await open('/link-capture');assert.equal(await frame.locator('.pdf-links a').count(),0);assert.equal(await frame.locator('.link-capture').count(),0);
- await frame.locator('#sidebar-toggle').click();await frame.locator('#show-outline').click();await frame.waitForSelector('#outline button[data-external-link]');assert.equal(await frame.locator('#outline button[data-external-link]:disabled').count(),4);assert.equal(await frame.locator('#outline button').first().isEnabled(),true);await prefs.locator('#links').check();
+ await frame.locator('#sidebar-toggle').click();await frame.locator('#show-outline').click();await frame.waitForSelector('#outline button[data-external-link]');assert.equal(await frame.locator('#outline button[data-external-link]:disabled').count(),5);assert.equal(await frame.locator('#outline button').first().isEnabled(),true);await prefs.locator('#links').check();
  report.checks.push('lazy sandboxed web-link capture and copy-only mail/tel/SMS; safe decoded copy without system clipboard writes, middle/modifier clicks, explicit noopener navigation, live/persisted separate capture toggle, outline links/internal destinations, locale/theme/narrow layout and disabled-link gating');
   async function checkRenderFeedback(frame) {
     await frame.waitForFunction(()=>document.querySelector('#progress').hidden);

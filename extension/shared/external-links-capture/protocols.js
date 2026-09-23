@@ -1,6 +1,7 @@
-// Adapted from Cosmic Gemini Mailto Capture's protocol parsers. No phone
-// geography data, page observers, extension bridge or persistent state.
-import { safePdfLink } from './model.js';
+// Shared Mailto Capture protocol parsing. Classic-script compatible for page
+// runtimes; also imported by the isolated External Links Capture UI. No DOM,
+// extension APIs, phone databases or per-product settings are accessed here.
+(() => {
   function decodeMailtoPart(value) {
     try { return decodeURIComponent(String(value || '')); }
     catch { return String(value || ''); }
@@ -125,27 +126,10 @@ class LinkParser {
     }
 
 }
-const parser=new LinkParser();
-export function parseExternalLink(value) {
-  const href=safePdfLink(value);
-  if(!href)return null;
-  return /^https?:/i.test(href)?{kind:'web',href}:parser.parseLink(href);
-}
-export function linkFields(capture,labels) {
-  if(capture.kind==='web')return [[labels.url,capture.href]];
-  if(capture.kind==='tel')return [[labels.phoneNumber,capture.number]];
-  const rows=[[labels.to,capture.kind==='sms'?capture.numberText:capture.addressText]];
-  if(capture.cc?.length)rows.push([labels.cc,capture.cc.join(', ')]);
-  if(capture.bcc?.length)rows.push([labels.bcc,capture.bcc.join(', ')]);
-  if(capture.subject)rows.push([labels.subject,capture.subject]);
-  if(capture.body)rows.push([labels.message,capture.body]);
-  for(const field of capture.otherFields)rows.push([field.name,field.values.join(', ')]);
-  return rows;
-}
-export function linkCopyText(capture,labels) {
-  if(capture.kind==='web')return capture.href;
-  if(capture.kind==='tel')return capture.number;
-  if(capture.simpleNumberOnly)return capture.numberText;
-  if(capture.simpleAddressOnly)return capture.addressText;
-  return linkFields(capture,labels).filter(([,value])=>value).map(([label,value])=>label+': '+value).join('\n');
-}
+const parser = new LinkParser();
+  globalThis[Symbol.for('cosmic.external-links-capture.protocols')] = Object.freeze({
+    parseMailto: value => parser.parseMailto(value),
+    parseTel: value => parser.parseTel(value),
+    parseSms: value => parser.parseSms(value)
+  });
+})();

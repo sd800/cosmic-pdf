@@ -23,7 +23,7 @@ const workerReady = createPdfWorker(pdfjs, signal).then(worker => {
 });
 void workerReady.catch(() => {});
 let firstPageReady = false, themeDark = false, darkPaper;
-let customZoomScale = null, toolbarMenu, linkCapture, linkRequest = 0;
+let customZoomScale = null, toolbarMenu, externalLinksCapture, linkRequest = 0;
 let thumbnailObserver, thumbnailTask, thumbnailBusy = false, thumbnailGeneration = 0, outlineLoaded = false;
 const nearThumbnails = new Set(), thumbnailCache = new Map(), printUrls = new Set();
 let sharpening = false, settings, ocr, documentFilename, documentBytes = 0, properties;
@@ -86,7 +86,7 @@ function localize(locale) {
   $('fullscreen').setAttribute('aria-label', $('fullscreen').title);
   ocr?.setInterface(settings.ocrAction);
   toolbarMenu?.refreshLabels();
-  if(linkCapture)void linkCapture.then(dialog=>dialog.setLocale(document.documentElement.lang)).catch(()=>{});
+  if(externalLinksCapture)void externalLinksCapture.then(dialog=>dialog.setLocale(document.documentElement.lang)).catch(()=>{});
   if(properties)void properties.then(dialog => { if (!destroyed) dialog.setInterface(document.documentElement.lang, settings.propertyDateFormat); });
 }
 function setDarkPaper(enabled) {
@@ -393,8 +393,8 @@ async function open(bytes, sampling) {
 
 async function captureExternalLink(url,anchor) {
   const request=++linkRequest;
-  linkCapture ||= import('./link-capture.js').then(({createLinkCapture})=>createLinkCapture({signal,locale:document.documentElement.lang}));
-  try { const dialog=await linkCapture;if(!destroyed&&settings.links&&linkNeedsCapture(url)&&anchor.isConnected&&request===linkRequest)dialog.show(url,anchor); } catch {}
+  externalLinksCapture ||= import('../../shared/external-links-capture/capture.js').then(({createExternalLinksCapture})=>createExternalLinksCapture({signal,locale:document.documentElement.lang}));
+  try { const dialog=await externalLinksCapture;if(!destroyed&&settings.links&&linkNeedsCapture(url)&&anchor.isConnected&&request===linkRequest)dialog.show(url,anchor); } catch {}
 }
 
 // Protocol links are copy-only even when ordinary web-link capture is off.
@@ -403,7 +403,7 @@ function setLinkCapture(enabled) {
   settings.captureLinks = enabled === true;
   for (const link of document.querySelectorAll('.pdf-links a[data-external-link]')) link.href = linkNeedsCapture(link.dataset.externalLink) ? '#' : link.dataset.externalLink;
   if (!settings.captureLinks) {
-    if(linkCapture)void linkCapture.then(dialog=>dialog.closeWeb()).catch(()=>{});
+    if(externalLinksCapture)void externalLinksCapture.then(dialog=>dialog.closeWeb()).catch(()=>{});
   }
 }
 function bindExternalLink(node, url) {

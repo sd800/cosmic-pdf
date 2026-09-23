@@ -162,7 +162,7 @@ test('proven paper permits dense colored content without relaxing the pixel-only
   assert.equal(guard.decide(2,source,()=>null),1);
 });
 
-const {parseExternalLink,linkCopyText}=await import('../extension/workspaces/pdf-viewer/link-capture-model.js');
+const {parseExternalLink,linkCopyText}=await import('../extension/shared/external-links-capture/model.js');
 test('link capture reuses mail/telephone/SMS parsing with explicit safe protocol limits',()=>{
  const labels={to:'To',cc:'CC',bcc:'BCC',subject:'Subject',message:'Message'};
  const mail=parseExternalLink('mailto:a+tag@example.com?to=b%40example.com&cc=c%40example.com&subject=Hello%20%3Cb%3E&body=one%0D%0Atwo&x-key=a%2Bb');
@@ -171,8 +171,8 @@ test('link capture reuses mail/telephone/SMS parsing with explicit safe protocol
  assert.equal(linkCopyText(parseExternalLink('tel:+13125550123;ext=4'),labels),'+13125550123;ext=4');
  const sms=parseExternalLink('sms:+13125550123,+13125550124?body=Hello%20%3Cb%3E');assert.equal(sms.recipients.length,2);assert.equal(sms.body,'Hello <b>');assert.match(linkCopyText(sms,labels),/Message: Hello <b>/);
  assert.equal(parseExternalLink('https://example.com/?signed=a%2Bb#part').href,'https://example.com/?signed=a%2Bb#part');
- for(const value of ['javascript:alert(1)','data:text/html,hi','file:///etc/passwd','ftp://example.com','https://user:secret@example.com','https://example.com/\u0000','mailto:a%00b','https://e.com/'+ 'a'.repeat(8192)])assert.equal(parseExternalLink(value),null);
- assert.equal(parseExternalLink('tel:'),null);assert.equal(parseExternalLink('sms:'),null);
+ for(const value of ['javascript:alert(1)','data:text/html,hi','file:///etc/passwd','https://user:secret@example.com','https://example.com/\u0000','mailto:a%00b','https://e.com/'+ 'a'.repeat(8192)])assert.equal(parseExternalLink(value),null);
+ assert.equal(parseExternalLink('tel:').kind,'tel');assert.equal(parseExternalLink('sms:').kind,'sms');
 });
 
 const { createPdfWorker } = await import('../extension/workspaces/pdf-viewer/worker.js');
@@ -225,4 +225,30 @@ test('reader dialogs choose explicit focus without implicit cross-origin autofoc
   showReaderDialog(dialog,{focus(options){assert.equal(dialog.inert,false);assert.equal(dialog.open,true);assert.deepEqual(options,{preventScroll:true});focused=true;}});
   assert.equal(focused,true);
   assert.throws(()=>showReaderDialog({inert:false,showModal(){throw Error('detached');}},null));
+});
+
+const { externalLinkTarget } = await import('../extension/shared/external-links-capture/target.js');
+const { parseExternalLink: parseCapture, linkCopyText: copyCapture } = await import('../extension/shared/external-links-capture/model.js');
+test('External Links Capture accepts bounded app targets but never executable or privileged URLs', () => {
+  for (const value of ['https://example.com/a?q=a%2Bb','http://example.com/', 'ftp://example.com/a',
+    'zoommtg://zoom.us/join?confno=123', 'msteams:/l/meetup-join/example',
+    'ms-word:ofe|u|https://example.com/document.docx', 'custom-app:open?item=123']) {
+    assert.equal(externalLinkTarget(value), new URL(value).href);
+    const capture = parseCapture(value);
+    assert.equal(capture.kind, /^https?:/.test(value) ? 'web' : 'app');
+    assert.equal(copyCapture(capture, {}), new URL(value).href);
+  }
+  for (const value of [null, '/relative', '#page', 'C:/private', 'javascript:alert(1)',
+    'JaVaScRiPt:alert(1)', 'java\nscript:alert(1)', 'vbscript:attack', 'data:text/html,attack',
+    'blob:https://example.com/id', 'file:///private', 'filesystem:https://example.com/a',
+    'chrome://settings', 'chrome-extension://id/private', 'about:blank', 'view-source:https://example.com',
+    'ms-msdt:payload', 'shell:command', 'https://user:password@example.com/',
+    'custom-app://u:p@example.com', 'custom-app:a%00b', 'https://example.com/'+ 'a'.repeat(8192)]) {
+    assert.equal(externalLinkTarget(value), null, String(value));
+    assert.equal(parseCapture(value), null, String(value));
+  }
+  for (const [url,kind,text] of [['mailto:a+tag@example.com','mailto','a+tag@example.com'],
+    ['tel:+13125550123','tel','+13125550123'], ['sms:+13125550123','sms','+13125550123']]) {
+    const capture = parseCapture(url); assert.equal(capture.kind,kind); assert.equal(copyCapture(capture,{}),text);
+  }
 });

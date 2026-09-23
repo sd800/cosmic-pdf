@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.1.2
+
+- Extend external-link capture to application protocols, with an explicit Open application/Copy prompt. Email, telephone, and SMS links remain copy-only.
+- Unify the underlying protocol parsing and confirmation components.
+
 ## 2.1.1
 
 - Avoid OCR WASM loading warnings without expanding network access.
