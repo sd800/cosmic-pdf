@@ -257,6 +257,18 @@ assert.match(await frame.locator('[data-property=pageSize]').textContent(),/215.
   }
   assert.equal(await prefs.locator('#propertyDateFormat option[value=auto]').textContent(),zh?'语言默认格式':'Language default');
   assert.equal(await prefs.locator('#propertyDateFormat option').evaluateAll((nodes,suffix)=>nodes.some(n=>n.textContent.endsWith(suffix)),suffix),false);
+  const savedViewport=prefs.viewportSize();
+  for(const width of [1100,681,680,360,320]){
+   await prefs.setViewportSize({width,height:900});
+   const layout=await prefs.evaluate(()=>{
+    const select=document.querySelector('#propertyDateFormat'),reference=document.querySelector('#sampling'),box=select.getBoundingClientRect(),ref=reference.getBoundingClientRect(),style=getComputedStyle(select),ctx=document.createElement('canvas').getContext('2d');ctx.font=style.font;
+    const longest=Math.max(...[...select.options].map(o=>ctx.measureText(o.textContent).width+o.textContent.length*(parseFloat(style.letterSpacing)||0)));
+    const withinCard=[select,document.querySelector('#ocrAction')].every(node=>{const b=node.getBoundingClientRect(),r=node.closest('.row').getBoundingClientRect();return b.left>=r.left&&b.right<=r.right;});
+    return {sameWidth:Math.abs(box.width-ref.width)<1,aligned:Math.abs(box.right-ref.right)<1,withinCard,labelsFit:longest<=box.width-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight)-26};
+   });
+   assert.deepEqual(layout,{sameWidth:true,aligned:true,withinCard:true,labelsFit:true},`Settings select geometry: ${zh?'Chinese':'English'} at ${width}px`);
+  }
+  await prefs.setViewportSize(savedViewport);
   const hiddenSuffix=zh?'（默认隐藏）':' (hidden by default)';
   assert.deepEqual(await prefs.locator('#toolbarHidden label').evaluateAll((nodes,suffix)=>nodes.filter(n=>n.textContent.endsWith(suffix)).map(n=>n.querySelector('input').id),hiddenSuffix),['hide-find','hide-paging','hide-fit','hide-print','hide-properties']);
   for(const key of ['locale'])assert.equal(await prefs.locator('#'+key+' option').evaluateAll((options,suffix)=>options.some(o=>o.textContent.endsWith(suffix)),suffix),false);

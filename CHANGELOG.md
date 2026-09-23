@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.7
+
+- Align the Document properties date-format dropdown with other settings and prevent oversized dropdowns from overflowing narrow cards.
+
 ## 1.2.6
 
 - Add customizable Document properties date formats, spaced Chinese dates, and source time zones and seconds when available. Allow clicking outside the dialog to close it.

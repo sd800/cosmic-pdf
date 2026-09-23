@@ -2,5 +2,6 @@
 
 .row.toolbar-options{grid-template-columns:1fr;gap:16px}.toolbar-options .language-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:24px}.toolbar-options .language-options label{min-height:32px}@media(max-width:680px){.toolbar-options .language-options{grid-template-columns:1fr}}
 
-#ocrAction,#propertyDateFormat{width:310px;max-width:100%}
-@media(min-width:681px){.row:has(#ocrAction),.row:has(#propertyDateFormat){grid-template-columns:minmax(0,1fr) 310px}}
+/* Only the longer OCR action labels need a wider desktop column.
+   Narrow layouts share the standard select width and must not overflow cards. */
+@media(min-width:681px){#ocrAction{width:310px}.row:has(#ocrAction){grid-template-columns:minmax(0,1fr) 310px}}
