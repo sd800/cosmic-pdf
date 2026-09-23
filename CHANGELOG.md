@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.13
+
+- Slightly narrow the toolbar filename while preserving its size, ellipsis and document properties shortcut.
+
 ## 1.2.12
 
 - Open Document properties by clicking the regular-weight toolbar filename, and make properties dialogs more compact without reducing text size. Overflowing dialogs open at the top.

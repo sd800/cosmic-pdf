@@ -93,7 +93,8 @@ header .actions{grid-column:3;grid-row:1;align-self:center}
 @media(forced-colors:none){.textLayer .highlight{--highlight-bg-color:rgb(255 152 0 / .35);--highlight-selected-bg-color:rgb(255 152 0 / .65)}.textLayer .highlight.selected{box-shadow:0 0 0 1px rgb(255 152 0 / .85)}}
 
 /* The visible filename opens the existing properties dialog. */
-#filename{width:100%;min-width:0;padding:4px 3px;font-size:15px;font-weight:400;text-align:inherit;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#filename{width:100%;max-width:calc(100% - 2ch);align-self:flex-start;min-width:0;padding:4px 3px;font-size:15px;font-weight:400;text-align:inherit;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+:root[data-toolbar=both] #filename{align-self:center}
 #filename:disabled{opacity:1}
 
 #properties-title:focus{outline:none}
