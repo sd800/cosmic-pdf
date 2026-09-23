@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.3
+
+- Show the toolbar immediately while opening a PDF, with loading progress in its bottom divider instead of a separate loading screen.
+- Add an on-demand Document properties dialog between Print and Settings.
+- Prepare the PDF parser during download and prioritize the first page over optional thumbnails.
+- Give current and total page counts equal, centered widths, and place custom zoom values between their neighboring presets.
+- Hide the filename and Cosmic PDF branding by default while preserving saved choices.
+
 ## 1.2.2
 
 - Tighten spacing within the page-navigation and zoom controls while preserving button sizes and other toolbar spacing.

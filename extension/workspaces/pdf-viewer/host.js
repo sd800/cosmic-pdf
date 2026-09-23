@@ -2,13 +2,13 @@ import { toolbarMode } from '../../core/settings.js';
 import { PDF_LIMITS } from './model.js';
 // This host is the only connection to a product. The opaque viewer has no
 // extension APIs, storage access, document URL, or arbitrary command channel.
-export function createPdfViewer({ container, locale, sampling, settings, sharpening = false, dark, reversed, automatic, onDownload, onNative, onSettings, onTheme, onAuto, onReady, onError }) {
+export function createPdfViewer({ container, locale, sampling, settings, filename = 'PDF', canUseNative = false, sharpening = false, dark, reversed, automatic, onDownload, onNative, onSettings, onTheme, onAuto, onReady, onError }) {
   const iframe = document.createElement('iframe');
   iframe.className = 'pdf-viewer-frame'; iframe.title = 'PDF Viewer';
   iframe.referrerPolicy = 'no-referrer';
-  // The opaque loading cover hides this frame; keep it paintable so Chrome
-  // does not suspend its first render. It cannot receive focus while covered.
-  iframe.inert = true; iframe.setAttribute('aria-hidden', 'true');
+  // Reveal the real toolbar after localization/preferences are applied, without
+  // waiting for document bytes. No placeholder toolbar or loading cover.
+  iframe.style.visibility = 'hidden';
   iframe.style.background = dark ? '#121416' : '#e8eaed';
   const url = new URL('viewer.html', import.meta.url);
   url.hash = new URLSearchParams({ dark: dark ? '1' : '0', locale });
@@ -21,7 +21,7 @@ export function createPdfViewer({ container, locale, sampling, settings, sharpen
   function sendDocument() {
     if (closed || !frameLoaded || !pending) return;
     const { bytes, filename } = pending; pending = null;
-    iframe.contentWindow.postMessage({ type: 'CP_PDF_INIT', bytes, filename, locale, settings, sampling, sharpening: sharpening === true, dark, reversed, automatic }, '*', [channel.port2, bytes]);
+    channel.port1.postMessage({ type: 'document', bytes, filename }, [bytes]);
   }
   function destroy() {
     if (closed) return; closed = true; pending = null; clearTimeout(timeout);
@@ -31,8 +31,9 @@ export function createPdfViewer({ container, locale, sampling, settings, sharpen
   }
   channel.port1.onmessage = ({ data }) => {
     if (closed || !data || typeof data.type !== 'string') return;
-    if (data.type === 'ready' || data.type === 'password') {
-      if (!loaded) { loaded = true; clearTimeout(timeout); iframe.inert = false; iframe.removeAttribute('aria-hidden'); onReady(); }
+    if (data.type === 'shell-ready') iframe.style.visibility = '';
+    else if (data.type === 'ready' || data.type === 'password') {
+      if (!loaded) { loaded = true; clearTimeout(timeout); onReady(); }
     }
     else if (data.type === 'parsed') clearTimeout(timeout);
     else if (data.type === 'download') onDownload();
@@ -51,7 +52,11 @@ export function createPdfViewer({ container, locale, sampling, settings, sharpen
     }
     else if (data.type === 'error') { clearTimeout(timeout); if (!loaded) destroy(); onError(); }
   };
-  iframe.addEventListener('load', () => { frameLoaded = true; sendDocument(); }, { once: true });
+  iframe.addEventListener('load', () => {
+    if (closed) return;
+    iframe.contentWindow.postMessage({ type: 'CP_PDF_INIT', filename, canUseNative, locale, settings, sampling, sharpening: sharpening === true, dark, reversed, automatic }, '*', [channel.port2]);
+    frameLoaded = true; sendDocument();
+  }, { once: true });
   container.append(iframe);
   return {
     open(bytes, filename) {
@@ -63,7 +68,7 @@ export function createPdfViewer({ container, locale, sampling, settings, sharpen
     },
     showError(message) { if (!closed) channel.port1.postMessage({ type: 'host-error', message: String(message).slice(0,1000) }); },
     setToolbar({ showFilename, showBranding }) {
-      settings = { ...settings, showFilename: showFilename !== false, showBranding: showBranding !== false };
+      settings = { ...settings, showFilename: showFilename === true, showBranding: showBranding === true };
       if (!closed) channel.port1.postMessage({ type: 'toolbar', toolbar: toolbarMode(settings) });
     },
     setSharpening(value) { if (!closed) { sharpening = value === true; channel.port1.postMessage({ type: 'sharpening', enabled: sharpening }); } },

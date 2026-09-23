@@ -23,3 +23,10 @@ export function pdfOptions(data, assetRoot) {
     wasmUrl: assetRoot + 'wasm/', useWorkerFetch: false, maxImageSize: 32 * 1024 * 1024,
     canvasMaxAreaInBytes: 32 * 1024 * 1024, disableAutoFetch: true, verbosity: 0 };
 }
+
+export function pdfFileSize(bytes, locale = 'en-US') {
+  if (!Number.isSafeInteger(bytes) || bytes < 0) return '';
+  const number = new Intl.NumberFormat(locale, { maximumFractionDigits: 1 });
+  if (bytes < 1000) return `${bytes} ${locale === 'zh-CN' ? '字节' : bytes === 1 ? 'byte' : 'bytes'}`;
+  return `${number.format(bytes / (bytes < 1000000 ? 1000 : 1000000))} ${bytes < 1000000 ? 'KB' : 'MB'}`;
+}

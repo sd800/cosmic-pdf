@@ -16,11 +16,12 @@ export function viewerPdf(count = 80) {
   objects[outlines - 1] = `<< /Type /Outlines /First ${item} 0 R /Last ${item} 0 R /Count 1 >>`;
   objects[0] = `<< /Type /Catalog /Pages 2 0 R /Outlines ${outlines} 0 R /OpenAction << /S /JavaScript /JS (globalThis.PDF_ATTACK=true) >> >>`;
   objects[1] = `<< /Type /Pages /Kids [${pages.map(id => `${id} 0 R`).join(' ')}] /Count ${count} >>`;
+  const info = add('<< /Title (QA <b>metadata</b>) /Author (Cosmic PDF tests) /Subject (Document properties) /Creator (Local fixture) /Producer (QA generator) /CreationDate (D:20260102123456Z) /ModDate (D:20260203140000Z) >>');
   let pdf = '%PDF-1.7\n'; const offsets = [0];
   objects.forEach((value, index) => { offsets.push(pdf.length); pdf += `${index + 1} 0 obj\n${value}\nendobj\n`; });
   const xref = pdf.length;
   pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n` + offsets.slice(1).map(offset => String(offset).padStart(10, '0') + ' 00000 n \n').join('');
-  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R /Info ${info} 0 R >>\nstartxref\n${xref}\n%%EOF`;
   return new TextEncoder().encode(pdf);
 }
 

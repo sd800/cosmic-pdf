@@ -6,7 +6,7 @@ import {viewerPdf,scannedPdf} from '../test/fixtures/pdf-viewer.mjs';
 const {chromium}=await import(process.env.PDF_PLAYWRIGHT?pathToFileURL(process.env.PDF_PLAYWRIGHT).href:'playwright');
 const folder=await mkdtemp(join(tmpdir(),'cosmic-pdf-qa-')),ext=join(folder,'extension');await cp(resolve('extension'),ext,{recursive:true});
 // Expose renderer state in the disposable QA copy only.
-const viewerFile=join(ext,'workspaces/pdf-viewer/viewer.js');await writeFile(viewerFile,(await readFile(viewerFile,'utf8')).replace('links.setViewer(viewer);','window.qaViewer=viewer; links.setViewer(viewer);').replace('void workerSource.catch(() => {});', 'void workerSource.then(()=>{window.qaWorkerReady=true;}).catch(e=>{window.qaWorkerError=String(e);});'));
+const viewerFile=join(ext,'workspaces/pdf-viewer/viewer.js');await writeFile(viewerFile,(await readFile(viewerFile,'utf8')).replace('links.setViewer(viewer);','window.qaViewer=viewer; links.setViewer(viewer);').replace('void workerReady.catch(() => {});', 'void workerReady.then(()=>{window.qaWorkerReady=true;}).catch(e=>{window.qaWorkerError=String(e);});'));
 const report={checks:[],errors:[],remoteRequests:[],screenshots:folder};let englishScan,chineseScan;const slowResponses=new Set();
 function releaseSlow(){for(const res of slowResponses)res.end(viewerPdf(6));slowResponses.clear();}
 const server=createServer((req,res)=>{
@@ -19,6 +19,8 @@ const server=createServer((req,res)=>{
  if(path==='/slow'&&req.headers['sec-fetch-dest']!=='document'){res.flushHeaders();slowResponses.add(res);res.on('close',()=>slowResponses.delete(res));return;}
  if(path==='/huge'){res.setHeader('Content-Length',String(90*1024*1024));res.end('%PDF-1.7');return;}
  if(path==='/bad'){res.end('not a PDF');return;}
+ if(path==='/pages-128'){res.end(viewerPdf(128));return;}
+ if(path==='/broken'){res.end('%PDF-1.7\nbroken');return;}
  res.end(path==='/scan'?englishScan:path==='/chinese'?chineseScan:viewerPdf(6));
 });await new Promise(r=>server.listen(0,'127.0.0.1',r));const base='http://127.0.0.1:'+server.address().port;
 const context=await chromium.launchPersistentContext(join(folder,'profile'),{executablePath:process.env.PDF_CHROME,headless:true,viewport:{width:1360,height:960},deviceScaleFactor:2,args:['--force-device-scale-factor=2',`--disable-extensions-except=${ext}`,`--load-extension=${ext}`]});
@@ -44,32 +46,53 @@ try{
  for(let i=0;i<50;i++){if((await worker.evaluate(()=>chrome.declarativeNetRequest.getDynamicRules())).length>=3)break;await delay(100);}
  async function go(url){await page.goto(url).catch(e=>{if(!/net::ERR_ABORTED|Download is starting/.test(e.message))throw e;});}
  async function open(path='/document?token=a%2Bb&sig=x%3D#page=2'){
-  await page.bringToFront();await go(base+path);await page.waitForURL(url=>url.href.startsWith(reader+'?source='));const element=await page.waitForSelector('iframe');const frame=await element.contentFrame();await frame.waitForFunction(()=>document.querySelector('.page canvas')?.width>0&&document.querySelector('#count').textContent!=='/ —');await frame.waitForFunction(()=>window.qaViewer?.getPageView(0)?.renderingState===3);return frame;
+  await page.bringToFront();await go(base+path);await page.waitForURL(url=>url.href.startsWith(reader+'?source='));const element=await page.waitForSelector('iframe');const frame=await element.contentFrame();await frame.waitForFunction(()=>document.querySelector('.page canvas')?.width>0&&document.querySelector('#count').textContent!=='—');await frame.waitForFunction(()=>window.qaViewer?.getPageView(0)?.renderingState===3);return frame;
  }
  // Homepage Settings must add history within the same tab, without starting PDF workers.
  await page.goto(reader);await page.waitForSelector('#settings');assert.equal(await page.locator('iframe').count(),0);
  const tabsBefore=context.pages().length;await page.locator('#settings').click();await page.waitForURL(settings);
- assert.equal(context.pages().length,tabsBefore);await page.goBack();await page.waitForURL(reader);await page.waitForSelector('#open-file');
+ assert.equal(context.pages().length,tabsBefore);assert.equal(await page.locator('#showFilename').isChecked(),false);assert.equal(await page.locator('#showBranding').isChecked(),false);await page.goBack();await page.waitForURL(reader);await page.waitForSelector('#open-file');
  await page.goForward();await page.waitForURL(settings);await page.goBack();await page.waitForSelector('#settings');
  report.checks.push('homepage Settings uses the same tab and restores with Back/Forward');
  for(const scheme of ['light','dark']){
   await page.emulateMedia({colorScheme:scheme});await go(base+'/slow');await page.waitForURL(url=>url.href.startsWith(reader+'?source='));
-  await page.waitForSelector('#splash');assert.equal(await page.locator('#welcome').isVisible(),false);
-  const element=await page.waitForSelector('iframe',{state:'attached'}),warm=await element.contentFrame();
+  assert.equal(await page.locator('#welcome').isVisible(),false);
+  const element=await page.waitForSelector('iframe'),warm=await element.contentFrame();
   await warm.waitForFunction(()=>window.qaWorkerReady===true||window.qaWorkerError,null,{polling:50});assert.equal(await warm.evaluate(()=>window.qaWorkerError),undefined);
-  assert.equal(await element.evaluate(n=>n.inert&&n.getAttribute('aria-hidden')==='true'),true);assert.deepEqual(await page.locator('#splash').evaluate(n=>Array.from(n.children,c=>c.tagName)),['IMG','H1','DIV']);
-  assert.equal(await page.locator('#loading').isVisible(),true);assert.equal(await page.evaluate(()=>document.documentElement.dataset.dark),String(scheme==='dark'));
+  assert.equal(await page.locator('#splash').count(),0);assert.equal(await warm.locator('header').isVisible(),true);
+  assert.equal(await warm.locator('#progress').isVisible(),true);assert.equal(await warm.locator('#status').textContent(),'');assert.equal(await warm.locator('#scale').inputValue(),'1');
+  assert.equal(await warm.locator('.identity').isVisible(),false);assert.equal(await warm.locator('.file').isVisible(),false);
+  assert.equal(await warm.locator('#print').isDisabled(),true);assert.equal(await warm.locator('#properties').isDisabled(),true);assert.equal(await warm.locator('#download').isDisabled(),true);assert.equal(await warm.locator('#next').isDisabled(),true);assert.equal(await warm.locator('#native').isDisabled(),false);
+  const geometry=await warm.evaluate(()=>{const h=document.querySelector('header').getBoundingClientRect(),p=document.querySelector('#progress').getBoundingClientRect();return{height:h.height,aligned:Math.abs(h.bottom-p.bottom)<1&&p.height===2};});assert.equal(geometry.aligned,true);
+  await warm.locator('#theme').click();await warm.waitForFunction(dark=>document.documentElement.dataset.dark===String(!dark),scheme==='dark');
+  await warm.locator('#theme').click();await warm.waitForFunction(dark=>document.documentElement.dataset.dark===String(dark),scheme==='dark');
   await page.screenshot({path:join(folder,'loading-'+scheme+'.png')});releaseSlow();
-  await page.waitForFunction(()=>document.documentElement.dataset.view==='reader');await warm.waitForSelector('.page canvas');assert.equal(await page.locator('#splash').isVisible(),false);
+  await page.waitForFunction(()=>document.documentElement.dataset.view==='reader');await warm.waitForSelector('.page canvas');assert.equal(await warm.locator('#progress').isVisible(),false);
+  assert.equal(await warm.locator('header').evaluate(n=>n.getBoundingClientRect().height),geometry.height);assert.equal(await warm.locator('#download').isDisabled(),false);
  }
- await page.emulateMedia({colorScheme:'light'});report.checks.push('logo-only loading in both themes and renderer/worker prewarm during document download');
+ await page.emulateMedia({colorScheme:'light'});report.checks.push('toolbar visible and interactive during slow loading in both themes; parser worker prewarmed; divider progress causes no layout shift; factory toolbar items hidden');
+ // Preserve coverage of the optional original two-row layout as well.
+ await worker.evaluate(async()=>{const {settings={}}=await chrome.storage.local.get('settings');await chrome.storage.local.set({settings:{...settings,showFilename:true,showBranding:true}});});
  await go(base+'/links');await page.locator('a').click();await page.waitForURL(url=>url.href.startsWith(reader+'?source='));await page.waitForFunction(()=>document.documentElement.dataset.view==='reader');
  await page.goBack();await page.waitForURL(base+'/links');await page.goForward();await page.waitForURL(url=>url.href.startsWith(reader+'?source='));await page.waitForFunction(()=>document.documentElement.dataset.view==='reader');
  report.checks.push('website PDF link preserves Back/Forward history and restores the reader');
- let frame=await open();assert.equal(page.url(),reader+'?source='+base+'/document?token=a%2Bb&sig=x%3D#page=2');report.checks.push('MIME takeover and signed URL preservation');
+ let frame=await open('/pages-128');
+ const symmetric=()=>{const p=document.querySelector('#page').getBoundingClientRect(),n=document.querySelector('#count').getBoundingClientRect(),s=document.querySelector('.page-separator').getBoundingClientRect();return Math.abs(p.width-n.width)<.1&&Math.abs((s.left-p.right)-(n.left-s.right))<.1;};
+ assert.equal(await frame.evaluate(symmetric),true);const originalCountBox=await frame.locator('#count').boundingBox();await frame.locator('#page').fill('128');await frame.locator('#page').press('Enter');await frame.waitForFunction(()=>qaViewer.currentPageNumber===128);assert.equal(await frame.evaluate(symmetric),true);assert.deepEqual(await frame.locator('#count').boundingBox(),originalCountBox);
+ report.checks.push('symmetric fixed-width current/total page counts across page-number changes');
+ frame=await open();assert.equal(page.url(),reader+'?source='+base+'/document?token=a%2Bb&sig=x%3D#page=2');report.checks.push('MIME takeover and signed URL preservation');
  assert.equal(await frame.locator('#page').inputValue(),'1');assert.equal(await frame.locator('#scale').inputValue(),'1');assert.equal(await frame.locator('#viewport').evaluate(n=>n.scrollTop),0);
  assert.equal(await frame.evaluate(()=>typeof chrome==='undefined'||!chrome.runtime),true);assert.equal(await frame.evaluate(()=>globalThis.PDF_ATTACK),undefined);
  await frame.locator('#zoom-in').click();await frame.locator('#zoom-in').click();await frame.waitForFunction(()=>Math.abs(window.qaViewer.currentScale-1.2)<.001);report.checks.push('100% initial scale, 10-point zoom and sandbox isolation');
+ for(const [scale,lower,upper]of [[1.2,'1','1.25'],[.25,'page-fit','0.5'],[4.5,'4','5']]){
+  const orderBefore=await frame.locator('#scale option').evaluateAll(nodes=>nodes.map(n=>n.value));
+  await frame.evaluate(scale=>{qaViewer.currentScaleValue=String(scale);},scale);
+  assert.deepEqual(await frame.locator('#scale option').evaluateAll(nodes=>nodes.map(n=>n.value)),orderBefore,'zoom leaves option order untouched until the menu is opened');
+  await frame.locator('#scale').click();await frame.locator('#scale').press('Escape');
+  const neighbors=await frame.locator('#custom-scale').evaluate(n=>[n.previousElementSibling?.value,n.nextElementSibling?.value]);assert.deepEqual(neighbors,[lower,upper]);assert.equal(await frame.locator('#scale').inputValue(),'custom');
+ }
+ await frame.locator('#scale').selectOption('1');assert.equal(await frame.locator('#custom-scale').getAttribute('hidden'),'');await frame.evaluate(()=>{qaViewer.currentScaleValue='1.1';});await frame.locator('#scale').focus();await frame.locator('#scale').press('Space');await frame.locator('#scale').press('Escape');assert.deepEqual(await frame.locator('#custom-scale').evaluate(n=>[n.previousElementSibling?.value,n.nextElementSibling?.value]),['1','1.25']);await frame.locator('#scale').selectOption('1');
+ report.checks.push('custom zoom locates between neighboring presets only when opened by pointer/keyboard, with no stale entry at a preset');
  await frame.locator('#theme').click();await frame.waitForFunction(()=>document.documentElement.dataset.dark==='true');assert.ok((await frame.locator('.canvasWrapper').first().evaluate(n=>getComputedStyle(n).filter)).includes('invert(0.96)'));
  assert.equal(await frame.locator('#theme-auto').isVisible(),true);
  await page.emulateMedia({colorScheme:'dark'});assert.equal(await frame.evaluate(()=>document.documentElement.dataset.dark),'true');
@@ -81,6 +104,16 @@ try{
  await frame.locator('#scale').selectOption('3');await frame.locator('#viewport').hover();await page.mouse.wheel(350,0);await frame.waitForFunction(()=>document.querySelector('#viewport').scrollLeft>0);
  await frame.locator('#scale').selectOption('1');await frame.waitForFunction(()=>qaViewer.currentScale===1);report.checks.push('single default/opposite theme control, native history shortcuts and horizontal PDF scrolling');
  await page.screenshot({path:join(folder,'reader-dark.png')});report.checks.push('dark appearance and paper boundary');
+ assert.deepEqual(await frame.locator('#primary-actions > button').evaluateAll(nodes=>nodes.map(n=>n.id)),['print','properties','settings','native','download']);
+ assert.equal(await frame.evaluate(()=>performance.getEntriesByType('resource').some(r=>r.name.endsWith('/properties.js'))),false,'properties module is not part of first-page loading');
+ await frame.evaluate(()=>{window.qaMetadataCalls=0;const doc=qaViewer.pdfDocument,read=doc.getMetadata.bind(doc);doc.getMetadata=()=>{qaMetadataCalls++;return read();};});
+ await frame.locator('#properties').click();await frame.waitForSelector('#properties-dialog[open]');await frame.waitForFunction(()=>document.querySelector('[data-property=author]').textContent==='Cosmic PDF tests');
+ assert.equal(await frame.locator('#properties-title').textContent(),'Document properties');assert.equal(await frame.locator('[data-property=documentTitle]').textContent(),'QA <b>metadata</b>');assert.equal(await frame.locator('#properties-list b').count(),0);
+ assert.equal(await frame.locator('[data-property=pdfVersion]').textContent(),'1.7');assert.equal(await frame.locator('[data-property=pageCount]').textContent(),'6');assert.equal(await frame.locator('[data-property=fastWebView]').textContent(),'No');assert.equal(await frame.locator('[data-property=keywords]').textContent(),'—');
+ assert.match(await frame.locator('[data-property=fileSize]').textContent(),/KB$/);assert.match(await frame.locator('[data-property=created]').textContent(),/2026/);assert.match(await frame.locator('[data-property=pageSize]').textContent(),/8.5 × 11.69 in/);
+ await page.screenshot({path:join(folder,'properties-dark-en.png')});await frame.locator('#properties-close').click();await frame.locator('#properties').click();await frame.waitForFunction(()=>!document.querySelector('#properties-status').textContent);assert.equal(await frame.evaluate(()=>qaMetadataCalls),1);await frame.locator('#properties-close').press('Escape');
+ await frame.locator('#theme').click();await frame.waitForFunction(()=>document.documentElement.dataset.dark==='false');await frame.locator('#properties').click();await frame.waitForFunction(()=>!document.querySelector('#properties-status').textContent);await page.screenshot({path:join(folder,'properties-light-en.png')});await frame.locator('#properties-close').click();await frame.locator('#theme').click();await frame.waitForFunction(()=>document.documentElement.dataset.dark==='true');
+ report.checks.push('properties action order, on-demand module/metadata, safe selectable text, correct PDF fields and cached reopening');
  await frame.locator('#search-toggle').click();await frame.locator('#query').fill('Searchable');await frame.waitForFunction(()=>document.querySelector('#matches').textContent.includes('/ 6'));await frame.locator('#find-close').click();report.checks.push('native text search');
  await frame.locator('#fullscreen').click();await page.waitForFunction(()=>!!document.fullscreenElement);await frame.locator('#fullscreen').click();await page.waitForFunction(()=>!document.fullscreenElement);report.checks.push('fullscreen through trusted host');
  await frame.locator('#print').click();await frame.waitForSelector('#print-dialog[open]');await frame.locator('#print-dialog button[value=cancel]').click();report.checks.push('bounded print-range dialog');
@@ -94,6 +127,9 @@ try{
  const prefs=await context.newPage();observe(prefs);await prefs.goto(settings);await prefs.locator('#locale').selectOption('zh-CN');await prefs.waitForFunction(()=>document.documentElement.lang==='zh-CN');await prefs.locator('#sampling').selectOption('1');await prefs.locator('#gap').selectOption('24');await chooseLanguages(prefs,'#ocrLanguages',['eng','chi_tra']);await prefs.locator('#appearance').selectOption('dark');await prefs.waitForFunction(async()=>{const s=(await chrome.storage.local.get('settings')).settings;return s?.sampling===1&&s?.appearance==='dark'&&s?.gap===24&&s?.ocrLanguages?.join('+')==='eng+chi_tra';});
  assert.equal(await frame.evaluate(()=>qaViewer.getPageView(0).getRenderPixelRatio()),4,'existing reader sampling snapshot');await prefs.screenshot({path:join(folder,'settings-zh.png'),fullPage:true});report.checks.push('localized settings and immutable open-reader sampling');
  frame=await open('/new');assert.equal(await frame.evaluate(()=>qaViewer.getPageView(0).getRenderPixelRatio()),1);assert.equal(await frame.evaluate(()=>document.documentElement.dataset.dark),'true');assert.equal(await frame.locator('#viewport').evaluate(n=>n.scrollTop),0);report.checks.push('new-reader preferences');
+ await frame.locator('#properties').click();await frame.waitForFunction(()=>!document.querySelector('#properties-status').textContent);assert.equal(await frame.locator('#properties-title').textContent(),'文档信息');assert.match(await frame.locator('[data-property=pageSize]').textContent(),/215.9 × 297.04 mm/);
+ await page.setViewportSize({width:360,height:850});assert.equal(await frame.evaluate(()=>document.querySelector('header .file').getBoundingClientRect().right<=document.querySelector('header .actions').getBoundingClientRect().left),true);assert.equal(await frame.locator('#properties-dialog').evaluate(n=>n.getBoundingClientRect().width<=innerWidth&&n.scrollWidth<=n.clientWidth),true);await page.screenshot({path:join(folder,'properties-dark-zh-narrow.png')});await frame.locator('#properties-close').click();await page.setViewportSize({width:1360,height:960});
+ report.checks.push('localized document properties reflow within a narrow viewport');
  // Toolbar preferences update the existing reader without reparsing the PDF.
  await frame.evaluate(()=>window.qaOriginalDocument=qaViewer.pdfDocument);
  await chooseToolbar(prefs,'branding');
@@ -114,6 +150,10 @@ try{
  await frame.evaluate(()=>window.qaBeforeHideBoth=qaViewer.pdfDocument);
  await chooseToolbar(prefs,'none');await frame.waitForFunction(()=>document.querySelector('.identity').hidden&&document.querySelector('.file').hidden);
  assert.equal(await frame.locator('#appearance-actions').isVisible(),false);assert.equal(await frame.evaluate(()=>qaViewer.pdfDocument===window.qaBeforeHideBoth),true);
+ for(const width of [1101,1180,1201,1360]){
+  await page.setViewportSize({width,height:960});
+  assert.equal(await frame.evaluate(()=>{const nav=document.querySelector('header nav'),last=nav.lastElementChild.getBoundingClientRect(),actions=document.querySelector('.actions').getBoundingClientRect();return last.right<=actions.left||last.top>=actions.bottom;}),true,`toolbar groups overlap at ${width}px`);
+ }
  await page.screenshot({path:join(folder,'toolbar-hidden.png')});await chooseToolbar(prefs,'filename');
  for(const appearance of ['light','dark']){
   await prefs.locator('#appearance').selectOption(appearance);await prefs.waitForFunction(async a=>(await chrome.storage.local.get('settings')).settings.appearance===a,appearance);
@@ -173,7 +213,8 @@ try{
  };const readability=await prefs.evaluate(measureReadability);assert.ok(readability.label>=15&&readability.description>=14&&readability.language>=15);assert.ok(readability.contrast>=4.5);report.checks.push('readable type sizes and secondary-text contrast in both themes');
  await prefs.locator('#appearance').selectOption('light');await prefs.waitForFunction(()=>document.documentElement.dataset.dark==='false');assert.ok((await prefs.evaluate(measureReadability)).contrast>=4.5);await prefs.screenshot({path:join(folder,'settings-light.png'),fullPage:true});await prefs.setViewportSize({width:360,height:850});assert.equal(await prefs.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);await prefs.screenshot({path:join(folder,'settings-narrow.png'),fullPage:true});await prefs.locator('#locale').selectOption('zh-CN');await prefs.waitForFunction(()=>document.documentElement.lang==='zh-CN');assert.equal(await prefs.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);await prefs.screenshot({path:join(folder,'settings-zh-narrow.png'),fullPage:true});await checkDefaultLabels(true);report.checks.push('factory default labels in both languages, including Appearance');await page.bringToFront();await page.setViewportSize({width:560,height:850});await page.screenshot({path:join(folder,'reader-narrow.png')});report.checks.push('English settings and narrow layout');
  const local=join(folder,'local.pdf');await writeFile(local,viewerPdf(2));await page.locator('#file').setInputFiles(local);await page.waitForURL(reader);const lf=await(await page.waitForSelector('iframe')).contentFrame();await lf.waitForSelector('.page canvas');const popup=context.waitForEvent('page');await lf.locator('#native').click();const nativeLocal=await popup;await nativeLocal.waitForLoadState();assert.ok(nativeLocal.url().startsWith('blob:chrome-extension://'));await nativeLocal.close();report.checks.push('local file picker and native blob fallback');
- await go(base+'/bad');await page.waitForFunction(()=>!!document.querySelector('#message')?.textContent&&document.querySelector('#loading')?.hidden===true);await page.waitForSelector('#native');assert.ok(await page.locator('#native').isVisible());report.checks.push('invalid PDF fallback');
+ await go(base+'/bad');await page.waitForFunction(()=>!!document.querySelector('#message')?.textContent&&document.documentElement.dataset.view==='home'&&!document.querySelector('iframe'));await page.waitForSelector('#native');assert.ok(await page.locator('#native').isVisible());report.checks.push('invalid PDF fallback');
+ await go(base+'/broken');await page.waitForFunction(()=>!!document.querySelector('#message')?.textContent&&!document.querySelector('iframe'));report.checks.push('parse failure removes shell and releases worker');
  await page.goto(reader);await page.waitForFunction(()=>document.querySelector('#intro').textContent.length>0);await page.screenshot({path:join(folder,'opening.png')});
  await prefs.locator('#enabled').uncheck();await prefs.waitForFunction(async()=>!(await chrome.storage.local.get('settings')).settings.enabled);for(let i=0;i<50;i++){if((await worker.evaluate(()=>chrome.declarativeNetRequest.getDynamicRules())).length===0)break;await delay(100);}assert.equal((await worker.evaluate(()=>chrome.declarativeNetRequest.getDynamicRules())).length,0);report.checks.push('automatic opening master switch');
  assert.deepEqual(report.remoteRequests,[],'OCR/renderer never makes external network requests');assert.deepEqual(report.errors,[],'no application/CSP errors');report.checks.push('no remote document resources or console errors');

@@ -8,22 +8,31 @@ import { normalizePdfSampling } from '../../core/pdf-sampling.js';
 import { PDF_LIMITS, pdfDetailCanvasPixels, pdfOptions, pdfScale, stepPdfScale, printRange, rotateLeft, safePdfLink } from './model.js';
 
 const $ = id => document.getElementById(id);
-let port, task, pdf, viewer, workerUrl, parseTimer, destroyed = false, text = labels['en-US'];
+let port, task, pdf, viewer, workerUrl, pdfWorker, parseTimer, destroyed = false, text = labels['en-US'];
 const lifetime = new AbortController(), signal = lifetime.signal;
 const eventBus = new EventBus(), viewport = $('viewport');
-// Warm the local worker source in parallel with the host's document download.
-let workerSource = fetch(new URL('../../vendor/pdfjs/pdf.worker.min.mjs', import.meta.url), { signal }).then(response => {
+// Prepare the parser concurrently with the host download, without starting OCR.
+const workerReady = fetch(new URL('../../vendor/pdfjs/pdf.worker.min.mjs', import.meta.url), { signal }).then(response => {
   if (!response.ok) throw Error('PDF worker unavailable');
   return response.text();
+}).then(async code => {
+  if (destroyed) return;
+  // Only fixed packaged code enters this opaque sandbox's blob worker.
+  workerUrl = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }));
+  pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
+  pdfWorker = new pdfjs.PDFWorker();
+  await pdfWorker.promise;
+  return pdfWorker;
 });
-void workerSource.catch(() => {});
+void workerReady.catch(() => {});
 let firstPageReady = false, toolbarMode = 'both', themeState = {};
+let customZoomScale = null;
 let thumbnailObserver, thumbnailTask, thumbnailBusy = false, thumbnailGeneration = 0, outlineLoaded = false;
 const nearThumbnails = new Set(), thumbnailCache = new Map(), printUrls = new Set();
-let sharpening = false, settings, ocr;
+let sharpening = false, settings, ocr, documentFilename, documentBytes = 0, properties;
 let printing = false, printTask, zoomFrame = 0, wheelFactor = 1, wheelOrigin, passwordCancelled = false;
 const emit = type => port?.postMessage({ type });
-function status(key, loading = false) { $('status').textContent = text[key] || ''; $('progress').hidden = !loading; }
+function status(key, loading = false) { $('status').textContent = key === 'loading' ? '' : text[key] || ''; $('progress').hidden = !loading; $('workspace').setAttribute('aria-busy', String(loading)); }
 function theme(dark, reversed, automatic) {
   themeState = { dark, reversed, automatic };
   $('theme-auto').hidden = !reversed && automatic;
@@ -67,10 +76,10 @@ function destroy() {
   if (destroyed) return; destroyed = true; lifetime.abort(); cancelAnimationFrame(zoomFrame); clearTimeout(parseTimer);
   ocr?.destroy(); thumbnailGeneration++; thumbnailObserver?.disconnect(); thumbnailTask?.cancel(); printTask?.cancel();
   viewer?.setDocument(null); void task?.destroy().catch(() => {}); cleanupPrint();
-  if (workerUrl) URL.revokeObjectURL(workerUrl); port?.close();
+  pdfWorker?.destroy(); if (workerUrl) URL.revokeObjectURL(workerUrl); port?.close();
 }
 window.addEventListener('pagehide', destroy, { once: true });
-window.addEventListener('message', async event => {
+window.addEventListener('message', event => {
   if (event.source !== parent || port || event.data?.type !== 'CP_PDF_INIT' || event.ports.length !== 1) return;
   const input = event.data;
   settings = normalizeSettings(input.settings);
@@ -78,10 +87,22 @@ window.addEventListener('message', async event => {
   document.documentElement.style.setProperty('--page-gap', settings.gap + 'px');
   document.documentElement.style.setProperty('--dark-strength',settings.darkStrength);
   document.documentElement.dataset.motion = String(settings.motion);
-  if (!(input.bytes instanceof ArrayBuffer) || input.bytes.byteLength > PDF_LIMITS.bytes) return;
   port = event.ports[0];
+  let opened = false;
+  for (const control of document.querySelectorAll('header nav button:not(#fullscreen), header nav input, header nav select, #print, #download, #properties')) control.disabled = true;
+  $('native').disabled = input.canUseNative !== true;
   port.onmessage = ({ data }) => {
-    if (data?.type === 'theme') theme(data.dark, data.reversed, data.automatic);
+    if (data?.type === 'document') {
+      if (opened || !(data.bytes instanceof ArrayBuffer) || !data.bytes.byteLength || data.bytes.byteLength > PDF_LIMITS.bytes) return;
+      opened = true; documentBytes = data.bytes.byteLength; documentFilename = String(data.filename || 'PDF').slice(0, 1024);
+      $('filename').textContent = String(data.filename || 'PDF').slice(0, 1024); $('filename').title = $('filename').textContent;
+      $('download').disabled = $('native').disabled = false;
+      void open(data.bytes, normalizePdfSampling(input.sampling)).catch(() => {
+        clearTimeout(parseTimer);
+        if (!destroyed && !passwordCancelled) { status('failed'); emit('error'); void task?.destroy().catch(() => {}); pdfWorker?.destroy(); }
+      });
+    }
+    else if (data?.type === 'theme') theme(data.dark, data.reversed, data.automatic);
     else if (data?.type === 'toolbar') toolbarPreferences(data.toolbar);
     else if (data?.type === 'sharpening') setSharpening(data.enabled);
     else if (data?.type === 'host-error') { $('status').textContent = String(data.message || '').slice(0,1000); $('progress').hidden = true; }
@@ -100,6 +121,7 @@ window.addEventListener('message', async event => {
   setSharpening(input.sharpening);
   theme(input.dark, input.reversed, input.automatic); status('loading', true);
   setReaderIcons(document);
+  $('scale').value = settings.zoom.startsWith('page-') ? settings.zoom : String(Number(settings.zoom));
   // Keep form navigation forbidden by the sandbox, including method=dialog.
   // These controls only validate local input and close the local dialog.
   for (const form of document.querySelectorAll('dialog form')) {
@@ -114,23 +136,16 @@ window.addEventListener('message', async event => {
   }
   click('download', () => emit('download')); click('theme', () => emit('theme')); click('theme-auto', () => emit('auto'));
   click('fullscreen', () => emit('fullscreen')); click('native', () => emit('native')); click('settings', () => emit('settings'));
-  try { await open(input.bytes, normalizePdfSampling(input.sampling)); } catch {
-    clearTimeout(parseTimer);
-    if (!destroyed && !passwordCancelled) { status('failed'); emit('error'); void task?.destroy().catch(() => {}); }
-  }
+  emit('shell-ready');
 }, { signal });
 
 async function open(bytes, sampling) {
-  // An opaque extension sandbox cannot create a Worker from its extension URL.
-  // Only the fixed bundled worker is copied into a blob; never PDF-supplied code.
-  const workerCode = await workerSource; workerSource = null;
+  const worker = await workerReady;
   if (destroyed) return;
-  workerUrl = URL.createObjectURL(new Blob([workerCode], { type: 'text/javascript' }));
-  pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
-  task = pdfjs.getDocument(pdfOptions(new Uint8Array(bytes), new URL('../../vendor/pdfjs/', import.meta.url).href));
+  task = pdfjs.getDocument({ ...pdfOptions(new Uint8Array(bytes), new URL('../../vendor/pdfjs/', import.meta.url).href), worker });
   const armParseDeadline = () => {
     clearTimeout(parseTimer);
-    parseTimer = setTimeout(() => { status('failed'); emit('error'); void task.destroy().catch(() => {}); }, 30000);
+    parseTimer = setTimeout(() => { status('failed'); emit('error'); void task.destroy().catch(() => {}); pdfWorker?.destroy(); }, 30000);
   };
   armParseDeadline();
   task.onPassword = (accept, reason) => {
@@ -140,14 +155,14 @@ async function open(bytes, sampling) {
     $('password').value = ''; $('password-dialog').showModal(); $('password').focus();
     $('password-dialog').onclose = () => {
       if ($('password-dialog').returnValue === 'open') { status('loading', true); armParseDeadline(); accept($('password').value); $('password').value = ''; }
-      else { passwordCancelled = true; status('cancelled'); void task.destroy().catch(() => {}); }
+      else { passwordCancelled = true; status('cancelled'); void task.destroy().catch(() => {}); pdfWorker?.destroy(); }
     };
   };
   pdf = await task.promise;
   clearTimeout(parseTimer);
   if (destroyed) return;
   if (pdf.numPages > PDF_LIMITS.pages) { await task.destroy(); throw Error('PDF page budget'); }
-  emit('parsed');
+  emit('parsed'); $('properties').disabled = false;
   const links = new PDFLinkService({ eventBus });
   // The annotation/form/editor/scripting layers are not instantiated. Only
   // passive text and our bounded allowlisted links are added above the canvas.
@@ -170,22 +185,28 @@ async function open(bytes, sampling) {
     if (document.hidden) viewer.cleanup(); else { viewer.update(); void drawThumbnails(); }
   }, { signal });
   eventBus.on('pagesinit', () => {
+    for (const control of document.querySelectorAll('header nav button, header nav input, header nav select')) control.disabled = false;
     viewer.currentScaleValue = settings.zoom;
     // Setting the initial scale aligns the first paper edge with the viewport.
     // Restore its top gutter once at initialization, never during later reading.
     viewport.scrollTop = 0;
     viewer.update();
-    $('count').textContent = '/ ' + pdf.numPages; $('page').max = pdf.numPages; $('page').style.setProperty('--page-digits', Math.max(2, String(pdf.numPages).length));
+    $('count').textContent = String(pdf.numPages); $('page').max = pdf.numPages; $('page').parentElement.style.setProperty('--page-digits', Math.max(2, String(pdf.numPages).length));
     $('previous').disabled = true; $('next').disabled = pdf.numPages === 1; $('print').disabled = !viewer.printingAllowed;
     $('print-to').max = $('print-from').max = pdf.numPages; $('print-to').value = Math.min(pdf.numPages, PDF_LIMITS.printPages);
-    if (settings.sidebar) { $('sidebar').hidden = false; createThumbnails(); }
+    if (settings.sidebar) $('sidebar').hidden = false;
   }, { signal });
   eventBus.on('pagechanging', ({ pageNumber }) => {
     $('page').value = pageNumber; $('previous').disabled = pageNumber === 1; $('next').disabled = pageNumber === pdf.numPages;
     for (const node of $('thumbnails').children) node.setAttribute('aria-current', String(Number(node.dataset.page) === pageNumber));
   }, { signal });
   eventBus.on('pagerendered', ({ pageNumber, cssTransform, error }) => {
-    if (!firstPageReady && pageNumber === 1) { firstPageReady = true; status(''); emit('ready'); }
+    // A user may scroll away from page one before its render finishes.
+    if (!firstPageReady) {
+      firstPageReady = true; status(''); emit('ready');
+      // Let the first page reach the screen before optional thumbnail work.
+      if (!$('sidebar').hidden) requestAnimationFrame(() => { if (!destroyed && !$('thumbnails').children.length) createThumbnails(); });
+    }
     if (error) status('pageError');
     if (sharpening) updateCanvasSharpening(viewer.getPageView(pageNumber - 1), cssTransform || error);
     if (settings.links && !cssTransform && !destroyed) void renderLinks(pageNumber, links).catch(() => {});
@@ -193,8 +214,14 @@ async function open(bytes, sampling) {
   eventBus.on('scalechanging', ({ scale, presetValue }) => {
     if (sharpening) for (const view of viewer.getCachedPageViews()) view.canvas?.classList.remove('pdf-sharpen');
     const preset = presetValue || String(scale);
-    if ([...$('scale').options].some(option => option.value === preset)) $('scale').value = preset;
-    else { $('custom-scale').textContent = Math.round(scale * 100) + '%'; $('custom-scale').hidden = false; $('scale').value = 'custom'; }
+    const custom = $('custom-scale'), select = $('scale');
+    select.value = preset;
+    if (select.value && preset !== 'custom') {
+      custom.hidden = true; customZoomScale = null;
+    } else {
+      custom.textContent = Math.round(scale * 100) + '%'; custom.hidden = false;
+      select.value = 'custom'; customZoomScale = scale;
+    }
     $('zoom-in').disabled = scale >= 5; $('zoom-out').disabled = scale <= .25;
   }, { signal });
   eventBus.on('updatefindmatchescount', ({ matchesCount }) => { $('matches').textContent = `${matchesCount.current} / ${matchesCount.total}`; }, { signal });
@@ -207,6 +234,18 @@ async function open(bytes, sampling) {
   $('page').onchange = () => { viewer.currentPageNumber = Math.max(1, Math.min(pdf.numPages, Number($('page').value) || 1)); $('page').value = viewer.currentPageNumber; };
   function zoomTo(scale, origin) { viewer.updateScale({ scaleFactor: pdfScale(scale) / viewer.currentScale, drawingDelay: 180, origin }); }
   click('zoom-in', () => zoomTo(stepPdfScale(viewer.currentScale, 1))); click('zoom-out', () => zoomTo(stepPdfScale(viewer.currentScale, -1)));
+  // Keep high-frequency zoom updates small. Order the transient option only
+  // when the native menu is about to open, for both pointer and keyboard use.
+  function locateCustomZoom() {
+    if (customZoomScale === null) return;
+    const select = $('scale'), custom = $('custom-scale');
+    const upper = [...select.options].find(option => option !== custom && Number(option.value) > customZoomScale);
+    select.insertBefore(custom, upper || null); select.value = 'custom'; customZoomScale = null;
+  }
+  $('scale').addEventListener('pointerdown', locateCustomZoom, { signal });
+  $('scale').addEventListener('keydown', event => {
+    if (['ArrowDown', 'ArrowUp', ' ', 'Enter', 'Home', 'End'].includes(event.key)) locateCustomZoom();
+  }, { signal });
   $('scale').onchange = () => { const value = $('scale').value; if (value === 'custom') return; if (value.startsWith('page-')) viewer.currentScaleValue = value; else zoomTo(Number(value)); };
   click('rotate', () => {
     const page = viewer.currentPageNumber;
@@ -246,11 +285,16 @@ async function open(bytes, sampling) {
   }, { signal });
   click('sidebar-toggle', () => {
     $('sidebar').hidden = !$('sidebar').hidden;
-    if (!$('sidebar').hidden && !$('thumbnails').children.length) createThumbnails();
+    if (firstPageReady && !$('sidebar').hidden && !$('thumbnails').children.length) createThumbnails();
     if ($('sidebar').hidden) { thumbnailTask?.cancel(); } else void drawThumbnails();
   });
   click('show-pages', () => { $('outline').hidden = true; $('thumbnails').hidden = false; void drawThumbnails(); });
   click('show-outline', () => { $('thumbnails').hidden = true; $('outline').hidden = false; thumbnailTask?.cancel(); void showOutline(links); });
+  click('properties', () => {
+    // Import and read metadata only on demand; retain one small dialog model.
+    properties ||= import('./properties.js').then(({ createProperties }) => createProperties({ pdf, viewer, filename: documentFilename, byteLength: documentBytes, locale: document.documentElement.lang, text, signal }));
+    void properties.then(dialog => { if (!destroyed) return dialog.open(); }).catch(() => { if (!destroyed) status('propertiesUnavailable'); });
+  });
   click('print', openPrint);
   $('print-dialog').addEventListener('close', () => { if ($('print-dialog').returnValue === 'print') void printDocument(); }, { signal });
   window.addEventListener('afterprint', cleanupPrint, { signal });
