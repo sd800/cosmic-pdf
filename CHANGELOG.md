@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.8
+
+- Update the PDF reader’s Rotate left icon to a rounded square with a counterclockwise arrow, aligned with the other toolbar icons.
+
 ## 1.2.7
 
 - Align the Document properties date-format dropdown with other settings and prevent oversized dropdowns from overflowing narrow cards.
