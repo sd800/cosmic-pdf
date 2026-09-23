@@ -94,10 +94,21 @@ try{
  const page=await context.newPage();observe(page);await page.goto('chrome://extensions');const id=await page.evaluate(()=>document.querySelector('extensions-manager').shadowRoot.querySelector('extensions-item-list').shadowRoot.querySelector('extensions-item')?.id);assert.ok(id,'extension installed');
  const origin=`chrome-extension://${id}/`,reader=origin+'workspaces/pdf-reader/index.html',settings=origin+'settings/index.html';
  const worker=context.serviceWorkers()[0]||await context.waitForEvent('serviceworker');
+ const granted=await worker.evaluate(()=>chrome.permissions.getAll());assert.deepEqual(granted.permissions.sort(),['declarativeNetRequestWithHostAccess','storage']);assert.equal(await worker.evaluate(()=>typeof chrome.downloads),'undefined');report.checks.push('fixed minimal API permissions; no downloads API');
  for(let i=0;i<50;i++){if((await worker.evaluate(()=>chrome.declarativeNetRequest.getDynamicRules())).length>=3)break;await delay(100);}
  async function go(url){await page.goto(url).catch(e=>{if(!/net::ERR_ABORTED|Download is starting/.test(e.message))throw e;});}
  async function open(path='/document?token=a%2Bb&sig=x%3D#page=2'){
   await page.bringToFront();await go(base+path);await page.waitForURL(url=>url.href.startsWith(reader+'?source='));const element=await page.waitForSelector('iframe');const frame=await element.contentFrame();await frame.waitForFunction(()=>document.querySelector('.page canvas')?.width>0&&document.querySelector('#count').textContent!=='—');await frame.waitForFunction(()=>window.qaViewer?.getPageView(0)?.renderingState===3);assert.equal(await frame.evaluate(()=>window.qaWorkerReady),true,'PDF parsing uses a real background Worker');return frame;
+ }
+ async function checkDownload(frame,name,bytes){
+  const before=page.url(),tabs=context.pages().length;
+  assert.equal(await page.evaluate(()=>typeof chrome.downloads),'undefined');
+  const pending=page.waitForEvent('download');await frame.locator('#download').click();const saved=await pending;
+  assert.equal(saved.suggestedFilename(),name);assert.equal(await saved.failure(),null);
+  assert.deepEqual(await readFile(await saved.path()),Buffer.from(bytes),'download preserves original bytes');
+  assert.equal(page.url(),before);assert.equal(context.pages().length,tabs);
+  assert.equal(await page.locator('a[download]').count(),0,'temporary download anchor is removed');
+  await saved.delete();
  }
  // Homepage Settings must add history within the same tab, without starting PDF workers.
  await page.goto(reader);await page.waitForSelector('#settings');assert.equal(await page.locator('iframe').count(),0);
@@ -216,6 +227,8 @@ try{
  await frame.locator('#theme').click();await frame.waitForFunction(()=>document.documentElement.dataset.dark==='true');await frame.locator('#find-close').click();report.checks.push('toolbar Find always searches internally with orange matches in both themes, even when Chrome shortcuts are enabled');
  await frame.locator('#fullscreen').click();await page.waitForFunction(()=>!!document.fullscreenElement);await frame.locator('#fullscreen').click();await page.waitForFunction(()=>!document.fullscreenElement);report.checks.push('fullscreen through trusted host');
  await frame.locator('#print').click();await frame.waitForSelector('#print-dialog[open]');await frame.locator('#print-dialog button[value=cancel]').click();report.checks.push('bounded print-range dialog');
+
+ await checkDownload(frame,'document.pdf',viewerPdf(6));report.checks.push('remote PDF original-byte download without downloads permission or navigation');
 
  await frame.locator('#native').click();await page.waitForURL(base+'/document?token=a%2Bb&sig=x%3D#page=2');assert.ok((await worker.evaluate(()=>chrome.declarativeNetRequest.getSessionRules())).length===1);await page.reload();await delay(200);assert.ok(page.url().startsWith(base));report.checks.push('native return and reload without recapture');
  const other=await context.newPage();observe(other);await other.goto(base+'/document?token=a%2Bb&sig=x%3D').catch(()=>{});await other.waitForURL(url=>url.href.startsWith(reader));await other.close();report.checks.push('native exemption limited to one tab');
@@ -360,7 +373,7 @@ assert.match(await frame.locator('[data-property=pageSize]').textContent(),/215.
   return {label:font('.row h3'),description:font('.row p'),language:font('.language-options label'),contrast:(Math.max(a,b)+.05)/(Math.min(a,b)+.05)};
  };const readability=await prefs.evaluate(measureReadability);assert.ok(readability.label>=15&&readability.description>=14&&readability.language>=15);assert.ok(readability.contrast>=4.5);report.checks.push('readable type sizes and secondary-text contrast in both themes');
  await prefs.locator('#appearance').selectOption('light');await prefs.waitForFunction(()=>document.documentElement.dataset.dark==='false');assert.ok((await prefs.evaluate(measureReadability)).contrast>=4.5);await prefs.screenshot({path:join(folder,'settings-light.png'),fullPage:true});await prefs.setViewportSize({width:360,height:850});assert.equal(await prefs.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);await prefs.screenshot({path:join(folder,'settings-narrow.png'),fullPage:true});await prefs.locator('#locale').selectOption('zh-CN');await prefs.waitForFunction(()=>document.documentElement.lang==='zh-CN');assert.equal(await prefs.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);await prefs.screenshot({path:join(folder,'settings-zh-narrow.png'),fullPage:true});await checkDefaultLabels(true);report.checks.push('factory default labels in both languages, including Appearance');await page.bringToFront();await page.setViewportSize({width:560,height:850});await page.screenshot({path:join(folder,'reader-narrow.png')});report.checks.push('English settings and narrow layout');
- const local=join(folder,'local.pdf');await writeFile(local,viewerPdf(2));await page.locator('#file').setInputFiles(local);await page.waitForURL(reader);const lf=await(await page.waitForSelector('iframe')).contentFrame();await lf.waitForSelector('.page canvas');const popup=context.waitForEvent('page');await lf.locator('#native').click();const nativeLocal=await popup;await nativeLocal.waitForLoadState();assert.ok(nativeLocal.url().startsWith('blob:chrome-extension://'));await nativeLocal.close();report.checks.push('local file picker and native blob fallback');
+ const local=join(folder,'local.pdf');await writeFile(local,viewerPdf(2));await page.locator('#file').setInputFiles(local);await page.waitForURL(reader);const lf=await(await page.waitForSelector('iframe')).contentFrame();await lf.waitForSelector('.page canvas');await checkDownload(lf,'local.pdf',viewerPdf(2));report.checks.push('local PDF original-byte download without downloads permission');const popup=context.waitForEvent('page');await lf.locator('#native').click();const nativeLocal=await popup;await nativeLocal.waitForLoadState();assert.ok(nativeLocal.url().startsWith('blob:chrome-extension://'));await nativeLocal.close();report.checks.push('local file picker and native blob fallback');
  // Clear QA-only explicit overrides before testing shared factory defaults.
  await worker.evaluate(async()=>{const {settings}=await chrome.storage.local.get('settings');await chrome.storage.local.set({settings:{...settings,toolbarHidden:{}}});});
  await prefs.reload();await prefs.waitForFunction(()=>document.querySelector('#hide-native')?.checked);

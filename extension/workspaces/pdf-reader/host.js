@@ -26,7 +26,15 @@ function setView(view){document.documentElement.dataset.view=view;}
 function fail(message){$('message').textContent=message; setView('home');}
 async function native(){if(source){const result=await chrome.runtime.sendMessage({type:'NATIVE_READER'}).catch(()=>null);if(!result?.ok){if(reader)reader.showError(text.nativeFailed);else fail(text.nativeFailed);}}else if(blobURL){try{await chrome.tabs.create({url:blobURL});}catch{reader?.showError(text.nativeFailed);}}}
 function openSettings(){if(reader)void chrome.runtime.sendMessage({type:'OPEN_SETTINGS'});else location.assign(chrome.runtime.getURL('settings/index.html'));}
-async function download(){if(!blobURL)return;try{await chrome.downloads.download({url:blobURL,filename,saveAs:true});}catch{if(reader)reader.showError(text.downloadFailed);else fail(text.downloadFailed);}}
+function download(){
+ if(!blobURL)return;
+ // Save only the host-owned original Blob. No download-history API, refetch or
+ // sandbox-provided URL; Chrome applies the user's normal download preferences.
+ const link=document.createElement('a');link.href=blobURL;link.download=filename;link.hidden=true;
+ try{document.body.append(link);link.click();}
+ catch{if(reader)reader.showError(text.downloadFailed);else fail(text.downloadFailed);}
+ finally{link.remove();}
+}
 $('native').onclick=native;$('settings').onclick=openSettings;$('open-file').onclick=()=>$('file').click();
 $('file').onchange=()=>{const f=$('file').files[0];if(f)void openFile(f);};
 window.addEventListener('dragover',event=>{event.preventDefault();});window.addEventListener('drop',event=>{event.preventDefault();const f=event.dataTransfer?.files[0];if(f)void openFile(f);});

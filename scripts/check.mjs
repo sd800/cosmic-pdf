@@ -4,7 +4,10 @@ async function walk(dir){const files=[];for(const name of await readdir(dir)){if
 for(const file of await walk('extension'))if(file.endsWith('.js')&&!file.includes('/vendor/')){const result=spawnSync(process.execPath,['--check',file],{encoding:'utf8'});if(result.status)throw Error(result.stderr);}
 for(const vendor of ['pdfjs','tesseract']){const folder='extension/vendor/'+vendor,entries=JSON.parse(await readFile(folder+'/integrity.json'));for(const[name,hash]of Object.entries(entries)){const actual=createHash('sha256').update(await readFile(folder+'/'+name)).digest('hex');if(actual!==hash)throw Error('Dependency changed: '+name);}}
 for(const f of [manifest.background.service_worker,manifest.options_page,...manifest.sandbox.pages,...Object.values(manifest.icons)])await stat('extension/'+f);
-if(manifest.content_scripts||manifest.permissions.includes('management'))throw Error('Do not inject into web pages or disable other extensions');
+// Keep the fixed permission contract small; additions require a deliberate audit.
+const permissions=['storage','declarativeNetRequestWithHostAccess'],hosts=['http://*/*','https://*/*','file:///*'];
+if(JSON.stringify(manifest.permissions)!==JSON.stringify(permissions)||JSON.stringify(manifest.host_permissions)!==JSON.stringify(hosts))throw Error('Unexpected extension permissions: audit before expanding access');
+if(manifest.content_scripts||manifest.optional_permissions?.length||manifest.optional_host_permissions?.length)throw Error('No webpage injection or optional permission requests');
 if(!manifest.content_security_policy.sandbox.includes("connect-src 'self' blob:"))throw Error('Sandbox must not reach remote resources');
 for(const file of ['CHANGELOG.md','CHANGELOG_zh.md'])if(!(await readFile(file,'utf8')).includes('## '+pkg.version))throw Error('Missing release entry');
 const files=await walk('extension');let size=0;for(const f of files)size+=(await stat(f)).size;console.log(`Checks passed. ${files.length} runtime files; ${(size/1000000).toFixed(1)} MB unpacked.`);

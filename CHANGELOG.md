@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.1.3
+
+- Reduce extension permissions while retaining automatic PDF opening and native-reader fallback.
+- Save original PDFs through ordinary browser downloads, following Chrome’s download preferences without download-management access.
+
 ## 2.1.2
 
 - Extend external-link capture to application protocols, with an explicit Open application/Copy prompt. Email, telephone, and SMS links remain copy-only.
