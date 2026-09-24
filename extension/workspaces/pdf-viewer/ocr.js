@@ -21,8 +21,9 @@ export function createOcr({pdf,viewer,eventBus,settings,text,signal}){
  async function release(job){if(!job)return;job.cancelled=true;job.abort.abort();job.render?.cancel();clearTimeout(job.timer);if(job.worker)await job.worker.terminate().catch(()=>{});if(job.workerURL)URL.revokeObjectURL(job.workerURL);if(job.canvas)job.canvas.width=job.canvas.height=0;}
  function stop(message='ocrCancelled'){generation++;const job=active;active=null;void release(job);busy(false);if(message)msg(message);}
  function overlay(number){
-  const result=cache.get(number),view=viewer.getPageView(number-1);if(!view)return;view.div.querySelector('.ocr-text-layer')?.remove();
-  if(!result?.words.length||!view.canvas)return;
+  const result=cache.get(number),view=viewer.getPageView(number-1);if(!view)return;
+  const previous=view.div.querySelector('.ocr-text-layer');
+  if(!result?.words.length||!view.canvas){previous?.remove();return;}
   const viewport=view.viewport,layer=document.createElement('div');layer.className='ocr-text-layer';layer.setAttribute('aria-label',text.ocrResult);
   // Word coordinates live in PDF space, so zoom/rotation do not require OCR again.
   const rotation=((viewport.rotation-result.rotation)%360+360)%360;
@@ -33,7 +34,9 @@ export function createOcr({pdf,viewer,eventBus,settings,text,signal}){
    const span=document.createElement('span');span.textContent=word.text+word.separator;span.style.left=a[0]+'px';span.style.top=a[1]+'px';span.style.fontSize=height+'px';span.style.fontFamily='sans-serif';ctx.font=height+'px sans-serif';const measured=ctx.measureText(word.text).width||width;
    span.style.transform=`rotate(${rotation}deg) scaleX(${width/measured})`;layer.append(span);
   }
-  view.div.append(layer);
+  if(!layer.childElementCount){previous?.remove();return;}
+  // Publish a complete replacement at once; do not briefly expose both sources.
+  if(previous)previous.replaceWith(layer);else view.div.append(layer);
  }
  async function run(requested){
   if(active){openPanel();return;}const range=requested||ocrRange($('ocr-from').value,$('ocr-to').value,pdf.numPages);if(!range){msg('ocrInvalid');return;}
@@ -62,7 +65,7 @@ export function createOcr({pdf,viewer,eventBus,settings,text,signal}){
     const {data}=await worker.recognize(image,{}, {text:true,blocks:true});if(!alive())break;
     const words=ocrWords(data.blocks,raster.width,raster.height).map(word=>({text:word.text,separator:word.separator,topLeft:raster.convertToPdfPoint(word.x0,word.y0),topRight:raster.convertToPdfPoint(word.x1,word.y0),bottomLeft:raster.convertToPdfPoint(word.x0,word.y1)}));
     const result={characters:words.reduce((count,word)=>count+word.text.length,0),words,rotation:raster.rotation};
-    cache.delete(number);cache.set(number,result);
+    cache.delete(number);if(words.length)cache.set(number,result);
     // Bound all result state, not only the number of rendered layers.
     while(cache.size>20||[...cache.values()].reduce((n,r)=>n+r.words.length,0)>50000||[...cache.values()].reduce((n,r)=>n+r.characters,0)>OCR_LIMITS.characters){const oldest=cache.keys().next().value;cache.delete(oldest);viewer.getPageView(oldest-1)?.div.querySelector('.ocr-text-layer')?.remove();}
     $('ocr-clear').disabled=!cache.size;overlay(number);completed++;progress=completed/(range.to-range.from+1);updateStatus();
@@ -98,6 +101,6 @@ export function createOcr({pdf,viewer,eventBus,settings,text,signal}){
    for(const layer of document.querySelectorAll('.ocr-text-layer'))layer.setAttribute('aria-label',text.ocrResult);
    updateStatus();
   },
-  destroy(){closed=true;stop('');clearTimeout(hideFeedback);cache.clear();}
+  destroy(){closed=true;stop('');clearTimeout(hideFeedback);for(const number of cache.keys())viewer.getPageView(number-1)?.div.querySelector('.ocr-text-layer')?.remove();cache.clear();}
  };
 }

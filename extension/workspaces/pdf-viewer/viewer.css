@@ -86,8 +86,9 @@ header .actions{grid-column:3;grid-row:1;align-self:center}
 #more-actions .menu-settings{border-top:1px solid var(--line);margin-top:5px;padding-top:10px;border-radius:0 0 5px 5px}
 @media print{#more-actions{display:none!important}}
 
-/* OCR output is a selectable layer over the original page, never a second transcript. */
-.pdfViewer .page:has(.ocr-text-layer) .textLayer{visibility:hidden}
+/* Manual OCR owns text selection and browser Find after a valid result.
+   Remove native text from layout/search, including descendants and late renders. */
+.pdfViewer .page:has(.ocr-text-layer) .textLayer{display:none!important}
 #ocr-feedback{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);width:max-content;max-width:calc(100% - 32px);padding:8px 12px;background:var(--surface);border:1px solid var(--line);border-radius:9px;box-shadow:0 3px 14px #0003;z-index:4;font-size:14px}
 #ocr-feedback>div{display:flex;align-items:center;gap:16px}#ocr-feedback-cancel{font-size:14px;flex-shrink:0}#ocr-feedback progress{display:block;width:100%;height:4px;accent-color:var(--blue);margin-top:6px}
 #ocr-toggle[aria-busy=true]{color:var(--blue);background:var(--soft)}

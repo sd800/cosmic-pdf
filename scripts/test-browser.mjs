@@ -37,6 +37,12 @@ const server=createServer((req,res)=>{
   const stars=Array.from({length:150},(_,i)=>`${20+(i*137)%555} ${20+(i*233)%800} 1 1 re f`).join('\n');
   res.end(viewerPdf(7,[bed+writing,undefined,'0 g 8 8 579 826 re f\n1 g\n'+stars+'\n',bed+'1 g 275 390 40 40 re f\n', '0.12 g 0 0 612 842 re f\n'+writing, '0.4 g 0 0 612 842 re f\n'+writing.replace('1 g','0 g'), '0.75 g 0 0 612 842 re f\n'+writing.replace('1 g','0 g')]));return;
  }
+ if(path==='/ocr-priority'){
+  res.end(viewerPdf(2,[
+   'BT /F1 28 Tf 60 680 Td (COSMIC OCR PRIORITY) Tj ET\nBT /F1 20 Tf 3 Tr 60 630 Td (STALELAYERONLY) Tj ET\n',
+   'BT /F1 20 Tf 3 Tr 60 680 Td (FALLBACKORIGINAL) Tj ET\n'
+  ]));return;
+ }
  if(path==='/pages-128'){res.end(viewerPdf(128));return;}
  if(path==='/broken'){res.end('%PDF-1.7\nbroken');return;}
  res.end(path==='/black-scan'?blackScan:path==='/scan-many'?batchScan:path==='/scan'?englishScan:path==='/chinese'?chineseScan:viewerPdf(6));
@@ -110,6 +116,60 @@ try{
   assert.equal(await page.locator('a[download]').count(),0,'temporary download anchor is removed');
   await saved.delete();
  }
+ // PDF_QA=ocr-priority runs only the text-layer handover regression.
+ if(process.env.PDF_QA==='ocr-priority'){
+  await worker.evaluate(()=>chrome.storage.local.set({settings:{ocrLanguages:['eng'],ocrAction:'page'}}));
+  const frame=await open('/ocr-priority');
+  const native='.page[data-page-number="1"] .textLayer';
+  await frame.waitForSelector(native+' span');
+  async function findMatches(query){
+   return frame.evaluate(query=>{
+    const selection=getSelection(),start=document.createRange();start.setStart(document.body,0);start.collapse(true);selection.removeAllRanges();selection.addRange(start);
+    const matches=[];
+    // window.find uses the browser's rendered-text search, not PDF.js's index.
+    while(matches.length<4&&window.find(query,false,false,false)){
+     const node=selection.anchorNode,element=node.nodeType===1?node:node.parentElement;
+     matches.push(element.closest('.ocr-text-layer')?'ocr':'native');
+    }
+    selection.removeAllRanges();return matches;
+   },query);
+  }
+  assert.deepEqual(await findMatches('STALELAYERONLY'),['native']);
+  await frame.evaluate(()=>{window.qaOcrDelay=250;});
+  await frame.locator('#ocr-toggle').click();
+  assert.notEqual(await frame.locator(native).evaluate(n=>getComputedStyle(n).display),'none','native text stays available until recognition completes');
+  await frame.waitForFunction(()=>document.querySelector('#ocr-toggle').getAttribute('aria-busy')==='false'&&document.querySelector('.ocr-text-layer span'),{timeout:130000});
+  assert.match(await frame.locator('.ocr-text-layer').textContent(),/COSMIC OCR PRIORITY/);
+  assert.equal(await frame.locator(native).evaluate(n=>getComputedStyle(n).display),'none');
+  assert.deepEqual(await findMatches('COSMIC'),['ocr'],'browser Find must see only one matching layer');
+  assert.deepEqual(await findMatches('STALELAYERONLY'),[],'old OCR/native text is excluded from browser Find');
+  // Even a visible descendant or a freshly rendered native layer cannot opt back in.
+  await frame.locator(native+' span').evaluateAll(nodes=>nodes.forEach(n=>n.style.visibility='visible'));
+  assert.deepEqual(await findMatches('STALELAYERONLY'),[]);
+  await frame.locator('#rotate').click();await frame.locator('#zoom-in').click();
+  await frame.waitForFunction(()=>qaViewer.getPageView(0).renderingState===3&&document.querySelector('.ocr-text-layer span'));
+  assert.equal(await frame.locator('.page[data-page-number="1"] .ocr-text-layer').count(),1);
+  assert.deepEqual(await findMatches('COSMIC'),['ocr']);
+  assert.deepEqual(await findMatches('STALELAYERONLY'),[]);
+  report.checks.push('manual OCR replaces native text for browser Find; one result after zoom and rotation');
+  // A second page with an existing hidden text layer but a blank raster yields no OCR.
+  await frame.evaluate(()=>{qaViewer.pagesRotation=0;qaViewer.currentPageNumber=2;});
+  await frame.waitForSelector('.page[data-page-number="2"] .textLayer span');
+  assert.deepEqual(await findMatches('FALLBACKORIGINAL'),['native'],'unprocessed pages retain their text');
+  await frame.locator('#ocr-toggle').click();
+  await frame.waitForFunction(()=>document.querySelector('#ocr-toggle').getAttribute('aria-busy')==='false',{timeout:130000});
+  assert.equal(await frame.locator('.page[data-page-number="2"] .ocr-text-layer').count(),0);
+  assert.deepEqual(await findMatches('FALLBACKORIGINAL'),['native'],'empty recognition keeps the existing text');
+  await frame.locator('#ocr-toggle').click({delay:650});await frame.locator('#ocr-clear').click();await frame.locator('#ocr-close').click();
+  await frame.evaluate(()=>{qaViewer.currentPageNumber=1;});await frame.waitForSelector(native+' span');
+  assert.equal(await frame.locator('.ocr-text-layer').count(),0);
+  assert.deepEqual(await findMatches('STALELAYERONLY'),['native'],'Clear restores native text');
+  await frame.evaluate(()=>{window.qaOcrDelay=1000;});await frame.locator('#ocr-toggle').click();
+  await frame.locator('#ocr-feedback-cancel').click();
+  await frame.waitForFunction(()=>document.querySelector('#ocr-toggle').getAttribute('aria-busy')==='false');
+  assert.deepEqual(await findMatches('STALELAYERONLY'),['native'],'cancellation does not suppress native text');
+  report.checks.push('unprocessed pages, empty recognition, Clear and cancellation preserve native text');
+ } else {
  // Homepage Settings must add history within the same tab, without starting PDF workers.
  await page.goto(reader);await page.waitForSelector('#settings');assert.equal(await page.locator('iframe').count(),0);
  const tabsBefore=context.pages().length;await page.locator('#settings').click();await page.waitForURL(settings);
@@ -599,6 +659,7 @@ assert.match(await frame.locator('[data-property=pageSize]').textContent(),/215.
  await go(base+'/broken');await page.waitForFunction(()=>!!document.querySelector('#message')?.textContent&&!document.querySelector('iframe'));report.checks.push('parse failure removes shell and releases worker');
  await page.goto(reader);await page.waitForFunction(()=>document.querySelector('#intro').textContent.length>0);await page.screenshot({path:join(folder,'opening.png')});
  await prefs.locator('#enabled').uncheck();await prefs.waitForFunction(async()=>!(await chrome.storage.local.get('settings')).settings.enabled);for(let i=0;i<50;i++){if((await worker.evaluate(()=>chrome.declarativeNetRequest.getDynamicRules())).length===0)break;await delay(100);}assert.equal((await worker.evaluate(()=>chrome.declarativeNetRequest.getDynamicRules())).length,0);report.checks.push('automatic opening master switch');
+ }
  assert.deepEqual(report.remoteRequests,[],'OCR/renderer never makes external network requests');assert.deepEqual(report.errors,[],'no application/CSP errors');report.checks.push('no remote document resources or console errors');
  console.log(JSON.stringify(report,null,2));await writeFile(join(folder,'report.json'),JSON.stringify(report,null,2));
 } catch(error){console.error(JSON.stringify(report,null,2));throw error;}finally{releaseSlow();await context.close();await new Promise(r=>server.close(r));}

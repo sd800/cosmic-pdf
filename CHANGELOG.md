@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.1.5
+
+- Prioritize newly recognized text after manual OCR and exclude the original text layer from browser Find and selection to avoid duplicate matches.
+- Preserve original text when recognition returns no text, and restore it when results are cleared.
+
 ## 2.1.3
 
 - Reduce extension permissions while retaining automatic PDF opening and native-reader fallback.

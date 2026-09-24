@@ -7,7 +7,7 @@ export function ocrWords(blocks,width,height){
   const row=[];
   for(const word of line.words||[]){
    if(words.length+row.length>=OCR_LIMITS.words)break;
-   const box=word.bbox,text=String(word.text||'').slice(0,256);if(!box||!text||![box.x0,box.x1,box.y0,box.y1].every(Number.isFinite))continue;
+   const box=word.bbox,text=String(word.text||'').slice(0,256);if(!box||!text.trim()||![box.x0,box.x1,box.y0,box.y1].every(Number.isFinite))continue;
    const x0=Math.max(0,box.x0),y0=Math.max(0,box.y0),x1=Math.min(width,box.x1),y1=Math.min(height,box.y1);
    if(x1>x0&&y1>y0)row.push({text,x0,y0,x1,y1});
   }
