@@ -72,6 +72,7 @@ test('quick OCR covers current page plus exactly five or ten successors and clip
 
 test('OCR word separators preserve English spaces and Chinese continuity',()=>{
  const result=ocrWords([{paragraphs:[{lines:[{words:['中','文','测试'].map((text,i)=>({text,bbox:{x0:i*10,y0:1,x1:i*10+8,y1:12}}))},{words:['COSMIC','PDF'].map((text,i)=>({text,bbox:{x0:i*30,y0:20,x1:i*30+25,y1:35}}))}]}]}],100,100);
+ assert.deepEqual(result.map(word=>word.line),[0,0,0,1,1]);
  assert.equal(result.map(word=>word.text+word.separator).join(''),'中文测试\nCOSMIC PDF\n');
 });
 
@@ -251,4 +252,10 @@ test('External Links Capture accepts bounded app targets but never executable or
     ['tel:+13125550123','tel','+13125550123'], ['sms:+13125550123','sms','+13125550123']]) {
     const capture = parseCapture(url); assert.equal(capture.kind,kind); assert.equal(copyCapture(capture,{}),text);
   }
+});
+
+test('OCR row normalization keeps paragraph/column order and sorts only within a line',()=>{
+ const word=(text,x0,y0)=>({text,bbox:{x0,y0,x1:x0+10,y1:y0+12}});
+ const rows=ocrWords([{paragraphs:[{lines:[{words:[word('right',30,10),word('left',0,10)]},{words:[word('lower',0,50)]}]},{lines:[{words:[word('column',70,0)]}]}]}],100,100);
+ assert.deepEqual(rows.map(w=>[w.text,w.line]),[['left',0],['right',0],['lower',1],['column',2]]);
 });

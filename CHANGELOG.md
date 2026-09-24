@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.2.1 — 2026-09-24
+
+- Improve recognized-text selection with continuous text rows, more consistent word spacing, and stable selection after zooming or rotating.
+
 ## 2.1.5
 
 - Prioritize newly recognized text after manual OCR and exclude the original text layer from browser Find and selection to avoid duplicate matches.

@@ -39,7 +39,7 @@ const server=createServer((req,res)=>{
  }
  if(path==='/ocr-priority'){
   res.end(viewerPdf(2,[
-   'BT /F1 28 Tf 60 680 Td (COSMIC OCR PRIORITY) Tj ET\nBT /F1 20 Tf 3 Tr 60 630 Td (STALELAYERONLY) Tj ET\n',
+   'BT /F1 24 Tf 60 740 Td (UPPER UNRELATED LINE) Tj ET\nBT /F1 28 Tf 60 680 Td (COSMIC OCR PRIORITY) Tj ET\nBT /F1 24 Tf 60 570 Td (LOWER UNRELATED LINE) Tj ET\nBT /F1 20 Tf 3 Tr 60 630 Td (STALELAYERONLY) Tj ET\n',
    'BT /F1 20 Tf 3 Tr 60 680 Td (FALLBACKORIGINAL) Tj ET\n'
   ]));return;
  }
@@ -140,6 +140,21 @@ try{
   assert.notEqual(await frame.locator(native).evaluate(n=>getComputedStyle(n).display),'none','native text stays available until recognition completes');
   await frame.waitForFunction(()=>document.querySelector('#ocr-toggle').getAttribute('aria-busy')==='false'&&document.querySelector('.ocr-text-layer span'),{timeout:130000});
   assert.match(await frame.locator('.ocr-text-layer').textContent(),/COSMIC OCR PRIORITY/);
+  async function checkLineSelection(rotated=false){
+   const row=frame.locator('.ocr-text-line').filter({hasText:'COSMIC OCR PRIORITY'});await row.scrollIntoViewIfNeeded();
+   const first=await row.locator('.ocr-text-word').first().boundingBox(),last=await row.locator('.ocr-text-word').last().boundingBox();
+   for(const fraction of [.25,.5,.75])for(const reverse of [false,true]){
+    const a=rotated?{x:first.x+first.width*fraction,y:first.y+first.height*.8}:{x:first.x+first.width*.2,y:first.y+first.height*fraction};
+    const b=rotated?{x:last.x+last.width*fraction,y:last.y+last.height*.2}:{x:last.x+last.width*.8,y:last.y+last.height*fraction};
+    const [from,to]=reverse?[b,a]:[a,b];
+    await frame.evaluate(()=>getSelection().removeAllRanges());
+    await page.mouse.move(from.x,from.y);await page.mouse.down();await page.mouse.move(to.x,to.y,{steps:12});await page.mouse.up();
+    const selected=await frame.evaluate(()=>getSelection().toString());
+    assert.match(selected,/OCR/,'middle-row mouse selection');assert.doesNotMatch(selected,/UPPER|LOWER|UNRELATED|STALE/,'selection must stay on its row');
+   }
+  }
+  assert.equal(await frame.evaluate(()=>{const layer=document.querySelector('.ocr-text-layer');qaEventBus.dispatch('pagerendered',{pageNumber:1});return layer===document.querySelector('.ocr-text-layer');}),true,'same-geometry redraw must preserve selection nodes');
+  await checkLineSelection();
   assert.equal(await frame.locator(native).evaluate(n=>getComputedStyle(n).display),'none');
   assert.deepEqual(await findMatches('COSMIC'),['ocr'],'browser Find must see only one matching layer');
   assert.deepEqual(await findMatches('STALELAYERONLY'),[],'old OCR/native text is excluded from browser Find');
@@ -151,6 +166,8 @@ try{
   assert.equal(await frame.locator('.page[data-page-number="1"] .ocr-text-layer').count(),1);
   assert.deepEqual(await findMatches('COSMIC'),['ocr']);
   assert.deepEqual(await findMatches('STALELAYERONLY'),[]);
+  await checkLineSelection(true);
+  report.checks.push('continuous single-row mouse selection, both directions and varied vertical hit positions, before and after zoom/rotation');
   report.checks.push('manual OCR replaces native text for browser Find; one result after zoom and rotation');
   // A second page with an existing hidden text layer but a blank raster yields no OCR.
   await frame.evaluate(()=>{qaViewer.pagesRotation=0;qaViewer.currentPageNumber=2;});

@@ -1,11 +1,12 @@
 import { OCR_LIMITS, ocrRange, ocrScale, ocrWords, quickOcrRange } from './ocr-model.js';
+import { createOcrTextLayer } from './ocr-text-layer.js';
 import { createOcrWorker } from './ocr-worker-client.js';
 import { AnnotationMode, PermissionFlag } from '../../vendor/pdfjs/pdf.min.mjs';
 import { languageChoices } from '../../shared/ocr-languages.js';
 import { bindPressAction } from './press-action.js';
 const $=id=>document.getElementById(id);
 export function createOcr({pdf,viewer,eventBus,settings,text,signal}){
- const cache=new Map();let active=null,generation=0,closed=false,action=settings.ocrAction,statusKey='',readingPage=0,readingEnd=0,hideFeedback=0,feedbackUntil=0,progress=0;
+ const cache=new Map(),layerStates=new WeakMap();let active=null,generation=0,closed=false,action=settings.ocrAction,statusKey='',readingPage=0,readingEnd=0,hideFeedback=0,feedbackUntil=0,progress=0;
  const languages=languageChoices($('ocr-languages'),settings.ocrLanguages,{eng:text.ocrEnglish,chi_sim:text.ocrSimplified,chi_tra:text.ocrTraditional});$('ocr-to').max=$('ocr-from').max=pdf.numPages;
  function updateStatus() {
   const value=statusKey==='ocrReading'?`${text.ocrReading} ${readingPage} / ${readingEnd}`:text[statusKey]||'';
@@ -24,16 +25,10 @@ export function createOcr({pdf,viewer,eventBus,settings,text,signal}){
   const result=cache.get(number),view=viewer.getPageView(number-1);if(!view)return;
   const previous=view.div.querySelector('.ocr-text-layer');
   if(!result?.words.length||!view.canvas){previous?.remove();return;}
-  const viewport=view.viewport,layer=document.createElement('div');layer.className='ocr-text-layer';layer.setAttribute('aria-label',text.ocrResult);
-  // Word coordinates live in PDF space, so zoom/rotation do not require OCR again.
-  const rotation=((viewport.rotation-result.rotation)%360+360)%360;
-  const canvas=document.createElement('canvas'),ctx=canvas.getContext('2d');
-  for(const word of result.words){
-   const a=viewport.convertToViewportPoint(...word.topLeft),b=viewport.convertToViewportPoint(...word.topRight),c=viewport.convertToViewportPoint(...word.bottomLeft);
-   const width=Math.hypot(b[0]-a[0],b[1]-a[1]),height=Math.hypot(c[0]-a[0],c[1]-a[1]);if(width<.1||height<.1)continue;
-   const span=document.createElement('span');span.textContent=word.text+word.separator;span.style.left=a[0]+'px';span.style.top=a[1]+'px';span.style.fontSize=height+'px';span.style.fontFamily='sans-serif';ctx.font=height+'px sans-serif';const measured=ctx.measureText(word.text).width||width;
-   span.style.transform=`rotate(${rotation}deg) scaleX(${width/measured})`;layer.append(span);
-  }
+  const geometry=[...view.viewport.transform,view.viewport.width,view.viewport.height,view.viewport.rotation].join(',');
+  const previousState=previous&&layerStates.get(previous);
+  if(previousState?.result===result&&previousState.geometry===geometry)return;
+  const layer=createOcrTextLayer(result,view.viewport);layerStates.set(layer,{result,geometry});layer.setAttribute('aria-label',text.ocrResult);
   if(!layer.childElementCount){previous?.remove();return;}
   // Publish a complete replacement at once; do not briefly expose both sources.
   if(previous)previous.replaceWith(layer);else view.div.append(layer);
@@ -63,7 +58,7 @@ export function createOcr({pdf,viewer,eventBus,settings,text,signal}){
     job.render=page.render({canvasContext:canvas.getContext('2d',{willReadFrequently:true}),viewport:raster,annotationMode:AnnotationMode.DISABLE,background:'rgb(255,255,255)'});await job.render.promise;job.render=null;if(!alive())break;
     const image=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));canvas.width=canvas.height=0;job.canvas=null;if(!image||!alive())break;
     const {data}=await worker.recognize(image,{}, {text:true,blocks:true});if(!alive())break;
-    const words=ocrWords(data.blocks,raster.width,raster.height).map(word=>({text:word.text,separator:word.separator,topLeft:raster.convertToPdfPoint(word.x0,word.y0),topRight:raster.convertToPdfPoint(word.x1,word.y0),bottomLeft:raster.convertToPdfPoint(word.x0,word.y1)}));
+    const words=ocrWords(data.blocks,raster.width,raster.height).map(word=>({text:word.text,line:word.line,separator:word.separator,topLeft:raster.convertToPdfPoint(word.x0,word.y0),topRight:raster.convertToPdfPoint(word.x1,word.y0),bottomLeft:raster.convertToPdfPoint(word.x0,word.y1)}));
     const result={characters:words.reduce((count,word)=>count+word.text.length,0),words,rotation:raster.rotation};
     cache.delete(number);if(words.length)cache.set(number,result);
     // Bound all result state, not only the number of rendered layers.
