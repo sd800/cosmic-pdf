@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.2.2 — 2026-09-24
+
+- Use a lighter blue extension icon to make Cosmic PDF easier to distinguish in the browser toolbar.
+
 ## 2.2.1 — 2026-09-24
 
 - Improve recognized-text selection with continuous text rows, more consistent word spacing, and stable selection after zooming or rotating.
