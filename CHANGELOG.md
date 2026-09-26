@@ -1,6 +1,6 @@
 # Changelog
 
-## 2.2.3 — 2026-09-25
+## 2.3.1 — 2026-09-25
 
 - Keep settings consistent during rapid edits, language changes, and delayed storage updates.
 - Strengthen recovery and cleanup when returning to Chrome's PDF reader.
