@@ -47,3 +47,8 @@ External Links Capture covers application-protocol PDF annotations and outlines,
 Permission regressions verify the installed extension has only the fixed storage/host-scoped request API permissions and no downloads API. Real remote and locally selected PDF downloads must retain their filenames and original bytes without navigating or opening another tab. Automatic response-based takeover, attachment exceptions, native-reader exemptions, OCR and Settings must still work with the reduced manifest. No optional grant or permission prompt is part of these flows.
 
 The focused `PDF_QA=ocr-priority` browser test also drags through a middle OCR row in both directions at several vertical hit positions, before and after zoom/rotation. Unrelated rows must not enter the selection. The same test preserves native-text suppression, empty-result fallback, cancellation, and Clear.
+
+
+## Focused lifecycle regression
+
+`PDF_QA=lifecycle PDF_PLAYWRIGHT=/path/to/playwright/index.mjs PDF_CHROME=/path/to/chrome node scripts/test-browser.mjs` runs dialog reopening/Escape, modal keys, invalid page numbers, rapid locale/settings edits, external settings updates, and native-reader handover in an isolated temporary profile. The ordinary unit suite includes failed native handover/storage rollback and delayed settings callbacks. No OCR rerun is needed for these paths. See test-dist/README.md for local retained outputs; never connect a personal browser for this check.

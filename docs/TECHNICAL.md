@@ -97,3 +97,12 @@ The internal capability is named External Links Capture. Its pure protocol parse
 ### OCR selection geometry
 
 Recognized words retain engine block/paragraph/line reading order, with left-to-right ordering inside each horizontal line. Each cached word carries its row identity and PDF-space corners. The selectable overlay uses inline word slots in each row within one shared rotated coordinate system, shared vertical bounds, and explicit line breaks, instead of unrelated absolute word boxes. Slots cover interword gaps; transparent glyphs retain individual horizontal scaling. Zoom and rotation rebuild only the bounded overlay from cached coordinates, never OCR. Repeated page-render events with the same result and viewport geometry preserve the existing DOM and active selection. No pointer-move selection handlers, content scans, or new settings are added.
+
+
+## Settings and interaction lifecycle
+
+Settings writes are serialized and applied to a fresh normalized base. Pending edits remain visible across locale-driven DOM rebuilds and incoming storage events. A delayed save callback must not republish a stale snapshot; post-write readback and an observation revision protect the latest received state. Failed writes remove only their own pending edit and do not poison later writes. Ordinary updates preserve control focus. Only automatic-opening changes reconcile takeover rules; cosmetic settings do not rewrite network rules.
+
+Native-reader handover validates the sender's current document ID before installing its tab/source exception and again before navigation. Cleanup ownership is persisted first. Installation/navigation failures roll back previous rules and metadata; failed rollback retains ownership for cleanup. Closing a tab also removes a deterministic orphan exception if its metadata is absent.
+
+Reopened native dialogs reset their return value so Escape cannot repeat a previous Print/Open action. Modal keyboard events cannot navigate the underlying PDF. Page-number inputs accept whole page numbers and preserve the current page on invalid input.

@@ -259,3 +259,45 @@ test('OCR row normalization keeps paragraph/column order and sorts only within a
  const rows=ocrWords([{paragraphs:[{lines:[{words:[word('right',30,10),word('left',0,10)]},{words:[word('lower',0,50)]}]},{lines:[{words:[word('column',70,0)]}]}]}],100,100);
  assert.deepEqual(rows.map(w=>[w.text,w.line]),[['left',0],['right',0],['lower',1],['column',2]]);
 });
+
+import { pdfPageNumber } from '../extension/workspaces/pdf-viewer/model.js';
+test('page edits reject fractional/invalid values and clamp whole page numbers', () => {
+  for (const value of ['', ' ', 'abc', '2.5', 'Infinity', NaN, Infinity]) assert.equal(pdfPageNumber(value, 8, 3), 3);
+  assert.equal(pdfPageNumber('999', 8, 3), 8);
+  assert.equal(pdfPageNumber('-1', 8, 3), 1);
+  assert.equal(pdfPageNumber('5', 8, 3), 5);
+});
+test('reopening a reader dialog clears previous confirmation while preserving focus safety', () => {
+  const dialog = { open:false, inert:false, returnValue:'print', showModal() { assert.equal(this.inert, true); this.open=true; } };
+  let focused=0;
+  const target={focus(options) { assert.equal(dialog.inert,false); assert.equal(options.preventScroll,true); focused++; }};
+  showReaderDialog(dialog,target);assert.equal(dialog.returnValue,'');assert.equal(focused,1);
+  dialog.open=false;dialog.returnValue='open';showReaderDialog(dialog,target);assert.equal(dialog.returnValue,'');
+});
+
+import {createSettingsStore} from '../extension/settings/store.js';
+test('queued settings edits survive locale updates, external changes, failures and reset',async()=>{
+ let stored=normalizeSettings(),view,release,fail=false;
+ const gate=new Promise(resolve=>{release=resolve;});let writes=0;
+ const store=createSettingsStore(stored,{read:async()=>stored,write:async next=>{if(++writes===1)await gate;if(fail){fail=false;throw Error('storage');}stored=next;store.receive(next);},changed:next=>{view=next;}});
+ const locale=store.save('locale','zh-CN'),toggle=store.save('sharpening',true);
+ store.receive({...stored,gap:24});
+ assert.equal(view.locale,'zh-CN');assert.equal(view.sharpening,true);assert.equal(view.gap,24);
+ release();await Promise.all([locale,toggle]);assert.equal(view.sharpening,true);assert.equal(stored.sharpening,true);
+ fail=true;const failure=store.save('sampling',6);const after=store.save('showBranding',true);
+ await assert.rejects(failure);await after;assert.equal(view.sampling,4);assert.equal(view.showBranding,true);
+ const beforeReset=store.save('toolbarHidden',{print:false}),reset=store.reset(),afterReset=store.save('sampling',2);
+ await Promise.all([beforeReset,reset,afterReset]);assert.equal(view.sampling,2);assert.equal(view.showBranding,false);assert.deepEqual(view.toolbarHidden,{});
+ store.receive({...stored,useChromeFind:false});assert.equal(view.useChromeFind,false);
+});
+
+
+test('a delayed save callback cannot replace a newer settings notification',async()=>{
+ const {createSettingsStore}=await import('../extension/settings/store.js');
+ let stored=normalizeSettings(),view,release;
+ const completed=new Promise(resolve=>{release=resolve;});
+ const store=createSettingsStore(stored,{read:async()=>stored,write:async next=>{stored=next;await completed;},changed:next=>{view=next;}});
+ const saving=store.save('sampling',3);await new Promise(resolve=>setImmediate(resolve));
+ stored=normalizeSettings({locale:'zh-CN',sampling:5});store.receive(stored);release();await saving;
+ assert.equal(view.locale,'zh-CN');assert.equal(view.sampling,5);
+});

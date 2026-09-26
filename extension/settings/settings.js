@@ -1,5 +1,6 @@
+import { createSettingsStore } from './store.js';
 import { setReaderIcon } from '../workspaces/pdf-viewer/icons.js';
-import { DEFAULTS, normalizeSettings, readSettings, uiLocale, TOOLBAR_ACTIONS, hiddenToolbarActions } from '../core/settings.js';
+import { DEFAULTS, readSettings, uiLocale, TOOLBAR_ACTIONS, hiddenToolbarActions } from '../core/settings.js';
 import { languageChoices } from '../shared/ocr-languages.js';
 const claimSettings=openedAt=>void chrome.runtime.sendMessage({type:'SETTINGS_OPENED',openedAt}).catch(()=>{});
 claimSettings(performance.timeOrigin);
@@ -15,7 +16,7 @@ tools:{pages:'页面和目录',find:'查找',paging:'上一页／下一页',zoom
 values:{defaultHidden:'（默认隐藏）',dateAuto:'语言默认格式',ocrPanel:'打开侧栏',ocrPage:'识别当前页',ocrNext5:'识别当前页和未来 5 页',ocrNext10:'识别当前页和未来 10 页',toolbarBranding:'Cosmic PDF 标识',toolbarFilename:'文件名',auto:'自动',light:'浅色',dark:'深色',english:'English',chinese:'简体中文',fitWidth:'适合宽度',fitPage:'适合页面',px:'像素',soft:'柔和',balanced:'适中',deep:'深黑',black:'纯黑',eng:'英文',sim:'简体中文',tra:'繁体中文',fast:'快速',standard:'均衡',fine:'精细',layoutAuto:'自动',block:'单一文本块',sparse:'分散文字'}}};
 const actionIcons={pages:'sidebar-toggle',find:'search-toggle',paging:'next',zoom:'zoom-in',fit:'fit-width',rotate:'rotate',fullscreen:'fullscreen',ocr:'ocr-toggle',print:'print',properties:'properties',native:'native'};
 const defaultHidden=new Set(hiddenToolbarActions(DEFAULTS));
-let state=await readSettings(),queue=Promise.resolve();const $=id=>document.getElementById(id);
+let state=await readSettings();const $=id=>document.getElementById(id);
 function render(){const locale=uiLocale(state,chrome.i18n.getUILanguage()),t=copy[locale],v=t.values;document.documentElement.lang=locale;document.title='Cosmic PDF · '+t.title;
  document.documentElement.dataset.dark=String(state.appearance==='dark'||(state.appearance==='auto'&&matchMedia('(prefers-color-scheme:dark)').matches));try{localStorage.setItem('appearance',state.appearance);}catch{}
  for(const [id,key] of [['title','title'],['intro','intro'],['open-reader','open'],['reset','reset'],['privacy','privacy']])$(id).textContent=t[key];
@@ -38,17 +39,31 @@ function render(){const locale=uiLocale(state,chrome.i18n.getUILanguage()),t=cop
  if(typeof DEFAULTS[key]==='boolean'){input=document.createElement('input');input.type='checkbox';input.checked=state[key];input.setAttribute('role','switch');}else{input=document.createElement('select');for(const [value,label]of options[key]){const option=document.createElement('option');option.value=value;option.textContent=label+((i>0||key==='appearance')&&key!=='propertyDateFormat'&&value===DEFAULTS[key]?(locale==='zh-CN'?'（默认）':' (default)'):'');input.append(option);}input.value=state[key];}
  input.id=key;input.setAttribute('aria-labelledby',title.id);input.setAttribute('aria-describedby',p.id);input.onchange=()=>{let value=input.type==='checkbox'?input.checked:input.value;if(typeof DEFAULTS[key]==='number')value=Number(value);save(key,value);};row.append(desc,input);card.append(row);} $('groups').append(section);});
 }
-function save(key,value){queue=queue.catch(()=>{}).then(async()=>{const latest=await readSettings(),next=normalizeSettings({...latest,[key]:key==='toolbarHidden'?{...latest.toolbarHidden,...value}:value});await chrome.storage.local.set({settings:next});const result=await chrome.runtime.sendMessage({type:'SETTINGS_SAVED'});if(!result?.ok)throw Error('rules');state=next;if(key==='showFilename'||key==='showBranding'){const hidden=new Set(hiddenToolbarActions(state));for(const action of TOOLBAR_ACTIONS)$('hide-'+action).checked=hidden.has(action);}if(key==='locale'||key==='appearance')render();$('saved').textContent=copy[uiLocale(state,chrome.i18n.getUILanguage())].saved;}).catch(()=>{$('saved').textContent=copy[uiLocale(state,chrome.i18n.getUILanguage())].error;});}
+function refresh(next) {
+ const previousLocale=uiLocale(state,chrome.i18n.getUILanguage());state=next;
+ if(previousLocale!==uiLocale(state,chrome.i18n.getUILanguage())){render();return;}
+ // Ordinary saves update values in place, preserving focus and open controls.
+ document.documentElement.dataset.dark=String(state.appearance==='dark'||(state.appearance==='auto'&&matchMedia('(prefers-color-scheme:dark)').matches));
+ try{localStorage.setItem('appearance',state.appearance);}catch{}
+ for(const [key,value]of Object.entries(state)){
+  const input=$(key);if(!input||!['INPUT','SELECT'].includes(input.tagName))continue;
+  if(input.type==='checkbox')input.checked=value;else input.value=value;
+ }
+ $('preserveDarkPaper').closest('.row').hidden=state.appearance==='light';
+ const hidden=new Set(hiddenToolbarActions(state));for(const action of TOOLBAR_ACTIONS)$('hide-'+action).checked=hidden.has(action);
+ for(const input of $('ocrLanguages').querySelectorAll('input')){input.checked=state.ocrLanguages.includes(input.value);if(input.checked&&state.ocrLanguages.length===1)input.setAttribute('aria-disabled','true');else input.removeAttribute('aria-disabled');}
+}
+const store=createSettingsStore(state,{read:readSettings,write:next=>chrome.storage.local.set({settings:next}),changed:refresh});
+function report(result){void result.then(()=>{$('saved').textContent=copy[uiLocale(state,chrome.i18n.getUILanguage())].saved;},()=>{$('saved').textContent=copy[uiLocale(state,chrome.i18n.getUILanguage())].error;});}
+function save(key,value){report(store.save(key,value));}
 $('open-reader').onclick=()=>location.assign(chrome.runtime.getURL('workspaces/pdf-reader/index.html'));
-$('reset').onclick=()=>{const t=copy[uiLocale(state,chrome.i18n.getUILanguage())];if(confirm(t.confirm))queue=queue.catch(()=>{}).then(async()=>{await chrome.storage.local.set({settings:{...DEFAULTS}});await chrome.runtime.sendMessage({type:'SETTINGS_SAVED'});state={...DEFAULTS};render();$('saved').textContent=copy[uiLocale(state,chrome.i18n.getUILanguage())].saved;}).catch(()=>{$('saved').textContent=t.error;});};
+$('reset').onclick=()=>{const t=copy[uiLocale(state,chrome.i18n.getUILanguage())];if(confirm(t.confirm))report(store.reset());};
 matchMedia('(prefers-color-scheme:dark)').addEventListener('change',()=>{if(state.appearance==='auto')document.documentElement.dataset.dark=String(matchMedia('(prefers-color-scheme:dark)').matches);});render();
 
 // Refresh file-scheme eligibility when the settings page is reopened.
 void chrome.runtime.sendMessage({type:'SETTINGS_SAVED'}).catch(()=>{});
 
-// Language is an interface preference: reflect changes from another extension surface.
+// All saved preferences synchronize; pending local edits retain priority.
 chrome.storage.onChanged.addListener((changes,area)=>{
- if(area!=='local'||!changes.settings)return;
- const next=normalizeSettings(changes.settings.newValue);
- if(uiLocale(next,chrome.i18n.getUILanguage())!==uiLocale(state,chrome.i18n.getUILanguage())){state=next;render();}
+ if(area==='local'&&changes.settings)store.receive(changes.settings.newValue);
 });

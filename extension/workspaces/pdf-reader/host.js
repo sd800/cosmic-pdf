@@ -1,4 +1,4 @@
-import { readSettings, uiLocale, toolbarSignature } from '../../core/settings.js';
+import { readSettings, normalizeSettings, uiLocale, toolbarSignature } from '../../core/settings.js';
 import { sourceFromReader, READER_PATH, isPdf, filenameFrom, cleanFilename } from '../../core/source.js';
 import { createPdfViewer } from '../pdf-viewer/host.js';
 import { PDF_LIMITS } from '../pdf-viewer/model.js';
@@ -63,7 +63,7 @@ function loadSource(){return load(async signal=>{const response=await fetch(sour
 if(source){$('native').hidden=false;void loadSource();}else setView('home');
 chrome.storage.onChanged.addListener((changes,area)=>{
  if(area!=='local'||!changes.settings)return;
- void readSettings().then(next=>{
+ { const next=normalizeSettings(changes.settings.newValue);
   settings=next;
   const nextLocale=uiLocale(next,chrome.i18n.getUILanguage()),changed=toolbarSignature(activeSettings)!==toolbarSignature(next);
   const interfaceChanged=locale!==nextLocale||activeSettings.propertyDateFormat!==next.propertyDateFormat||activeSettings.ocrAction!==next.ocrAction||activeSettings.useChromeFind!==next.useChromeFind||activeSettings.captureLinks!==next.captureLinks;
@@ -73,7 +73,7 @@ chrome.storage.onChanged.addListener((changes,area)=>{
   if(changed)reader?.setToolbar(next);
   if(interfaceChanged){localize(nextLocale);reader?.setInterface(nextLocale,next);}
   // Sampling, OCR languages and recognition detail stay fixed for this reader.
- });
+ }
 });
 window.addEventListener('pagehide',()=>{generation++;controller?.abort();reader?.destroy();reader=null;if(blobURL)URL.revokeObjectURL(blobURL);blobURL=null;});
 // A history restore may revive this document after its renderer was disposed.

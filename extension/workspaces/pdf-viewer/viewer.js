@@ -10,7 +10,7 @@ import { labels } from './labels.js';
 import { setReaderIcon, setReaderIcons } from './icons.js';
 import { createToolbarMenu } from './toolbar-menu.js';
 import { normalizePdfSampling } from '../../core/pdf-sampling.js';
-import { PDF_LIMITS, pdfDetailCanvasPixels, pdfOptions, pdfScale, parsePdfZoom, stepPdfScale, printRange, rotateLeft, safePdfLink } from './model.js';
+import { pdfPageNumber, PDF_LIMITS, pdfDetailCanvasPixels, pdfOptions, pdfScale, parsePdfZoom, stepPdfScale, printRange, rotateLeft, safePdfLink } from './model.js';
 
 const $ = id => document.getElementById(id);
 let port, task, pdf, viewer, pdfWorker, parseTimer, destroyed = false, text = {...labels['en-US']}, fullscreenActive = false;
@@ -306,7 +306,7 @@ async function open(bytes, sampling) {
   ocr = createOcr({ pdf, viewer, eventBus, settings, text, signal });
   viewer.setDocument(pdf);
   click('previous', () => viewer.previousPage()); click('next', () => viewer.nextPage());
-  $('page').onchange = () => { viewer.currentPageNumber = Math.max(1, Math.min(pdf.numPages, Number($('page').value) || 1)); $('page').value = viewer.currentPageNumber; };
+  $('page').onchange = () => { viewer.currentPageNumber = pdfPageNumber($('page').value, pdf.numPages, viewer.currentPageNumber); $('page').value = viewer.currentPageNumber; };
   function zoomTo(scale, origin) { viewer.updateScale({ scaleFactor: pdfScale(scale) / viewer.currentScale, drawingDelay: 180, origin }); }
   click('zoom-in', () => zoomTo(stepPdfScale(viewer.currentScale, 1))); click('zoom-out', () => zoomTo(stepPdfScale(viewer.currentScale, -1)));
   // Keep high-frequency zoom updates small. Order the transient option only
@@ -357,6 +357,7 @@ async function open(bytes, sampling) {
   $('query').oninput = () => search(); $('match-case').onchange = () => search();
   $('query').onkeydown = event => { if (event.key === 'Enter') { event.preventDefault(); search(true, event.shiftKey); } };
   window.addEventListener('keydown', event => {
+    if (event.defaultPrevented || document.querySelector('dialog[open]')) return;
     if (event.altKey) return; // Leave browser history shortcuts to Chrome.
     const modifier = event.ctrlKey || event.metaKey, editable = /INPUT|SELECT|TEXTAREA/.test(event.target.tagName);
     if (modifier && event.key.toLowerCase() === 'f') {

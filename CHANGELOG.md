@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.2.3 — 2026-09-25
+
+- Keep settings consistent during rapid edits, language changes, and delayed storage updates.
+- Strengthen recovery and cleanup when returning to Chrome's PDF reader.
+- Improve PDF dialog cancellation, keyboard handling, and page-number validation.
+
 ## 2.2.2 — 2026-09-24
 
 - Use a lighter blue extension icon to make Cosmic PDF easier to distinguish in the browser toolbar.
@@ -130,7 +136,7 @@
 
 ## 1.1.1
 
-- Introduce Cosmic PDF, an independent Chrome PDF reader derived from Cosmic Gemini.
+- Introduce Cosmic PDF, an independent Chrome PDF reader derived from Cosmic Gemini's PDF Viewer feature.
 - Add automatic opening of supported PDFs, light/dark themes and a return-to-Chrome-reader control.
 - Add offline English, Simplified Chinese and Traditional Chinese OCR with selectable and copyable results.
 - Provide reading, rendering and OCR preferences in English and Simplified Chinese.

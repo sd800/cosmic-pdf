@@ -6,3 +6,4 @@ sidenote/
 *.log
 .env*
 coverage/
+test-dist/

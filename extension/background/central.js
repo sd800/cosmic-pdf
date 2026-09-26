@@ -1,9 +1,10 @@
 import * as standing from './provinces/standing.js';
 import * as operations from './provinces/operations.js';
-const start=()=>operations.readSettings().then(s=>standing.configureTakeover(s.enabled));
+let startup=Promise.resolve();
+const start=()=>startup=startup.catch(()=>{}).then(()=>operations.readSettings()).then(s=>standing.configureTakeover(s.enabled));
 chrome.runtime.onInstalled.addListener(()=>void start().catch(console.error));
 chrome.runtime.onStartup.addListener(()=>void start().catch(console.error));
-chrome.storage.onChanged.addListener((changes,area)=>{if(area==='local' && changes.settings) void start().catch(console.error);});
+chrome.storage.onChanged.addListener((changes,area)=>{if(area==='local' && changes.settings && changes.settings.oldValue?.enabled!==changes.settings.newValue?.enabled) void start().catch(console.error);});
 chrome.action.onClicked.addListener(()=>void start().then(()=>operations.openReader()).catch(console.error));
 chrome.tabs.onRemoved.addListener(id=>void standing.forgetNative(id,null,true).catch(()=>{}));
 chrome.tabs.onUpdated.addListener((id,change)=>{if(change.url)void standing.forgetNative(id,change.url).catch(()=>{});});

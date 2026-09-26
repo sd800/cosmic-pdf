@@ -7,6 +7,7 @@ const {chromium}=await import(process.env.PDF_PLAYWRIGHT?pathToFileURL(process.e
 const folder=await mkdtemp(join(tmpdir(),'cosmic-pdf-qa-')),ext=join(folder,'extension');await cp(resolve('extension'),ext,{recursive:true});
 // Expose renderer state in the disposable QA copy only.
 const viewerFile=join(ext,'workspaces/pdf-viewer/viewer.js');await writeFile(viewerFile,(await readFile(viewerFile,'utf8')).replace('links.setViewer(viewer);','window.qaViewer=viewer; window.qaSettings=()=>settings; window.qaDarkPaper=darkPaper; window.qaEventBus=eventBus; links.setViewer(viewer);').replace('void workerReady.catch(() => {});', 'void workerReady.then(worker=>{window.qaWorkerReady=worker.port instanceof Worker;}).catch(e=>{window.qaWorkerError=String(e);});'));
+const qaSettingsPath=join(ext,'settings/settings.js');await writeFile(qaSettingsPath,(await readFile(qaSettingsPath,'utf8')).replace('function report(result){','function report(result){window.qaSettingsIdle=result;'));
 // Count bounded sampling reads in this QA copy, never in shipped code.
 const guardFile=join(ext,'workspaces/pdf-viewer/dark-paper.js');await writeFile(guardFile,(await readFile(guardFile,'utf8')).replace('context.drawImage(source, 0, 0, size, size);', '(globalThis.qaPaperReads ||= []).push(size); context.drawImage(source, 0, 0, size, size);').replace('    try {\n      canvas ||= makeCanvas();', '    const qaStart=performance.now(); try {\n      canvas ||= makeCanvas();').replace('finally { if (canvas)', 'finally { (globalThis.qaPaperTimings ||= []).push(performance.now()-qaStart); if (canvas)'));
 // Delayed recognition in the disposable test copy makes in-flight UI assertions deterministic.
@@ -117,7 +118,44 @@ try{
   await saved.delete();
  }
  // PDF_QA=ocr-priority runs only the text-layer handover regression.
- if(process.env.PDF_QA==='ocr-priority'){
+ if(process.env.PDF_QA==='lifecycle'){
+
+  const checkFrame = await open('/lifecycle');
+  await checkFrame.locator('#page').fill('2.5'); await checkFrame.locator('#page').blur();
+  assert.equal(await checkFrame.locator('#page').inputValue(),'1');
+  await checkFrame.locator('#page').fill('2'); await checkFrame.locator('#page').blur();
+  await checkFrame.waitForFunction(()=>document.querySelector('#page').value==='2');
+  await checkFrame.evaluate(()=>{window.qaPrintCalls=0;window.print=()=>{qaPrintCalls++;};document.querySelector('#print').click();});
+  await checkFrame.locator('#print-dialog button[value=cancel]').focus();
+  await page.keyboard.press('PageDown');
+  assert.equal(await checkFrame.locator('#page').inputValue(),'2','modal keys cannot navigate the PDF');
+  await checkFrame.locator('#print-dialog button[value=print]').click();
+  await checkFrame.waitForFunction(()=>qaPrintCalls===1&&!document.querySelector('#print').disabled);
+  await checkFrame.evaluate(()=>document.querySelector('#print').click());
+  assert.equal(await checkFrame.locator('#print-dialog').evaluate(d=>d.returnValue),'');
+  await page.keyboard.press('Escape');
+  await checkFrame.waitForFunction(()=>!document.querySelector('#print-dialog').open);
+  await page.waitForTimeout(100);
+  assert.equal(await checkFrame.evaluate(()=>qaPrintCalls),1,'Esc must not repeat a prior Print');
+  assert.equal(await checkFrame.locator('#print').isEnabled(),true);
+
+  const prefs=await context.newPage();await prefs.goto(settings);await prefs.waitForSelector('#sampling');
+  await prefs.evaluate(()=>{
+    const edit=(id,value)=>{const e=document.getElementById(id);if(e.type==='checkbox')e.checked=value;else e.value=value;e.dispatchEvent(new Event('change',{bubbles:true}));};
+    edit('sampling','3');edit('locale','zh-CN');edit('showBranding',true);edit('hide-print',false);
+  });
+  await prefs.waitForFunction(async()=>{const s=(await chrome.storage.local.get('settings')).settings;return s.sampling===3&&s.locale==='zh-CN'&&s.showBranding&&s.toolbarHidden.print===false;});
+  assert.equal(await prefs.locator('#sampling').inputValue(),'3');assert.equal(await prefs.locator('#showBranding').isChecked(),true);assert.equal(await prefs.locator('#hide-print').isChecked(),false);
+  await prefs.evaluate(()=>window.qaSettingsIdle);
+  await prefs.evaluate(()=>chrome.storage.local.set({settings:{locale:'en-US',sampling:5,showBranding:false}}));
+  await prefs.waitForFunction(()=>document.documentElement.lang==='en-US'&&document.getElementById('sampling').value==='5');
+  assert.equal(await prefs.locator('#showBranding').isChecked(),false);
+  await checkFrame.evaluate(()=>document.querySelector('#native').click());await page.waitForURL(base+'/lifecycle');
+  assert.ok((await worker.evaluate(()=>chrome.declarativeNetRequest.getSessionRules())).some(r=>r.action.type==='allow'&&r.condition.tabIds?.length===1));
+  report.checks.push('native reader handover retains a tab-scoped exception');
+  report.checks.push('modal Print/Esc and keyboard isolation, page input validation, rapid locale/control edits, external settings updates');
+ }else if(process.env.PDF_QA==='ocr-priority'){
+
   await worker.evaluate(()=>chrome.storage.local.set({settings:{ocrLanguages:['eng'],ocrAction:'page'}}));
   const frame=await open('/ocr-priority');
   const native='.page[data-page-number="1"] .textLayer';
