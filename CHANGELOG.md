@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.3.2 — 2026-09-28
+
+- Highlight PDF dark-mode reading in the project introduction and extension description.
+
 ## 2.3.1 — 2026-09-25
 
 - Keep settings consistent during rapid edits, language changes, and delayed storage updates.

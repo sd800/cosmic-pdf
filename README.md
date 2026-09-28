@@ -2,13 +2,17 @@
 
 [Simplified Chinese](README_zh.md)
 
-Cosmic PDF is a Chrome PDF reader with comfortable light and dark themes, clear rendering, and local text recognition.
+Cosmic PDF is a Chrome extension for reading PDFs in dark mode, with a customizable reader and local text recognition.
 
-## Reading
+## PDF dark mode
+
+Read PDFs with dark pages and a dark viewer background, including scanned documents. Switch to light mode whenever you prefer, without changing the original file.
+
+The reader uses its own extension page to avoid a second dark-mode treatment by website extensions.
+
+## Reading tools
 
 Open PDF links directly in Cosmic PDF, or choose a local file. Search text, navigate pages and outlines, adjust zoom, rotate left, enter full screen, print or download the original. You can also return to Chrome's PDF reader.
-
-The reader's own extension page keeps website dark-mode extensions from applying a second theme. Light/dark appearance remains under your control.
 
 ## Local OCR
 
