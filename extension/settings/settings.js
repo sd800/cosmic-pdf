@@ -17,6 +17,7 @@ values:{defaultHidden:'（默认隐藏）',dateAuto:'语言默认格式',ocrPane
 const actionIcons={pages:'sidebar-toggle',find:'search-toggle',paging:'next',zoom:'zoom-in',fit:'fit-width',rotate:'rotate',fullscreen:'fullscreen',ocr:'ocr-toggle',print:'print',properties:'properties',native:'native'};
 const defaultHidden=new Set(hiddenToolbarActions(DEFAULTS));
 let state=await readSettings();const $=id=>document.getElementById(id);
+$('version').textContent='Cosmic PDF '+chrome.runtime.getManifest().version;
 function render(){const locale=uiLocale(state,chrome.i18n.getUILanguage()),t=copy[locale],v=t.values;document.documentElement.lang=locale;document.title='Cosmic PDF · '+t.title;
  document.documentElement.dataset.dark=String(state.appearance==='dark'||(state.appearance==='auto'&&matchMedia('(prefers-color-scheme:dark)').matches));try{localStorage.setItem('appearance',state.appearance);}catch{}
  for(const [id,key] of [['title','title'],['intro','intro'],['open-reader','open'],['reset','reset'],['privacy','privacy']])$(id).textContent=t[key];

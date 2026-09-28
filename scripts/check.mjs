@@ -4,6 +4,25 @@ async function walk(dir){const files=[];for(const name of await readdir(dir)){if
 for(const file of await walk('extension'))if(file.endsWith('.js')&&!file.includes('/vendor/')){const result=spawnSync(process.execPath,['--check',file],{encoding:'utf8'});if(result.status)throw Error(result.stderr);}
 for(const vendor of ['pdfjs','tesseract']){const folder='extension/vendor/'+vendor,entries=JSON.parse(await readFile(folder+'/integrity.json'));for(const[name,hash]of Object.entries(entries)){const actual=createHash('sha256').update(await readFile(folder+'/'+name)).digest('hex');if(actual!==hash)throw Error('Dependency changed: '+name);}}
 for(const f of [manifest.background.service_worker,manifest.options_page,...manifest.sandbox.pages,...Object.values(manifest.icons)])await stat('extension/'+f);
+// Generated icons and every first-party HTML brand reference must follow the SVG.
+const brandHashes=JSON.parse(await readFile('extension/icons/integrity.json'));
+const brandSource=await readFile('extension/icons/icon.svg');
+const brandRevision=createHash('sha256').update(brandSource).digest('hex').slice(0,12);
+for(const name of ['icon.svg',...Object.values(manifest.icons).map(file=>file.replace(/^icons\//,''))]) {
+  const bytes=await readFile('extension/icons/'+name);
+  if(createHash('sha256').update(bytes).digest('hex')!==brandHashes[name])throw Error('Stale brand asset: '+name+'; run scripts/render-icons.mjs');
+}
+for(const [size,file]of Object.entries(manifest.icons)) {
+  const bytes=await readFile('extension/'+file);
+  if(bytes.length<24||bytes.readUInt32BE(16)!==Number(size)||bytes.readUInt32BE(20)!==Number(size))throw Error('Wrong brand icon size: '+file);
+}
+for(const file of (await walk('extension')).filter(file=>file.endsWith('.html')&&!file.includes('/vendor/'))) {
+  const html=await readFile(file,'utf8');
+  const references=[...html.matchAll(/(?:href|src)="((?:\.\.\/)+icons\/icon\.svg[^"]*)"/g)];
+  if(!references.length||references.some(([,url])=>!url.endsWith('icon.svg?v='+brandRevision)))throw Error('Stale brand URL: '+file+'; run scripts/render-icons.mjs');
+  if(!/<link rel="icon" href="[^"]*icon\.svg\?v=[a-f0-9]+"/.test(html))throw Error('Missing favicon: '+file);
+}
+
 // Keep the fixed permission contract small; additions require a deliberate audit.
 const permissions=['storage','declarativeNetRequestWithHostAccess'],hosts=['http://*/*','https://*/*','file:///*'];
 if(JSON.stringify(manifest.permissions)!==JSON.stringify(permissions)||JSON.stringify(manifest.host_permissions)!==JSON.stringify(hosts))throw Error('Unexpected extension permissions: audit before expanding access');

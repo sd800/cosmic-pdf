@@ -52,3 +52,7 @@ The focused `PDF_QA=ocr-priority` browser test also drags through a middle OCR r
 ## Focused lifecycle regression
 
 `PDF_QA=lifecycle PDF_PLAYWRIGHT=/path/to/playwright/index.mjs PDF_CHROME=/path/to/chrome node scripts/test-browser.mjs` runs dialog reopening/Escape, modal keys, invalid page numbers, rapid locale/settings edits, external settings updates, and native-reader handover in an isolated temporary profile. The ordinary unit suite includes failed native handover/storage rollback and delayed settings callbacks. No OCR rerun is needed for these paths. See test-dist/README.md for local retained outputs; never connect a personal browser for this check.
+
+## Brand assets
+
+After editing `extension/icons/icon.svg`, regenerate with `scripts/render-icons.mjs` (`PDF_PLAYWRIGHT`/`PDF_CHROME`) and run `node scripts/check.mjs`. Check that every first-party HTML page has a fingerprinted favicon and matching logo URL, all four manifest PNG sizes use the current palette, and the Settings footer displays the manifest version. In a disposable browser, verify logo loading/colors and favicon URLs in light/dark appearances on Settings, the homepage and viewer shell. The reusable local fixture and logo-only crops live in ignored `test-dist/brand-assets/`; no real document or personal profile is needed.

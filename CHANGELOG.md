@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.3.3 — 2026-09-28
+
+- Keep favicons and page branding in sync with the current extension icon, and show the installed version in Settings.
+
 ## 2.3.2 — 2026-09-28
 
 - Highlight PDF dark-mode reading in the project introduction and extension description.
