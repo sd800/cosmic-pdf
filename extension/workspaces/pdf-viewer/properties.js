@@ -4,19 +4,19 @@ import { pdfFileSize } from './model.js';
 
 // Metadata is untrusted text, never markup. This module and its one cached
 // metadata request are created only when the user asks for document properties.
-export function createProperties({ pdf, viewer, filename, byteLength, locale, dateFormat, text, signal }) {
+export function createProperties({ pdf, viewer, filename, documentUrl, byteLength, locale, dateFormat, text, signal }) {
   const dialog = document.getElementById('properties-dialog');
   const list = document.getElementById('properties-list'), status = document.getElementById('properties-status');
   let numbers = new Intl.NumberFormat(locale, { maximumFractionDigits: 2 });
   let metadata, generation = 0;
   const fields = new Map();
-  for (const key of ['fileName', 'fileSize', 'documentTitle', 'author', 'subject', 'keywords', 'created', 'modified', 'application', 'producer', 'pdfVersion', 'pageCount', 'pageSize', 'fastWebView']) {
+  for (const key of ['fileName', 'fileUrl', 'fileSize', 'documentTitle', 'author', 'subject', 'keywords', 'created', 'modified', 'application', 'producer', 'pdfVersion', 'pageCount', 'pageSize', 'fastWebView']) {
     const name = document.createElement('dt'), value = document.createElement('dd');
     name.textContent = text[key]; value.dataset.property = key;
     list.append(name, value); fields.set(key, value);
   }
   function set(key, value) {
-    fields.get(key).textContent = typeof value === 'string' && value.trim() ? value.slice(0, 4096) : '—';
+    fields.get(key).textContent = typeof value === 'string' && value.trim() ? value.slice(0, key === 'fileUrl' ? 8192 : 4096) : '—';
   }
   function date(value) {
     return formatPdfDate(value, locale, dateFormat);
@@ -38,7 +38,7 @@ export function createProperties({ pdf, viewer, filename, byteLength, locale, da
       if (signal.aborted || (dialog.open && !refresh)) return;
       const run = ++generation, pageNumber = viewer.currentPageNumber;
       for (const key of fields.keys()) set(key, '');
-      set('fileName', filename); set('fileSize', pdfFileSize(byteLength, locale)); set('pageCount', numbers.format(pdf.numPages));
+      set('fileName', filename); set('fileUrl', documentUrl); set('fileSize', pdfFileSize(byteLength, locale)); set('pageCount', numbers.format(pdf.numPages));
       // Focus the heading, not the bottom Close button; reopen at the start.
       status.textContent = text.propertiesLoading;
       if (!dialog.open) {

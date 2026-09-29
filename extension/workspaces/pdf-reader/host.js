@@ -51,7 +51,7 @@ async function load(loader, initialFilename='PDF'){
  const deadline=setTimeout(()=>current.abort(),60000);
  try{
   // Load the isolated rendering shell and its bundled worker while fetching the PDF.
-  const prepared=createPdfViewer({container:$('reader'),locale,settings,filename:cleanFilename(initialFilename),canUseNative:!!source,sampling:settings.sampling,sharpening:settings.sharpening,dark:applyTheme(),onNative:native,onSettings:openSettings,onDownload:download,onTheme:()=>{appearanceOverride=appearanceOverride===null?'opposite':null;applyTheme();},onReady:()=>{if(run===generation){setView('reader');}},onError:()=>{if(run===generation&&!$('reader').querySelector('iframe')){reader=null;$('reader').hidden=true;fail(text.failed);}}});
+  const prepared=createPdfViewer({container:$('reader'),locale,settings,filename:cleanFilename(initialFilename),documentUrl:source||'',canUseNative:!!source,sampling:settings.sampling,sharpening:settings.sharpening,dark:applyTheme(),onNative:native,onSettings:openSettings,onDownload:download,onTheme:()=>{appearanceOverride=appearanceOverride===null?'opposite':null;applyTheme();},onReady:()=>{if(run===generation){setView('reader');}},onError:()=>{if(run===generation&&!$('reader').querySelector('iframe')){reader=null;$('reader').hidden=true;fail(text.failed);}}});
   reader=prepared;
   const result=await loader(current.signal);if(run!==generation)return;if(!isPdf(result.bytes))throw Error('format');
   filename=cleanFilename(result.filename);original=new Blob([result.bytes],{type:'application/pdf'});blobURL=URL.createObjectURL(original);document.title=filename+' — Cosmic PDF';

@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.3.5 — 2026-09-29
+
+- Show the original file URL below the file name in PDF Document properties.
+
 ## 2.3.3 — 2026-09-28
 
 - Keep favicons and page branding in sync with the current extension icon, and show the installed version in Settings.

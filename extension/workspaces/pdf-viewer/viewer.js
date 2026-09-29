@@ -26,7 +26,7 @@ let firstPageReady = false, themeDark = false, darkPaper;
 let customZoomScale = null, toolbarMenu, externalLinksCapture, linkRequest = 0;
 let thumbnailObserver, thumbnailTask, thumbnailBusy = false, thumbnailGeneration = 0, outlineLoaded = false;
 const nearThumbnails = new Set(), thumbnailCache = new Map(), printUrls = new Set();
-let sharpening = false, settings, ocr, documentFilename, documentBytes = 0, properties;
+let sharpening = false, settings, ocr, documentFilename, documentUrl = '', documentBytes = 0, properties;
 let printing = false, printTask, zoomFrame = 0, wheelFactor = 1, wheelOrigin, passwordCancelled = false;
 const emit = type => port?.postMessage({ type });
 let taskBusy = false, renderBusy = false, renderProgressTimer = 0, visiblePageViews = [];
@@ -133,6 +133,7 @@ window.addEventListener('pagehide', destroy, { once: true });
 window.addEventListener('message', event => {
   if (event.source !== parent || port || event.data?.type !== 'CP_PDF_INIT' || event.ports.length !== 1) return;
   const input = event.data;
+  documentUrl = typeof input.documentUrl === 'string' ? input.documentUrl : '';
   settings = normalizeSettings(input.settings);
   setDarkPaper(settings.preserveDarkPaper);
   toolbarPreferences(getToolbarMode(settings));
@@ -383,7 +384,7 @@ async function open(bytes, sampling) {
   click('show-outline', () => { $('thumbnails').hidden = true; $('outline').hidden = false; thumbnailTask?.cancel(); void showOutline(links); });
   const openProperties = () => {
     // Import and read metadata only on demand; retain one small dialog model.
-    properties ||= import('./properties.js').then(({ createProperties }) => createProperties({ pdf, viewer, filename: documentFilename, byteLength: documentBytes, locale: document.documentElement.lang, dateFormat: settings.propertyDateFormat, text, signal }));
+    properties ||= import('./properties.js').then(({ createProperties }) => createProperties({ pdf, viewer, filename: documentFilename, documentUrl, byteLength: documentBytes, locale: document.documentElement.lang, dateFormat: settings.propertyDateFormat, text, signal }));
     void properties.then(dialog => { if (!destroyed) return dialog.open(); }).catch(() => { if (!destroyed) status('propertiesUnavailable'); });
   };
   click('properties', openProperties); click('filename', openProperties);

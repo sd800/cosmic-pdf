@@ -1,8 +1,9 @@
 import { normalizeSettings } from '../../core/settings.js';
 import { PDF_LIMITS } from './model.js';
 // This host is the only connection to a product. The opaque viewer has no
-// extension APIs, storage access, document URL, or arbitrary command channel.
-export function createPdfViewer({ container, locale, sampling, settings, filename = 'PDF', canUseNative = false, sharpening = false, dark, onDownload, onNative, onSettings, onTheme, onReady, onError }) {
+// extension APIs, storage access, network capability, or arbitrary command channel.
+// The validated source URL is passed only as inert text for Document properties.
+export function createPdfViewer({ container, locale, sampling, settings, filename = 'PDF', documentUrl = '', canUseNative = false, sharpening = false, dark, onDownload, onNative, onSettings, onTheme, onReady, onError }) {
   const iframe = document.createElement('iframe');
   iframe.className = 'pdf-viewer-frame'; iframe.title = 'PDF Viewer';
   iframe.referrerPolicy = 'no-referrer';
@@ -53,7 +54,7 @@ export function createPdfViewer({ container, locale, sampling, settings, filenam
   };
   iframe.addEventListener('load', () => {
     if (closed) return;
-    iframe.contentWindow.postMessage({ type: 'CP_PDF_INIT', filename, canUseNative, locale, settings, sampling, sharpening: sharpening === true, dark }, '*', [channel.port2]);
+    iframe.contentWindow.postMessage({ type: 'CP_PDF_INIT', filename, documentUrl, canUseNative, locale, settings, sampling, sharpening: sharpening === true, dark }, '*', [channel.port2]);
     frameLoaded = true; sendDocument();
   }, { once: true });
   container.append(iframe);

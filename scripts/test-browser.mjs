@@ -98,7 +98,7 @@ async function chooseLanguages(root,group,values){
 }
 
 try{
- const page=await context.newPage();observe(page);await page.goto('chrome://extensions');const id=await page.evaluate(()=>document.querySelector('extensions-manager').shadowRoot.querySelector('extensions-item-list').shadowRoot.querySelector('extensions-item')?.id);assert.ok(id,'extension installed');
+ const page=await context.newPage();observe(page);await page.goto('chrome://extensions');await page.waitForFunction(()=>document.querySelector('extensions-manager')?.shadowRoot?.querySelector('extensions-item-list')?.shadowRoot?.querySelector('extensions-item')?.id);const id=await page.evaluate(()=>document.querySelector('extensions-manager').shadowRoot.querySelector('extensions-item-list').shadowRoot.querySelector('extensions-item')?.id);assert.ok(id,'extension installed');
  const origin=`chrome-extension://${id}/`,reader=origin+'workspaces/pdf-reader/index.html',settings=origin+'settings/index.html';
  const worker=context.serviceWorkers()[0]||await context.waitForEvent('serviceworker');
  const granted=await worker.evaluate(()=>chrome.permissions.getAll());assert.deepEqual(granted.permissions.sort(),['declarativeNetRequestWithHostAccess','storage']);assert.equal(await worker.evaluate(()=>typeof chrome.downloads),'undefined');report.checks.push('fixed minimal API permissions; no downloads API');
@@ -154,6 +154,25 @@ try{
   assert.ok((await worker.evaluate(()=>chrome.declarativeNetRequest.getSessionRules())).some(r=>r.action.type==='allow'&&r.condition.tabIds?.length===1));
   report.checks.push('native reader handover retains a tab-scoped exception');
   report.checks.push('modal Print/Esc and keyboard isolation, page input validation, rapid locale/control edits, external settings updates');
+ }else if(process.env.PDF_QA==='properties'){
+  const path='/document?token=a%2Bb&sig='+ 'x'.repeat(240)+'#page=2';
+  let frame=await open(path);
+  await frame.locator('#properties').click();await frame.waitForSelector('#properties-dialog[open]');
+  assert.equal(await frame.locator('#properties-list dt').nth(1).textContent(),'File URL');
+  assert.equal(await frame.locator('[data-property=fileUrl]').textContent(),base+path);
+  assert.equal(await frame.locator('#properties-list a').count(),0,'source address is inert text');
+  await page.setViewportSize({width:480,height:640});
+  assert.equal(await frame.locator('#properties-list').evaluate(node=>node.scrollWidth<=node.clientWidth),true,'long URL wraps inside the dialog');
+  await frame.locator('#properties-close').click();
+  await page.goto(reader);await page.locator('#file').setInputFiles({name:'local.pdf',mimeType:'application/pdf',buffer:Buffer.from(viewerPdf(1))});
+  frame=await(await page.waitForSelector('iframe')).contentFrame();
+  await frame.waitForFunction(()=>document.querySelector('#properties').disabled===false);
+  await frame.locator('#properties').click();await frame.waitForSelector('#properties-dialog[open]');
+  assert.equal(await frame.locator('[data-property=fileUrl]').textContent(),'—','a local picker file has no source URL');
+  await worker.evaluate(()=>chrome.storage.local.set({settings:{locale:'zh-CN'}}));
+  await frame.waitForFunction(()=>document.querySelector('#properties-list dt:nth-of-type(2)')?.textContent==='文件 URL');
+  assert.equal(await frame.locator('[data-property=fileUrl]').textContent(),'—');
+  report.checks.push('Document properties show a plain original URL below File name, wrap long URLs, and show a dash for local files in both locales');
  }else if(process.env.PDF_QA==='ocr-priority'){
 
   await worker.evaluate(()=>chrome.storage.local.set({settings:{ocrLanguages:['eng'],ocrAction:'page'}}));
