@@ -2,7 +2,7 @@
 
 [Simplified Chinese](README_zh.md)
 
-Cosmic PDF is a Chrome extension for reading PDFs in dark mode, with a customizable reader and local text recognition.
+Cosmic PDF is a Chrome extension for reading PDFs in dark mode, with local text recognition and a customizable reading experience.
 
 ## PDF dark mode
 
