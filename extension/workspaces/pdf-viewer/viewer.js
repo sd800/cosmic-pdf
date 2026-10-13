@@ -160,7 +160,7 @@ window.addEventListener('message', event => {
       });
     }
     else if (data?.type === 'ai-preferences') {
-      const next=normalizeSettings(data.preferences);settings={...settings,aiEnabled:next.aiEnabled,aiProvider:next.aiProvider,aiLanguage:next.aiLanguage,aiIncludeContext:next.aiIncludeContext};aiReader?.preferences(settings);
+      const next=normalizeSettings(data.preferences);settings={...settings,aiEnabled:next.aiEnabled,aiMode:next.aiMode,aiWebsite:next.aiWebsite,aiProvider:next.aiProvider,aiLanguage:next.aiLanguage,aiIncludeContext:next.aiIncludeContext};aiReader?.preferences(settings);
     }
     else if (data?.type === 'ai-status') aiReader?.status(data.state);
     else if (data?.type === 'ai-event') aiReader?.event(data.event);

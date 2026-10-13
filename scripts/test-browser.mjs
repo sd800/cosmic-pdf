@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {mkdtemp,writeFile,readFile,cp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';import {resolve,join} from 'node:path';import {pathToFileURL} from 'node:url';import {createServer} from 'node:http';
 import {viewerPdf,scannedPdf} from '../test/fixtures/pdf-viewer.mjs';
-import {handleAiMock,prepareAiMock,runAiQa} from './qa-ai.mjs';
+import {handleAiMock,prepareAiMock,runAiQa,handleWebAiMock,prepareWebAiMock,runWebAiQa} from './qa-ai.mjs';
 const {chromium}=await import(process.env.PDF_PLAYWRIGHT?pathToFileURL(process.env.PDF_PLAYWRIGHT).href:'playwright');
 const folder=await mkdtemp(join(tmpdir(),'cosmic-pdf-qa-')),ext=join(folder,'extension');await cp(resolve('extension'),ext,{recursive:true});
 // Expose renderer state in the disposable QA copy only.
@@ -17,6 +17,7 @@ const report={checks:[],errors:[],remoteRequests:[],screenshots:folder};let engl
 function releaseSlow(){for(const res of slowResponses)res.end(viewerPdf(6));slowResponses.clear();}
 const server=createServer((req,res)=>{
  if(process.env.PDF_QA==='ai'&&handleAiMock(req,res))return;
+ if(process.env.PDF_QA==='ai-web'&&handleWebAiMock(req,res))return;
  const path=req.url.split('?')[0];
  if(path==='/html.pdf'){res.setHeader('Content-Type','text/html');res.end('<h1>Not a PDF</h1>');return;}
  if(path==='/links'){res.setHeader('Content-Type','text/html');res.end('<a href="/history.pdf">Read PDF</a>');return;}
@@ -51,6 +52,7 @@ const server=createServer((req,res)=>{
  res.end(path==='/black-scan'?blackScan:path==='/scan-many'?batchScan:path==='/scan'?englishScan:path==='/chinese'?chineseScan:viewerPdf(6));
 });await new Promise(r=>server.listen(0,'127.0.0.1',r));const base='http://127.0.0.1:'+server.address().port;
 if(process.env.PDF_QA==='ai')await prepareAiMock(ext,base);
+if(process.env.PDF_QA==='ai-web')await prepareWebAiMock(ext,base);
 const context=await chromium.launchPersistentContext(join(folder,'profile'),{executablePath:process.env.PDF_CHROME,headless:true,viewport:{width:1360,height:960},deviceScaleFactor:2,args:['--force-device-scale-factor=2',`--disable-extensions-except=${ext}`,`--load-extension=${ext}`]});
 function observe(page){page.on('pageerror',e=>report.errors.push(e.message));page.on('console',m=>{if(m.type()==='error'||/fake worker|autofocusing|permissions policy|Content Security Policy|cross-origin redirects/i.test(m.text()))report.errors.push(m.text());});page.on('request',r=>{if(/^https?:/.test(r.url())&&!r.url().startsWith(base))report.remoteRequests.push(r.url());});}
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
@@ -121,7 +123,9 @@ try{
   await saved.delete();
  }
  // PDF_QA=ocr-priority runs only the text-layer handover regression.
- if(process.env.PDF_QA==='ai'){
+ if(process.env.PDF_QA==='ai-web'){
+  await runWebAiQa({context,worker,page,settings,open,report,base});
+ }else if(process.env.PDF_QA==='ai'){
   await runAiQa({context,worker,page,settings,open,report,folder});
  }else if(process.env.PDF_QA==='lifecycle'){
 

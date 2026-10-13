@@ -41,6 +41,7 @@ export function createPdfViewer({ container, locale, sampling, settings, filenam
   channel.port1.onmessage = ({ data }) => {
     if (closed || !data || typeof data.type !== 'string') return;
     if (data.type === 'ai-request') aiBridge.request(data.id,data.request);
+    else if (data.type === 'ai-web-request') void aiBridge.openWebsite(data.id,data.request,data.withoutPrompt);
     else if (data.type === 'ai-cancel') aiBridge.cancel(data.id);
     else if (data.type === 'ai-refresh') void aiBridge.refresh();
     else if (data.type === 'ai-toggle' || data.type === 'ai-context') {if(typeof data.enabled==='boolean')onAiPreference(data.type==='ai-toggle'?'aiEnabled':'aiIncludeContext',data.enabled);}
@@ -90,7 +91,7 @@ export function createPdfViewer({ container, locale, sampling, settings, filenam
     },
     setAi(nextSettings) {
       const next=normalizeSettings(nextSettings);
-      const preferences={aiEnabled:next.aiEnabled,aiProvider:next.aiProvider,aiLanguage:next.aiLanguage,aiIncludeContext:next.aiIncludeContext};
+      const preferences={aiEnabled:next.aiEnabled,aiMode:next.aiMode,aiWebsite:next.aiWebsite,aiProvider:next.aiProvider,aiLanguage:next.aiLanguage,aiIncludeContext:next.aiIncludeContext};
       settings={...settings,...preferences};
       if(!closed)channel.port1.postMessage({type:'ai-preferences',preferences});
       void aiBridge.refresh();

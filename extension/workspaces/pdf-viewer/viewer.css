@@ -131,3 +131,4 @@ header #ocr-toggle[aria-busy=true]{color:var(--text);background:var(--surface-ra
 :root:lang(zh-CN) #ai-selection{letter-spacing:.04em}
 @media(max-width:850px){:root[data-ai-open=true] #viewport{right:0}#ai-panel{box-shadow:-4px 0 18px #0003}}
 @media print{#ai-selection,#ai-panel{display:none!important}}
+#ai-web-handoff{display:flex;flex-direction:column;gap:12px}#ai-web-question{width:100%;min-height:120px;max-height:260px;resize:vertical;font:inherit;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--surface-raised);color:var(--text)}

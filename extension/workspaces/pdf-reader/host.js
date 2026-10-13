@@ -73,9 +73,9 @@ chrome.storage.onChanged.addListener((changes,area)=>{
   settings=next;
   const nextLocale=uiLocale(next,chrome.i18n.getUILanguage()),changed=toolbarSignature(activeSettings)!==toolbarSignature(next);
   const interfaceChanged=locale!==nextLocale||activeSettings.propertyDateFormat!==next.propertyDateFormat||activeSettings.ocrAction!==next.ocrAction||activeSettings.useChromeFind!==next.useChromeFind||activeSettings.captureLinks!==next.captureLinks;
-  const aiChanged=['aiEnabled','aiProvider','aiLanguage','aiIncludeContext'].some(key=>activeSettings[key]!==next[key]);
+  const aiChanged=['aiEnabled','aiMode','aiWebsite','aiProvider','aiLanguage','aiIncludeContext'].some(key=>activeSettings[key]!==next[key]);
   const paperChanged=activeSettings.preserveDarkPaper!==next.preserveDarkPaper;
-  activeSettings={...activeSettings,aiEnabled:next.aiEnabled,aiProvider:next.aiProvider,aiLanguage:next.aiLanguage,aiIncludeContext:next.aiIncludeContext,preserveDarkPaper:next.preserveDarkPaper,locale:next.locale,propertyDateFormat:next.propertyDateFormat,ocrAction:next.ocrAction,useChromeFind:next.useChromeFind,captureLinks:next.captureLinks,showFilename:next.showFilename,showBranding:next.showBranding,toolbarHidden:next.toolbarHidden};
+  activeSettings={...activeSettings,aiEnabled:next.aiEnabled,aiMode:next.aiMode,aiWebsite:next.aiWebsite,aiProvider:next.aiProvider,aiLanguage:next.aiLanguage,aiIncludeContext:next.aiIncludeContext,preserveDarkPaper:next.preserveDarkPaper,locale:next.locale,propertyDateFormat:next.propertyDateFormat,ocrAction:next.ocrAction,useChromeFind:next.useChromeFind,captureLinks:next.captureLinks,showFilename:next.showFilename,showBranding:next.showBranding,toolbarHidden:next.toolbarHidden};
   if(aiChanged)reader?.setAi(next);
   if(paperChanged)reader?.setDarkPaper(next.preserveDarkPaper);
   if(changed)reader?.setToolbar(next);

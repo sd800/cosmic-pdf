@@ -58,7 +58,7 @@ export function createAiExplanationProduct({ vault = createApiVault(), read = re
       const job = { id: message.id, controller: new AbortController(), timedOut: false }; active = job;
       void (async () => {
         const request = normalizeAiRequest(message.request), settings = await read();
-        if (!settings.aiEnabled || privateSender(port.sender)) throw Error('disabled');
+        if (!settings.aiEnabled || settings.aiMode!=='api' || privateSender(port.sender)) throw Error('disabled');
         if (!settings.aiIncludeContext) request.context = '';
         client.provider = settings.aiProvider;
         const key = await vault.read(client.provider); job.controller.signal.throwIfAborted();
@@ -79,7 +79,7 @@ export function createAiExplanationProduct({ vault = createApiVault(), read = re
     });
     return true;
   }
-  function settingsChanged(settings) { if (!settings.aiEnabled) for (const client of clients) client.cancel(); }
+  function settingsChanged(settings) { if (!settings.aiEnabled || (settings.aiMode&&settings.aiMode!=='api')) for (const client of clients) client.cancel(); }
   function disposeTab(tabId) { for (const job of tests) if (job.tabId === tabId) job.controller.abort(); }
   return Object.freeze({ handleMessage, connect, settingsChanged, disposeTab });
 }

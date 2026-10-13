@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.2.1 — 2026-10-13
+
+- Add Bring Your Own AI via Subscription for ChatGPT and Claude, alongside Built-in AI via API, with radio choices and website mode selected by default.
+- Open prefilled questions beside the PDF where Chrome supports automatic split view, with an adjacent-tab fallback and companion-tab reuse.
+- Keep complete longer questions available for copying, and preserve existing API keys and preferences.
+
 ## 3.1.1 — 2026-10-13
 
 - Add AI explanations for selected PDF and recognized text, with streamed answers, optional nearby context, and follow-up questions.

@@ -1,9 +1,11 @@
 import { AI_PROVIDERS } from '../core/ai.js';
+import { AI_WEBSITES } from '../core/ai-web.js';
 const words = {
  'en-US': {
   title:'AI explanations',
   enabled:'Explain with AI',enabledHelp:'Explain selected PDF text and ask follow-up questions. You can also use the sparkle switch in the reader.',
   model:'Model',language:'Explanation language',auto:'Interface language (default)',english:'English',chinese:'简体中文',
+  method:'AI connection',api:'Built-in AI via API',subscription:'Bring Your Own AI via Subscription',website:'Website',apiHelp:'Receive explanations in Cosmic PDF using your own API key.',webHelp:'Use your existing ChatGPT or Claude account without an API key. Opens beside the PDF where Chrome supports automatic split view, otherwise in the next tab.',webPrivacy:'Only selected text and any nearby paragraphs you choose are passed to the AI website. Questions are included in links and may appear in browser history or sync. Responses and follow-up questions stay on the website. Reusing the paired tab starts a new question and can replace an unsent draft.',
   context:'Include nearby paragraphs',contextHelp:'Send a small amount of text around the selection for additional context. Off by default.',
   key:'API key',keyHelp:'Your API key is encrypted and stored on this device, and is used only for AI requests you initiate.',
   save:'Save key',remove:'Delete key',test:'Test connection',saved:'Key saved.',removed:'Key deleted.',connected:'Connection successful.',
@@ -19,6 +21,7 @@ const words = {
   title:'AI 解释',
   enabled:'使用 AI 解释',enabledHelp:'解释选中的 PDF 文字，也可针对选段继续提问。阅读器中的星芒开关也可控制此功能。',
   model:'模型',language:'解释语言',auto:'跟随界面语言（默认）',english:'English',chinese:'简体中文',
+  method:'AI 使用方式',api:'内置 AI（API）',subscription:'自带 AI（订阅账号）',website:'网站',apiHelp:'使用您自己的 API 密钥，直接在 Cosmic PDF 中查看解释。',webHelp:'使用已有的 ChatGPT 或 Claude 账号，无需 API 密钥。Chrome 支持时在 PDF 旁分屏打开，否则在相邻标签页打开。',webPrivacy:'仅将选中文字和您选择附带的附近段落交给 AI 网站。问题包含在链接中，可能出现在浏览器历史记录或同步记录中。回复和后续提问均留在该网站；复用配套标签页会开始新问题，可能替换尚未发送的草稿。',
   context:'包含附近段落',contextHelp:'附带选段附近的少量文字，帮助理解上下文。默认关闭。',
   key:'API 密钥',keyHelp:'您的 API 密钥使用行业标准加密方式保存在此设备上，仅用于您主动发起的 AI 请求。',
   save:'保存密钥',remove:'删除密钥',test:'验证连接',saved:'密钥已保存。',removed:'密钥已删除。',connected:'连接成功。',
@@ -35,24 +38,37 @@ export function createAiSettings({container,locale,state,save}) {
   let settings=state,language=locale,optionsLanguage='',keys={},privateWindow=false,busy=false,busyType='',generation=0,statusRevision=0,notice='',suspended=false;
   const $=id=>container.querySelector('#'+id);
   container.innerHTML='<h2></h2><div class="card"><div class="row"><div><h3 id="ai-enabled-title"></h3><p id="ai-enabled-help"></p></div><input id="aiEnabled" type="checkbox" role="switch" aria-labelledby="ai-enabled-title" aria-describedby="ai-enabled-help"></div><div class="row"><div><h3 id="ai-model-title"></h3></div><select id="aiProvider" aria-labelledby="ai-model-title"></select></div><div class="row"><div><h3 id="ai-language-title"></h3></div><select id="aiLanguage" aria-labelledby="ai-language-title"></select></div><div class="row"><div><h3 id="ai-context-title"></h3><p id="ai-context-help"></p></div><input id="aiIncludeContext" type="checkbox" role="switch" aria-labelledby="ai-context-title" aria-describedby="ai-context-help"></div><div class="ai-key-row"><h3 id="ai-key-title"></h3><p id="ai-key-help"></p><input id="ai-key" type="password" maxlength="512" autocomplete="off" spellcheck="false" aria-labelledby="ai-key-title" aria-describedby="ai-key-help"><p id="ai-key-state"></p><div class="ai-key-actions"><button id="ai-save" type="button"></button><button id="ai-test" type="button"></button><button id="ai-remove" type="button"></button></div><p id="ai-test-help"></p><p id="ai-key-notice" role="status" aria-live="polite"></p></div><div class="ai-privacy"><p id="ai-privacy"></p><p id="ai-free"></p><p id="ai-data"></p></div></div>';
+  const methodRow=document.createElement('div');methodRow.className='row';methodRow.innerHTML='<div><h3 id="ai-method-title"></h3><p id="ai-method-help"></p></div><fieldset id="aiMode" class="language-choices" aria-labelledby="ai-method-title" aria-describedby="ai-method-help"><div class="language-options"><label><input id="ai-mode-api" type="radio" name="ai-mode" value="api"><span id="ai-mode-api-label"></span></label><label><input id="ai-mode-subscription" type="radio" name="ai-mode" value="subscription"><span id="ai-mode-subscription-label"></span></label></div></fieldset>';
+  const siteRow=document.createElement('div');siteRow.className='row';siteRow.innerHTML='<div><h3 id="ai-website-title"></h3></div><select id="aiWebsite" aria-labelledby="ai-website-title"></select>';
+  container.querySelector('.row').after(methodRow,siteRow);
   const clearRow=document.createElement('div');clearRow.id='ai-key-clear-row';clearRow.innerHTML='<button id="ai-remove-all" type="button"></button>';
-  container.querySelector('.ai-key-row').append(clearRow);
+  container.querySelector('.ai-key-row').after(clearRow);clearRow.after($('ai-key-notice'));
   function render() {
     const t=words[language];container.querySelector('h2').textContent=t.title;container.querySelector('h2').id='ai-settings-title';
     for(const [id,key]of [['ai-enabled-title','enabled'],['ai-enabled-help','enabledHelp'],['ai-model-title','model'],['ai-language-title','language'],['ai-context-title','context'],['ai-context-help','contextHelp'],['ai-key-title','key'],['ai-key-help','keyHelp'],['ai-save','save'],['ai-test','test'],['ai-remove','remove'],['ai-test-help','testHelp'],['ai-privacy','privacy'],['ai-free','free'],['ai-data','data']])$(id).textContent=t[key];
     $('ai-remove-all').textContent=t.removeAll;
+    const subscription=settings.aiMode==='subscription';
+    $('ai-method-title').textContent=t.method;$('ai-method-help').textContent=t[subscription?'webHelp':'apiHelp'];$('ai-website-title').textContent=t.website;
+    $('ai-mode-api-label').textContent=t.api;$('ai-mode-subscription-label').textContent=t.subscription;
     if(optionsLanguage!==language){
       $('aiProvider').replaceChildren(...Object.entries(AI_PROVIDERS).map(([id,p])=>new Option(p.label+' · '+p.model,id)));
+      $('aiWebsite').replaceChildren(...Object.entries(AI_WEBSITES).map(([id,p])=>new Option(p.label,id)));
       $('aiLanguage').replaceChildren(new Option(t.auto,'auto'),new Option(t.english,'en-US'),new Option(t.chinese,'zh-CN'));optionsLanguage=language;
     }
     $('aiProvider').value=settings.aiProvider;$('aiLanguage').value=settings.aiLanguage;
+    for(const node of $('aiMode').querySelectorAll('input'))node.checked=node.value===settings.aiMode;
+    $('aiWebsite').value=settings.aiWebsite;
+    siteRow.hidden=!subscription;$('aiProvider').closest('.row').hidden=subscription;container.querySelector('.ai-key-row').hidden=subscription;
+    $('ai-privacy').textContent=t[subscription?'webPrivacy':'privacy'];
     $('aiEnabled').checked=settings.aiEnabled;$('aiIncludeContext').checked=settings.aiIncludeContext;
     $('ai-key').placeholder=keys[settings.aiProvider]?t.stored:t.placeholder;
     $('ai-key-state').textContent=privateWindow?t.private:keys[settings.aiProvider]?t.stored:t.missing;
-    $('ai-free').hidden=$('ai-data').hidden=settings.aiProvider!=='gemini';
+    $('ai-free').hidden=$('ai-data').hidden=subscription||settings.aiProvider!=='gemini';
     $('ai-key-notice').textContent=t[notice]||t.error;
     if(!notice)$('ai-key-notice').textContent='';
-    for(const node of container.querySelectorAll('input,select,button'))node.disabled=busy||privateWindow;
+    for(const node of container.querySelectorAll('input,select,button'))node.disabled=busy;
+    for(const node of container.querySelector('.ai-key-row').querySelectorAll('input,button'))node.disabled=busy||privateWindow;
+    $('aiEnabled').disabled=busy||privateWindow&&!subscription;
     $('ai-test').disabled=busy||privateWindow||!keys[settings.aiProvider];$('ai-remove').disabled=$('ai-test').disabled;
     $('ai-remove-all').disabled=privateWindow||(busy&&busyType!=='AI_TEST_KEY');
   }
@@ -71,6 +87,8 @@ export function createAiSettings({container,locale,state,save}) {
   $('aiEnabled').onchange=()=>save('aiEnabled',$('aiEnabled').checked);
   $('aiIncludeContext').onchange=()=>save('aiIncludeContext',$('aiIncludeContext').checked);
   $('aiLanguage').onchange=()=>save('aiLanguage',$('aiLanguage').value);
+  for(const node of $('aiMode').querySelectorAll('input'))node.onchange=()=>{if(node.checked)save('aiMode',node.value);};
+  $('aiWebsite').onchange=()=>save('aiWebsite',$('aiWebsite').value);
   $('aiProvider').onchange=()=>{$('ai-key').value='';notice='';save('aiProvider',$('aiProvider').value);};
   $('ai-key').oninput=()=>{if(notice==='invalidKey'){notice='';$('ai-key-notice').textContent='';}};
   $('ai-key').onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();void command('AI_SAVE_KEY');}};
@@ -86,5 +104,5 @@ export function createAiSettings({container,locale,state,save}) {
   addEventListener('pagehide',()=>{suspended=true;generation++;statusRevision++;$('ai-key').value='';});
   addEventListener('pageshow',event=>{if(event.persisted){suspended=false;busy=false;busyType='';notice='';render();void refreshStatus();}});
   render();
-  return {update(nextLocale,next){const providerChanged=settings.aiProvider!==next.aiProvider;language=nextLocale;settings=next;if(providerChanged){$('ai-key').value='';notice='';}if(!suspended)render();}};
+  return {update(nextLocale,next){const providerChanged=settings.aiProvider!==next.aiProvider||settings.aiMode!==next.aiMode;language=nextLocale;settings=next;if(providerChanged){$('ai-key').value='';notice='';}if(!suspended)render();}};
 }
