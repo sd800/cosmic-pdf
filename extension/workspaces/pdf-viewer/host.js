@@ -1,9 +1,10 @@
+import { createAiBridge } from '../pdf-reader/ai-bridge.js';
 import { normalizeSettings } from '../../core/settings.js';
 import { PDF_LIMITS } from './model.js';
 // This host is the only connection to a product. The opaque viewer has no
 // extension APIs, storage access, network capability, or arbitrary command channel.
 // The validated source URL is passed only as inert text for Document properties.
-export function createPdfViewer({ container, locale, sampling, settings, filename = 'PDF', documentUrl = '', canUseNative = false, sharpening = false, dark, onDownload, onNative, onSettings, onTheme, onReady, onError }) {
+export function createPdfViewer({ container, locale, sampling, settings, filename = 'PDF', documentUrl = '', canUseNative = false, sharpening = false, dark, onDownload, onNative, onSettings, onTheme, onReady, onError, onAiPreference }) {
   const iframe = document.createElement('iframe');
   iframe.className = 'pdf-viewer-frame'; iframe.title = 'PDF Viewer';
   iframe.referrerPolicy = 'no-referrer';
@@ -18,6 +19,10 @@ export function createPdfViewer({ container, locale, sampling, settings, filenam
   url.hash = new URLSearchParams({ dark: dark ? '1' : '0', locale });
   iframe.src = url.href;
   const channel = new MessageChannel(); let closed = false, loaded = false, frameLoaded = false, opened = false, pending, timeout;
+  const aiBridge=createAiBridge({
+    onEvent:event=>{if(!closed)channel.port1.postMessage({type:'ai-event',event});},
+    onStatus:state=>{if(!closed)channel.port1.postMessage({type:'ai-status',state});}
+  });
   const fullscreenChanged = () => {
     if (!closed) channel.port1.postMessage({ type: 'fullscreen', active: document.fullscreenElement === container });
   };
@@ -31,11 +36,15 @@ export function createPdfViewer({ container, locale, sampling, settings, filenam
     if (closed) return; closed = true; pending = null; clearTimeout(timeout);
     document.removeEventListener('fullscreenchange', fullscreenChanged);
     if (document.fullscreenElement === container) void document.exitFullscreen().catch(() => {});
-    channel.port1.close(); iframe.remove();
+    aiBridge.destroy(); channel.port1.close(); iframe.remove();
   }
   channel.port1.onmessage = ({ data }) => {
     if (closed || !data || typeof data.type !== 'string') return;
-    if (data.type === 'shell-ready') iframe.style.visibility = '';
+    if (data.type === 'ai-request') aiBridge.request(data.id,data.request);
+    else if (data.type === 'ai-cancel') aiBridge.cancel(data.id);
+    else if (data.type === 'ai-refresh') void aiBridge.refresh();
+    else if (data.type === 'ai-toggle' || data.type === 'ai-context') {if(typeof data.enabled==='boolean')onAiPreference(data.type==='ai-toggle'?'aiEnabled':'aiIncludeContext',data.enabled);}
+    else if (data.type === 'shell-ready') iframe.style.visibility = '';
     else if (data.type === 'ready' || data.type === 'password') {
       if (!loaded) { loaded = true; clearTimeout(timeout); onReady(); }
     }
@@ -78,6 +87,13 @@ export function createPdfViewer({ container, locale, sampling, settings, filenam
       locale = nextLocale === 'zh-CN' ? nextLocale : 'en-US';
       settings = { ...settings, propertyDateFormat: next.propertyDateFormat, ocrAction: next.ocrAction, useChromeFind: next.useChromeFind, captureLinks: next.captureLinks };
       if (!closed) channel.port1.postMessage({ type: 'interface', locale, propertyDateFormat: next.propertyDateFormat, ocrAction: next.ocrAction, useChromeFind: next.useChromeFind, captureLinks: next.captureLinks });
+    },
+    setAi(nextSettings) {
+      const next=normalizeSettings(nextSettings);
+      const preferences={aiEnabled:next.aiEnabled,aiProvider:next.aiProvider,aiLanguage:next.aiLanguage,aiIncludeContext:next.aiIncludeContext};
+      settings={...settings,...preferences};
+      if(!closed)channel.port1.postMessage({type:'ai-preferences',preferences});
+      void aiBridge.refresh();
     },
     setDarkPaper(value) {
       settings = { ...settings, preserveDarkPaper: value === true };

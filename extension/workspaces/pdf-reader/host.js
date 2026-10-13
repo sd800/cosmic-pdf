@@ -7,7 +7,7 @@ const $=id=>document.getElementById(id);
 // is private; neither bytes nor OCR results are ever sent to a web-page parent.
 if(window!==top) throw Error('Top-level reader required');
 let settings=await readSettings(), locale=uiLocale(settings,chrome.i18n.getUILanguage());
-function hostText(locale){return locale==='zh-CN'?{intro:'以舒适的外观阅读 PDF，按需识别扫描件中的文字。',open:'打开 PDF 文件',settings:'设置',native:'使用 Chrome 阅读器',hint:'将 PDF 拖到这里，或选择本地文件。文件不会上传。',failed:'无法打开此文件。可尝试 Chrome 阅读器或选择本地副本。',large:'文件超过 64 MB 的安全读取上限，请使用 Chrome 阅读器。',downloadFailed:'下载未能开始，请重试。',nativeFailed:'无法切换。请在设置中暂时关闭自动打开，然后重新访问原文件。'}:{intro:'Read PDFs comfortably and recognize scanned text when you need it.',open:'Open a PDF',settings:'Settings',native:'Use Chrome reader',hint:'Drop a PDF here, or choose a local file. Your documents are never uploaded.',failed:'This file could not be opened. Try the Chrome reader or choose a local copy.',large:'This file exceeds the 64 MB safe reading limit. Use the Chrome reader instead.',downloadFailed:'The download could not start. Please try again.',nativeFailed:'Could not switch. Turn off automatic opening in Settings, then revisit the original file.'}}
+function hostText(locale){return locale==='zh-CN'?{intro:'以舒适的外观阅读 PDF，按需识别扫描件中的文字。',open:'打开 PDF 文件',settings:'设置',native:'使用 Chrome 阅读器',hint:'将 PDF 拖到这里，或选择本地文件。PDF 阅读和文字识别均在本机完成。',failed:'无法打开此文件。可尝试 Chrome 阅读器或选择本地副本。',large:'文件超过 64 MB 的安全读取上限，请使用 Chrome 阅读器。',downloadFailed:'下载未能开始，请重试。',nativeFailed:'无法切换。请在设置中暂时关闭自动打开，然后重新访问原文件。'}:{intro:'Read PDFs comfortably and recognize scanned text when you need it.',open:'Open a PDF',settings:'Settings',native:'Use Chrome reader',hint:'Drop a PDF here, or choose a local file. PDF reading and text recognition stay on your device.',failed:'This file could not be opened. Try the Chrome reader or choose a local copy.',large:'This file exceeds the 64 MB safe reading limit. Use the Chrome reader instead.',downloadFailed:'The download could not start. Please try again.',nativeFailed:'Could not switch. Turn off automatic opening in Settings, then revisit the original file.'}}
 let text=hostText(locale);
 function localize(nextLocale){
  const old=text, message=$('message').textContent;locale=nextLocale;text=hostText(locale);
@@ -51,7 +51,13 @@ async function load(loader, initialFilename='PDF'){
  const deadline=setTimeout(()=>current.abort(),60000);
  try{
   // Load the isolated rendering shell and its bundled worker while fetching the PDF.
-  const prepared=createPdfViewer({container:$('reader'),locale,settings,filename:cleanFilename(initialFilename),documentUrl:source||'',canUseNative:!!source,sampling:settings.sampling,sharpening:settings.sharpening,dark:applyTheme(),onNative:native,onSettings:openSettings,onDownload:download,onTheme:()=>{appearanceOverride=appearanceOverride===null?'opposite':null;applyTheme();},onReady:()=>{if(run===generation){setView('reader');}},onError:()=>{if(run===generation&&!$('reader').querySelector('iframe')){reader=null;$('reader').hidden=true;fail(text.failed);}}});
+  const prepared=createPdfViewer({container:$('reader'),locale,settings,filename:cleanFilename(initialFilename),documentUrl:source||'',canUseNative:!!source,sampling:settings.sampling,sharpening:settings.sharpening,dark:applyTheme(),onNative:native,onSettings:openSettings,onAiPreference:(key,enabled)=>{
+    void chrome.runtime.sendMessage({type:'SAVE_AI_PREFERENCE',key,enabled}).then(result=>{
+      // Durable storage notifications publish successful edits. A late reply
+      // must not repaint an older snapshot over a newer toolbar/context edit.
+      if(run===generation&&!result?.ok)reader?.setAi(settings);
+    },()=>{if(run===generation)reader?.setAi(settings);});
+  },onDownload:download,onTheme:()=>{appearanceOverride=appearanceOverride===null?'opposite':null;applyTheme();},onReady:()=>{if(run===generation){setView('reader');}},onError:()=>{if(run===generation&&!$('reader').querySelector('iframe')){reader=null;$('reader').hidden=true;fail(text.failed);}}});
   reader=prepared;
   const result=await loader(current.signal);if(run!==generation)return;if(!isPdf(result.bytes))throw Error('format');
   filename=cleanFilename(result.filename);original=new Blob([result.bytes],{type:'application/pdf'});blobURL=URL.createObjectURL(original);document.title=filename+' — Cosmic PDF';
@@ -67,8 +73,10 @@ chrome.storage.onChanged.addListener((changes,area)=>{
   settings=next;
   const nextLocale=uiLocale(next,chrome.i18n.getUILanguage()),changed=toolbarSignature(activeSettings)!==toolbarSignature(next);
   const interfaceChanged=locale!==nextLocale||activeSettings.propertyDateFormat!==next.propertyDateFormat||activeSettings.ocrAction!==next.ocrAction||activeSettings.useChromeFind!==next.useChromeFind||activeSettings.captureLinks!==next.captureLinks;
+  const aiChanged=['aiEnabled','aiProvider','aiLanguage','aiIncludeContext'].some(key=>activeSettings[key]!==next[key]);
   const paperChanged=activeSettings.preserveDarkPaper!==next.preserveDarkPaper;
-  activeSettings={...activeSettings,preserveDarkPaper:next.preserveDarkPaper,locale:next.locale,propertyDateFormat:next.propertyDateFormat,ocrAction:next.ocrAction,useChromeFind:next.useChromeFind,captureLinks:next.captureLinks,showFilename:next.showFilename,showBranding:next.showBranding,toolbarHidden:next.toolbarHidden};
+  activeSettings={...activeSettings,aiEnabled:next.aiEnabled,aiProvider:next.aiProvider,aiLanguage:next.aiLanguage,aiIncludeContext:next.aiIncludeContext,preserveDarkPaper:next.preserveDarkPaper,locale:next.locale,propertyDateFormat:next.propertyDateFormat,ocrAction:next.ocrAction,useChromeFind:next.useChromeFind,captureLinks:next.captureLinks,showFilename:next.showFilename,showBranding:next.showBranding,toolbarHidden:next.toolbarHidden};
+  if(aiChanged)reader?.setAi(next);
   if(paperChanged)reader?.setDarkPaper(next.preserveDarkPaper);
   if(changed)reader?.setToolbar(next);
   if(interfaceChanged){localize(nextLocale);reader?.setInterface(nextLocale,next);}

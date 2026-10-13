@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {mkdtemp,writeFile,readFile,cp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';import {resolve,join} from 'node:path';import {pathToFileURL} from 'node:url';import {createServer} from 'node:http';
 import {viewerPdf,scannedPdf} from '../test/fixtures/pdf-viewer.mjs';
+import {handleAiMock,prepareAiMock,runAiQa} from './qa-ai.mjs';
 const {chromium}=await import(process.env.PDF_PLAYWRIGHT?pathToFileURL(process.env.PDF_PLAYWRIGHT).href:'playwright');
 const folder=await mkdtemp(join(tmpdir(),'cosmic-pdf-qa-')),ext=join(folder,'extension');await cp(resolve('extension'),ext,{recursive:true});
 // Expose renderer state in the disposable QA copy only.
@@ -15,6 +16,7 @@ const ocrClient=join(ext,'workspaces/pdf-viewer/ocr-worker-client.js');await wri
 const report={checks:[],errors:[],remoteRequests:[],screenshots:folder};let englishScan,chineseScan,batchScan,blackScan;const slowResponses=new Set();
 function releaseSlow(){for(const res of slowResponses)res.end(viewerPdf(6));slowResponses.clear();}
 const server=createServer((req,res)=>{
+ if(process.env.PDF_QA==='ai'&&handleAiMock(req,res))return;
  const path=req.url.split('?')[0];
  if(path==='/html.pdf'){res.setHeader('Content-Type','text/html');res.end('<h1>Not a PDF</h1>');return;}
  if(path==='/links'){res.setHeader('Content-Type','text/html');res.end('<a href="/history.pdf">Read PDF</a>');return;}
@@ -48,6 +50,7 @@ const server=createServer((req,res)=>{
  if(path==='/broken'){res.end('%PDF-1.7\nbroken');return;}
  res.end(path==='/black-scan'?blackScan:path==='/scan-many'?batchScan:path==='/scan'?englishScan:path==='/chinese'?chineseScan:viewerPdf(6));
 });await new Promise(r=>server.listen(0,'127.0.0.1',r));const base='http://127.0.0.1:'+server.address().port;
+if(process.env.PDF_QA==='ai')await prepareAiMock(ext,base);
 const context=await chromium.launchPersistentContext(join(folder,'profile'),{executablePath:process.env.PDF_CHROME,headless:true,viewport:{width:1360,height:960},deviceScaleFactor:2,args:['--force-device-scale-factor=2',`--disable-extensions-except=${ext}`,`--load-extension=${ext}`]});
 function observe(page){page.on('pageerror',e=>report.errors.push(e.message));page.on('console',m=>{if(m.type()==='error'||/fake worker|autofocusing|permissions policy|Content Security Policy|cross-origin redirects/i.test(m.text()))report.errors.push(m.text());});page.on('request',r=>{if(/^https?:/.test(r.url())&&!r.url().startsWith(base))report.remoteRequests.push(r.url());});}
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
@@ -118,7 +121,9 @@ try{
   await saved.delete();
  }
  // PDF_QA=ocr-priority runs only the text-layer handover regression.
- if(process.env.PDF_QA==='lifecycle'){
+ if(process.env.PDF_QA==='ai'){
+  await runAiQa({context,worker,page,settings,open,report,folder});
+ }else if(process.env.PDF_QA==='lifecycle'){
 
   const checkFrame = await open('/lifecycle');
   await checkFrame.locator('#page').fill('2.5'); await checkFrame.locator('#page').blur();
@@ -144,7 +149,7 @@ try{
     const edit=(id,value)=>{const e=document.getElementById(id);if(e.type==='checkbox')e.checked=value;else e.value=value;e.dispatchEvent(new Event('change',{bubbles:true}));};
     edit('sampling','3');edit('locale','zh-CN');edit('showBranding',true);edit('hide-print',false);
   });
-  await prefs.waitForFunction(async()=>{const s=(await chrome.storage.local.get('settings')).settings;return s.sampling===3&&s.locale==='zh-CN'&&s.showBranding&&s.toolbarHidden.print===false;});
+  await prefs.waitForFunction(async()=>{const s=(await chrome.storage.local.get('settings')).settings;return s?.sampling===3&&s.locale==='zh-CN'&&s.showBranding&&s.toolbarHidden.print===false;});
   assert.equal(await prefs.locator('#sampling').inputValue(),'3');assert.equal(await prefs.locator('#showBranding').isChecked(),true);assert.equal(await prefs.locator('#hide-print').isChecked(),false);
   await prefs.evaluate(()=>window.qaSettingsIdle);
   await prefs.evaluate(()=>chrome.storage.local.set({settings:{locale:'en-US',sampling:5,showBranding:false}}));

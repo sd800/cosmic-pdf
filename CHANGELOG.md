@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.1.1 — 2026-10-13
+
+- Add AI explanations for selected PDF and recognized text, with streamed answers, optional nearby context, and follow-up questions.
+- Add a neutral sparkle switch in the reader and bilingual AI settings for Google Gemini, OpenAI, and Claude.
+- Encrypt saved API keys on this device and provide confirmed deletion of one service’s key or all local keys.
+- Separate untrusted document text from AI instructions and keep responses as inert text.
+
 ## 2.3.5 — 2026-09-29
 
 - Show the original file URL below the file name in PDF Document properties.

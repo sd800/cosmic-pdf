@@ -19,7 +19,7 @@
   <div class="leading-cluster"><div id="leading-actions"><button id="sidebar-toggle" data-label="sidebar">☰</button></div>
   <div class="identity"><img class="brand-icon" src="../../icons/icon.svg?v=d735a2ddd983" width="28" height="28" alt=""><strong>Cosmic PDF</strong></div></div>
   <div class="file"><button id="filename" type="button" aria-haspopup="dialog" aria-controls="properties-dialog" disabled></button></div>
-  <div class="actions"><div id="primary-actions"><button id="theme" data-label="theme">◐</button><button id="print" data-label="print">⌘</button><button id="properties" data-label="properties">ⓘ</button><button id="settings" data-label="settings">⚙</button><button id="native" data-label="native">↗</button><button id="download" data-label="download">↓</button></div></div>
+  <div class="actions"><div id="primary-actions"><button id="ai-toggle" type="button" aria-pressed="false" data-label="aiToggle"></button><button id="theme" data-label="theme">◐</button><button id="print" data-label="print">⌘</button><button id="properties" data-label="properties">ⓘ</button><button id="settings" data-label="settings">⚙</button><button id="native" data-label="native">↗</button><button id="download" data-label="download">↓</button></div></div>
   <nav aria-label="PDF">
     <span class="group tool-group"><button id="search-toggle" data-label="find">⌕</button></span>
     <span class="group tool-group page-navigation"><button id="previous" data-label="previous">‹</button><span class="page-indicator"><input id="page" type="number" min="1" value="1" inputmode="numeric" data-label="page"><span class="page-separator" aria-hidden="true">/</span><span id="count">—</span></span><button id="next" data-label="next">›</button></span>
@@ -40,7 +40,18 @@
   <div class="ocr-range"><label><span data-text="from"></span><input id="ocr-from" type="number" min="1" value="1"></label><label><span data-text="to"></span><input id="ocr-to" type="number" min="1" value="1"></label></div>
   <p class="ocr-note" data-text="ocrLimit"></p><div class="ocr-buttons"><button id="ocr-start" data-text="recognize"></button><button id="ocr-cancel" data-text="cancel" hidden></button></div><p id="ocr-status" role="status" aria-live="polite"></p><progress id="ocr-progress" max="1" value="0" hidden></progress>
   <div class="ocr-buttons"><button id="ocr-clear" data-text="clear" disabled></button></div></aside>
+  <aside id="ai-panel" hidden translate="no" class="notranslate" aria-labelledby="ai-title">
+    <div class="ai-heading"><h2 id="ai-title"></h2><button id="ai-close" type="button">×</button></div>
+    <p id="ai-intro"></p><p id="ai-disclosure"></p><button id="ai-settings" type="button"></button>
+    <details id="ai-source" open hidden><summary id="ai-source-label"></summary><blockquote id="ai-source-text" dir="auto"></blockquote></details>
+    <div class="ai-options"><label><input id="ai-context" type="checkbox"><span id="ai-context-label"></span></label><button id="ai-again" type="button"></button></div>
+    <p id="ai-model"></p><div id="ai-messages" aria-label="AI explanations"></div>
+    <div class="ai-result-status"><p id="ai-status" role="status" aria-live="polite"></p><button id="ai-stop" type="button" hidden></button></div>
+    <div id="ai-form" role="group" aria-labelledby="ai-ask-label"><label id="ai-ask-label" for="ai-question"></label><textarea id="ai-question" maxlength="1500" rows="2"></textarea><div class="ai-form-actions"><button id="ai-clear" type="button"></button><button id="ai-send" type="button"></button></div></div>
+    <p id="ai-gemini-note"></p><p id="ai-note"></p>
+  </aside>
 </div>
+<button id="ai-selection" type="button" hidden></button>
 <dialog id="password-dialog"><form method="dialog"><p id="password-message"></p><input id="password" type="password" autocomplete="off" data-label="password" required><div class="dialog-actions"><button value="cancel" formnovalidate data-text="cancel"></button><button value="open" data-text="open"></button></div></form></dialog>
 <dialog id="print-dialog"><form method="dialog"><p data-text="printRange"></p><label><span data-text="from"></span><input id="print-from" type="number" min="1" value="1" required></label><label><span data-text="to"></span><input id="print-to" type="number" min="1" value="1" required></label><p id="print-error" role="alert"></p><div class="dialog-actions"><button value="cancel" formnovalidate data-text="cancel"></button><button value="print" data-text="print"></button></div></form></dialog>
 <dialog id="properties-dialog" class="notranslate" translate="no" aria-labelledby="properties-title">

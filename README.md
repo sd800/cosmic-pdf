@@ -2,7 +2,7 @@
 
 [Simplified Chinese](README_zh.md)
 
-Cosmic PDF is a Chrome extension for reading PDFs in dark mode, with local text recognition and a customizable reading experience.
+Cosmic PDF is a Chrome extension for reading PDFs in dark mode, with local text recognition, AI explanations, and a customizable reading experience.
 
 ## PDF dark mode
 
@@ -17,6 +17,10 @@ Open PDF links directly in Cosmic PDF, or choose a local file. Search text, navi
 ## Local OCR
 
 Recognize scanned pages in English, Simplified Chinese or Traditional Chinese, including mixed Chinese and English. Select and copy recognized text directly on each page as recognition finishes. Recognition starts only when requested and does not upload or modify the PDF.
+
+## Explain with AI
+
+Select a passage to clarify its meaning or ask a follow-up question. Choose Google Gemini, OpenAI or Claude in Settings and save your own API key. The sparkle switch controls whether the selection button appears. AI receives only your chosen text and any nearby context you opt to include.
 
 ## Make it yours
 
@@ -36,7 +40,7 @@ Automatic opening covers ordinary top-level HTTP(S) PDF responses and permitted 
 
 ## Privacy and safety
 
-Documents and recognition results stay in the open reader and are discarded when it closes. Only preferences are stored. PDF scripting, form execution, editing and remote document resources are disabled. The original file is unchanged. No parser can guarantee safety against every malformed file; keep Chrome and the extension up to date.
+PDF reading and OCR run on this device. Documents, recognition results and AI conversations stay in the open reader and are discarded when it closes; requesting an AI explanation sends the chosen text to your selected service. Preferences and encrypted API keys are stored locally. You can delete individual keys or all saved keys in Settings. AI availability, costs and data handling follow the selected provider’s terms. PDF scripting, form execution, editing and remote document resources are disabled. The original file is unchanged. No parser can guarantee safety against every malformed file; keep Chrome and the extension up to date.
 
 ## Development
 

@@ -15,3 +15,6 @@ Object.assign(labels['zh-CN'], {properties:'文档信息', propertiesLoading:'�
 
 Object.assign(labels['en-US'],{moreActions:'More actions',menuProperties:'Properties'});
 Object.assign(labels['zh-CN'],{moreActions:'更多操作',menuProperties:'文档信息'});
+
+Object.assign(labels['en-US'],{aiToggle:'AI explanations'});
+Object.assign(labels['zh-CN'],{aiToggle:'AI 解释'});

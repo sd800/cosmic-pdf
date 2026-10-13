@@ -1,5 +1,6 @@
 // All reader icons share a 24-unit grid, 20px size and the same stroke weight.
 const paths = {
+  'ai-toggle':'M15 2C15.6 8.1 17.9 11.4 22 12c-4.1.6-6.4 3.9-7 10-.6-6.1-2.9-9.4-7-10 4.1-.6 6.4-3.9 7-10ZM5.25 2c.25 1.95 1.05 2.75 3 3-1.95.25-2.75 1.05-3 3-.25-1.95-1.05-2.75-3-3 1.95-.25 2.75-1.05 3-3ZM6.25 12.25c.35 2.8 1.45 3.9 4.25 4.25-2.8.35-3.9 1.45-4.25 4.25-.35-2.8-1.45-3.9-4.25-4.25 2.8-.35 3.9-1.45 4.25-4.25Z',
   settings:'M4 6h16M4 12h16M4 18h16',
   more:'M13 5a1 1 0 1 1-2 0 1 1 0 0 1 2 0M13 12a1 1 0 1 1-2 0 1 1 0 0 1 2 0M13 19a1 1 0 1 1-2 0 1 1 0 0 1 2 0',
   'fit-width':'M4 4h16v16H4zM7 12h10M9 10l-2 2 2 2M15 10l2 2-2 2',
@@ -26,6 +27,10 @@ export function setReaderIcon(button, name) {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('aria-hidden', 'true');
   const path = document.createElementNS(svg.namespaceURI, 'path'); path.setAttribute('d', paths[name]); svg.append(path);
+  if(name==='ai-toggle'){
+    path.setAttribute('fill','currentColor');path.setAttribute('stroke','none');
+    const slash=document.createElementNS(svg.namespaceURI,'path');slash.setAttribute('d','M3 21 21 3');slash.setAttribute('class','ai-off-mark');svg.append(slash);
+  }
   button.classList.add('reader-icon'); button.replaceChildren(svg);
 }
 export function setReaderIcons(root) {

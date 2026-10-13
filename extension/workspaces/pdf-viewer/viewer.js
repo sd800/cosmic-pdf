@@ -1,3 +1,4 @@
+import { createAiReader } from './ai-reader.js';
 import { showReaderDialog } from './dialog.js';
 import { createPdfWorker } from './worker.js';
 import { createOcr } from './ocr.js';
@@ -23,15 +24,16 @@ const workerReady = createPdfWorker(pdfjs, signal).then(worker => {
 });
 void workerReady.catch(() => {});
 let firstPageReady = false, themeDark = false, darkPaper;
+let aiReader;
 let customZoomScale = null, toolbarMenu, externalLinksCapture, linkRequest = 0;
 let thumbnailObserver, thumbnailTask, thumbnailBusy = false, thumbnailGeneration = 0, outlineLoaded = false;
 const nearThumbnails = new Set(), thumbnailCache = new Map(), printUrls = new Set();
 let sharpening = false, settings, ocr, documentFilename, documentUrl = '', documentBytes = 0, properties;
 let printing = false, printTask, zoomFrame = 0, wheelFactor = 1, wheelOrigin, passwordCancelled = false;
 const emit = type => port?.postMessage({ type });
-let taskBusy = false, renderBusy = false, renderProgressTimer = 0, visiblePageViews = [];
+let taskBusy = false, renderBusy = false, aiBusy = false, renderProgressTimer = 0, visiblePageViews = [];
 function paintProgress() {
-  const busy = taskBusy || renderBusy;
+  const busy = taskBusy || renderBusy || aiBusy;
   $('progress').hidden = !busy; $('workspace').setAttribute('aria-busy', String(busy));
 }
 function status(key, loading = false) { $('status').textContent = key === 'loading' ? '' : text[key] || ''; taskBusy = loading; paintProgress(); }
@@ -84,6 +86,7 @@ function localize(locale) {
   theme(themeDark); setFilename();
   $('fullscreen').title = text[fullscreenActive ? 'exitFullscreen' : 'fullscreen'];
   $('fullscreen').setAttribute('aria-label', $('fullscreen').title);
+  aiReader?.localize();
   ocr?.setInterface(settings.ocrAction);
   toolbarMenu?.refreshLabels();
   if(externalLinksCapture)void externalLinksCapture.then(dialog=>dialog.setLocale(document.documentElement.lang)).catch(()=>{});
@@ -125,6 +128,7 @@ function click(id, callback) { $(id).addEventListener('click', callback, { signa
 function cleanupPrint() { for (const url of printUrls) URL.revokeObjectURL(url); printUrls.clear(); $('print-pages').replaceChildren(); }
 function destroy() {
   if (destroyed) return; destroyed = true; lifetime.abort(); cancelAnimationFrame(zoomFrame); clearTimeout(parseTimer); clearTimeout(renderProgressTimer); visiblePageViews = [];
+  aiReader?.destroy();
   ocr?.destroy(); darkPaper?.destroy(); thumbnailGeneration++; thumbnailObserver?.disconnect(); thumbnailTask?.cancel(); printTask?.cancel();
   viewer?.setDocument(null); void task?.destroy().catch(() => {}); cleanupPrint();
   pdfWorker?.destroy(); port?.close();
@@ -155,6 +159,11 @@ window.addEventListener('message', event => {
         if (!destroyed && !passwordCancelled) { status('failed'); emit('error'); void task?.destroy().catch(() => {}); pdfWorker?.destroy(); }
       });
     }
+    else if (data?.type === 'ai-preferences') {
+      const next=normalizeSettings(data.preferences);settings={...settings,aiEnabled:next.aiEnabled,aiProvider:next.aiProvider,aiLanguage:next.aiLanguage,aiIncludeContext:next.aiIncludeContext};aiReader?.preferences(settings);
+    }
+    else if (data?.type === 'ai-status') aiReader?.status(data.state);
+    else if (data?.type === 'ai-event') aiReader?.event(data.event);
     else if (data?.type === 'theme') theme(data.dark);
     else if (data?.type === 'toolbar') {
       const next = normalizeSettings(data.toolbar);
@@ -183,6 +192,8 @@ window.addEventListener('message', event => {
   setSharpening(input.sharpening);
   theme(input.dark); status('loading', true);
   setReaderIcons(document);
+  aiReader=createAiReader({settings,post:message=>port?.postMessage(message),getPdf:()=>pdf,getLocale:()=>document.documentElement.lang,signal,onBusy:value=>{if(aiBusy!==value){aiBusy=value;paintProgress();}}});
+  port.postMessage({type:'ai-refresh'});
   $('scale').value = settings.zoom.startsWith('page-') ? settings.zoom : String(Number(settings.zoom));
   $('scale-input').value = (Number(settings.zoom) > 0 ? Math.round(Number(settings.zoom) * 100) : 100) + '%';
   toolbarMenu = createToolbarMenu({ text, signal, onSettings: () => emit('settings'), onOcrPanel: () => ocr?.openPanel(), canHoldOcr: () => settings.ocrAction !== 'panel', onFit: value => { if (viewer) viewer.currentScaleValue = value; } });

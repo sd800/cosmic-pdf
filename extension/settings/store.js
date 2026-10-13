@@ -13,7 +13,7 @@ export function createSettingsStore(initial, {read, write, changed}) {
     const result=queue.catch(()=>{}).then(async()=>{
       try {
         const next=apply(await read(),edit);
-        await write(next);
+        await write(next,edit);
         // A storage event for a newer external edit may arrive before this
         // write's callback. Never publish the older submitted snapshot last.
         const revision=observation;
