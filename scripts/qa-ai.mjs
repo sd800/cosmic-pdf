@@ -17,6 +17,13 @@ export function handleAiMock(req, res) {
     assert.equal(secret,'qa-not-a-real-key-'+provider);
     assert.equal(body.includes('qa-not-a-real-key'),false);assert.equal(req.headers.cookie,undefined);
     if(mockAi.mode==='auth'){res.writeHead(401);res.end('private upstream details');return;}
+    if(mockAi.mode==='gemini-invalid'){res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({error:{status:'INVALID_ARGUMENT',message:'raw service detail must not appear',details:[{reason:'API_KEY_INVALID'}]}}));return;}
+    if(mockAi.mode==='gemini-access'){res.writeHead(403,{'Content-Type':'application/json'});res.end(JSON.stringify({error:{status:'PERMISSION_DENIED',details:[{reason:'API_KEY_HTTP_REFERRER_BLOCKED'}]}}));return;}
+    if(req.headers.accept==='application/json'){
+      res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});
+      if(mockAi.mode==='hold'){res.flushHeaders();return;}
+      res.end(JSON.stringify(provider==='gemini'?{candidates:[{content:{parts:[{text:'OK'}]},finishReason:'STOP'}]}:provider==='openai'?{output:[{type:'message',content:[{type:'output_text',text:'OK'}]}]}:{content:[{type:'text',text:'OK'}]}));return;
+    }
     res.writeHead(200,{'Content-Type':'text/event-stream','Cache-Control':'no-store'});res.flushHeaders();
     const testing=body.includes('Test connection.'),texts=testing?['OK']:['Mock explanation for this passage.\n\n','<img src=x onerror=alert(1)> is plain text.'];
     function frame(text,end=false){
@@ -50,11 +57,19 @@ export async function runAiQa({context,worker,page,settings,open,report,folder})
   for(const provider of Object.keys(AI_PROVIDERS)){
     await prefs.locator('#aiProvider').selectOption(provider);
     await prefs.waitForFunction(async p=>(await chrome.storage.local.get('settings')).settings.aiProvider===p,provider);
-    await prefs.locator('#ai-key').fill('qa-not-a-real-key-'+provider);await prefs.locator('#ai-save').click();
+    await prefs.locator('#ai-add').click();await prefs.locator('#ai-key-provider').selectOption(provider);await prefs.locator('#ai-key').fill('qa-not-a-real-key-'+provider);await prefs.locator('#ai-save').click();
     await prefs.waitForFunction(()=>document.querySelector('#ai-key-notice').textContent==='Key saved.');
     assert.equal(await prefs.locator('#ai-key').inputValue(),'');
   }
-  await prefs.locator('#ai-test').click();await prefs.waitForFunction(()=>document.querySelector('#ai-key-notice').textContent==='Connection successful.');
+  assert.equal(await prefs.locator('#ai-key-list li').count(),3);assert.equal(await prefs.locator('#ai-remove-all').count(),0);
+  for(const provider of Object.keys(AI_PROVIDERS)){
+    await prefs.locator('[data-provider='+provider+'] [data-action=test]').click();await prefs.waitForFunction(p=>document.querySelector('[data-provider='+p+'] .ai-key-result').textContent==='Connection successful.',provider);
+  }
+  assert.equal(await prefs.locator('#ai-key-list').evaluate(n=>n.innerText.includes('qa-not-a-real-key')),false);
+  mockAi.mode='gemini-invalid';await prefs.locator('[data-provider=gemini] [data-action=test]').click();await prefs.waitForFunction(()=>document.querySelector('[data-provider=gemini] .ai-key-result').textContent.includes('did not accept'));
+  mockAi.mode='gemini-access';await prefs.locator('[data-provider=gemini] [data-action=test]').click();await prefs.waitForFunction(()=>document.querySelector('[data-provider=gemini] .ai-key-result').textContent.startsWith('Access denied'));
+  assert.equal(await prefs.locator('#ai-keys').evaluate(n=>n.innerText.includes('raw service detail')),false);mockAi.mode='normal';
+  await prefs.locator('[data-provider=gemini] [data-action=replace]').click();assert.equal(await prefs.locator('#ai-key').inputValue(),'');await prefs.locator('#ai-key').fill('unsaved-draft-only');await prefs.locator('#ai-key-cancel').click();assert.equal(await prefs.locator('#ai-key').inputValue(),'');
   const vault=await worker.evaluate(async()=>{
     const db=await new Promise((resolve,reject)=>{const r=indexedDB.open('cosmic-pdf-api-vault');r.onsuccess=()=>resolve(r.result);r.onerror=reject;});
     const all=await new Promise(resolve=>{const r=db.transaction('keys').objectStore('keys').getAll();r.onsuccess=()=>resolve(r.result);});db.close();
@@ -111,25 +126,27 @@ export async function runAiQa({context,worker,page,settings,open,report,folder})
   await prefs.locator('#locale').selectOption('zh-CN');await frame.waitForFunction(()=>document.documentElement.lang==='zh-CN');
   await prefs.locator('#appearance').selectOption('dark');await page.screenshot({path:join(out,'reader-zh-dark.png')});
   await prefs.screenshot({path:join(out,'settings-zh-dark.png'),fullPage:true});
+  await prefs.locator('#ai-keys').screenshot({path:join(out,'saved-keys-zh-dark.png')});
   await prefs.locator('#locale').selectOption('en-US');await prefs.locator('#appearance').selectOption('light');
   await prefs.screenshot({path:join(out,'settings-en-light.png'),fullPage:true});
+  await prefs.locator('#ai-keys').screenshot({path:join(out,'saved-keys-en-light.png')});
   await prefs.setViewportSize({width:360,height:850});assert.equal(await prefs.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
   await prefs.screenshot({path:join(out,'settings-narrow.png'),fullPage:true});
   await page.setViewportSize({width:560,height:850});await frame.waitForFunction(()=>innerWidth===560&&document.documentElement.scrollWidth<=innerWidth,undefined,{timeout:5000});
   await prefs.setViewportSize({width:1360,height:960});
-  // Cancel keeps every key; confirmation atomically clears credentials and root.
-  prefs.once('dialog',dialog=>dialog.dismiss());await prefs.locator('#ai-remove-all').click();
+  // Per-service deletion is explicit; Stop never deletes a saved key.
+  prefs.once('dialog',dialog=>dialog.dismiss());await prefs.locator('[data-provider=gemini] [data-action=delete]').click();
   assert.equal(Object.values((await prefs.evaluate(()=>chrome.runtime.sendMessage({type:'AI_STATUS'}))).result.keys).filter(Boolean).length,3);
-  mockAi.mode='hold';await prefs.locator('#ai-test').click();
-  await prefs.waitForFunction(()=>document.querySelector('#ai-key-notice').textContent==='Testing connection…');
-  prefs.once('dialog',dialog=>dialog.accept());await prefs.locator('#ai-remove-all').click();
-  await prefs.waitForFunction(()=>document.querySelector('#ai-key-notice').textContent==='All saved API keys deleted.');
-  const remaining=await worker.evaluate(async()=>{const db=await new Promise(resolve=>{const r=indexedDB.open('cosmic-pdf-api-vault');r.onsuccess=()=>resolve(r.result);});return new Promise(resolve=>{const r=db.transaction('keys').objectStore('keys').count();r.onsuccess=()=>{db.close();resolve(r.result);};});});assert.equal(remaining,0);
+  mockAi.mode='hold';await prefs.locator('[data-provider=gemini] [data-action=test]').click();
+  await prefs.waitForFunction(()=>document.querySelector('[data-provider=gemini] .ai-key-result').textContent==='Testing connection…');
+  await prefs.locator('[data-provider=gemini] [data-action=test]').click();await prefs.waitForFunction(()=>document.querySelector('[data-provider=gemini] .ai-key-result').textContent==='Connection test cancelled.');
+  for(const provider of Object.keys(AI_PROVIDERS)){prefs.once('dialog',dialog=>dialog.accept());await prefs.locator('[data-provider='+provider+'] [data-action=delete]').click();await prefs.waitForSelector('[data-provider='+provider+']',{state:'detached'});}
+  const remaining=await worker.evaluate(async()=>{const db=await new Promise(resolve=>{const r=indexedDB.open('cosmic-pdf-api-vault');r.onsuccess=()=>resolve(r.result);});return new Promise(resolve=>{const r=db.transaction('keys').objectStore('keys').count();r.onsuccess=()=>{db.close();resolve(r.result);};});});assert.equal(remaining,0,'deleting the final saved key also removes the encryption root');
   assert.equal((await worker.evaluate(()=>chrome.storage.local.get('settings'))).settings.aiProvider,'gemini');
   mockAi.mode='normal';await page.reload();await page.waitForSelector('iframe');
   frame=await(await page.waitForSelector('iframe')).contentFrame();await frame.waitForSelector('#ai-settings:not([hidden])');
   assert.match(await frame.locator('#ai-intro').textContent(),/API key/);
-  report.checks.push('AI settings widths and encrypted credentials; native/OCR selection; three mock SSE providers; follow-up/context; neutral toolbar; cancel/off; bilingual themes/narrow layout; confirmed clear-all including active test and AES root');
+  report.checks.push('saved-key rows, separate draft editor, per-service JSON tests/Stop/delete and sanitized Gemini errors; encrypted credentials; native/OCR selection; three mock SSE providers; follow-up/context; neutral toolbar; cancel/off; bilingual themes/narrow layout; no bulk-delete button');
   await writeFile(join(out,'README.md'),'# AI API '+version+' QA\n\nAuthored local PDF plus fake API keys and localhost SSE responses. No real AI requests or private documents. Run `PDF_QA=ai` with `scripts/test-browser.mjs`. Screenshots cover the new settings and explanation pane; no credentials are included.\n');
   report.screenshots=out;await writeFile(join(out,'report.json'),JSON.stringify(report,null,2));
 }
@@ -155,7 +172,7 @@ export async function runWebAiQa({context,worker,page,settings,open,report,base}
   await prefs.keyboard.press('ArrowDown');await prefs.waitForFunction(()=>document.querySelector('.ai-key-row').hidden);
   await prefs.locator('#aiEnabled').check();
   await prefs.waitForFunction(async()=>{const s=(await chrome.storage.local.get('settings')).settings;return s?.aiMode==='subscription'&&s.aiEnabled&&s.sampling===1;});
-  assert.equal(await prefs.locator('#ai-key').isVisible(),false);assert.equal(await prefs.locator('#aiWebsite').isVisible(),true);assert.equal(await prefs.locator('#aiLanguage').isVisible(),true);assert.equal(await prefs.locator('#ai-remove-all').isVisible(),true);
+  assert.equal(await prefs.locator('#ai-key').isVisible(),false);assert.equal(await prefs.locator('#aiWebsite').isVisible(),true);assert.equal(await prefs.locator('#aiLanguage').isVisible(),true);assert.equal(await prefs.locator('#ai-remove-all').count(),0);
   assert.equal(await prefs.locator('#aiMode input:checked').count(),1);
   let frame=await open('/subscription?source-token=never-send');await frame.waitForSelector('.textLayer span');
   assert.equal(await frame.locator('#ai-panel').isVisible(),false,'subscription needs no API setup pane');
@@ -182,7 +199,7 @@ export async function runWebAiQa({context,worker,page,settings,open,report,base}
   await prefs.locator('#locale').selectOption('en-US');await prefs.locator('#appearance').selectOption('light');await prefs.screenshot({path:join(out,'settings-en-light.png'),fullPage:true});
   await prefs.locator('#aiMode').screenshot({path:join(out,'connection-options-en-light.png')});
   await prefs.setViewportSize({width:360,height:850});assert.equal(await prefs.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);await prefs.screenshot({path:join(out,'settings-narrow.png'),fullPage:true});await prefs.setViewportSize({width:1360,height:960});
-  await prefs.locator('#ai-mode-api').check();await frame.waitForFunction(()=>qaSettings().aiMode==='api');assert.equal(await prefs.locator('#ai-key').isVisible(),true);assert.equal(await prefs.locator('#aiWebsite').isVisible(),false);
+  await prefs.locator('#ai-mode-api').check();await frame.waitForFunction(()=>qaSettings().aiMode==='api');assert.equal(await prefs.locator('#ai-add').isVisible(),true);assert.equal(await prefs.locator('#aiWebsite').isVisible(),false);
   await prefs.reload();await prefs.waitForSelector('#ai-mode-api');assert.equal(await prefs.locator('#ai-mode-api').isChecked(),true);assert.equal(await prefs.locator('#aiMode input:checked').count(),1);
   await prefs.locator('#ai-mode-subscription').check();await frame.waitForFunction(()=>qaSettings().aiMode==='subscription');
   await companion.close();await select();const replacement=context.waitForEvent('page',{timeout:5000});await frame.locator('#ai-selection').click();companion=await replacement;await companion.waitForSelector('#question');assert.equal(context.pages().length,initial+1);

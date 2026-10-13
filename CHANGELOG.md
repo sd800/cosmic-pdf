@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.2.4 — 2026-10-13
+
+- Redesign saved API keys as per-service rows with separate add/replace inputs, connection testing, Stop and individual deletion.
+- Remove the bulk-delete button and clear the encryption root when the final saved key is deleted.
+- Use compact non-streaming connection checks and distinguish key, project, model, quota, network and service errors without exposing provider details.
+
 ## 3.2.3 — 2026-10-13
 
 - Clear PDF text selections when clicking elsewhere or changing focus, while preserving AI handoff and native copy gestures.

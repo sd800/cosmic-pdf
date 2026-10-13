@@ -40,7 +40,7 @@ Automatic opening covers ordinary top-level HTTP(S) PDF responses and permitted 
 
 ## Privacy and safety
 
-PDF reading and OCR run on this device. Documents, recognition results and built-in AI conversations stay in the open reader and are discarded when it closes; requesting an AI explanation sends the chosen text to your selected service. Website-mode conversations stay on the AI website, and their prefilled questions may appear in browser history or sync. Preferences and encrypted API keys are stored locally. You can delete individual keys or all saved keys in Settings. AI availability, costs and data handling follow the selected provider’s terms. PDF scripting, form execution, editing and remote document resources are disabled. The original file is unchanged. No parser can guarantee safety against every malformed file; keep Chrome and the extension up to date.
+PDF reading and OCR run on this device. Documents, recognition results and built-in AI conversations stay in the open reader and are discarded when it closes; requesting an AI explanation sends the chosen text to your selected service. Website-mode conversations stay on the AI website, and their prefilled questions may appear in browser history or sync. Preferences and encrypted API keys are stored locally. Saved keys are listed by service in Settings, with individual test, replace and delete controls. AI availability, costs and data handling follow the selected provider’s terms. PDF scripting, form execution, editing and remote document resources are disabled. The original file is unchanged. No parser can guarantee safety against every malformed file; keep Chrome and the extension up to date.
 
 ## Development
 

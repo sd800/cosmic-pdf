@@ -73,7 +73,10 @@ export function createApiVault(repository = indexedVaultRepository()) {
       if (!key || record.version !== 1 || !(record.iv instanceof Uint8Array) || record.iv.length !== 12) throw Error('keyMissing');
       return new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: record.iv, additionalData: aad(provider) }, key, record.encrypted));
     }),
-    remove: provider => serialize(async () => { check(provider); await repository.remove(provider); }),
+    remove: provider => serialize(async () => {
+      check(provider); await repository.remove(provider);
+      if(!(await Promise.all(Object.keys(AI_PROVIDERS).map(name=>repository.get(name)))).some(Boolean))await repository.clear();
+    }),
     clear: () => serialize(() => repository.clear())
   });
 }

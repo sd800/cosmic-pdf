@@ -61,6 +61,6 @@ export function explanationMessages(request, language = 'auto', { website = fals
     ...(request.question.trim() ? [{ role: 'user', content: request.question }] : [])] };
 }
 export function aiFailure(error) {
-  return ['invalidKey','invalidRequest','keyMissing','disabled','auth','quota','unavailable','timeout','empty','blocked','limit','cancelled'].includes(error?.message)
+  return ['invalidKey','invalidRequest','keyMissing','disabled','auth','access','accountSetup','serviceDisabled','modelUnavailable','requestRejected','network','service','incomplete','quota','unavailable','timeout','empty','blocked','limit','cancelled'].includes(error?.message)
     ? error.message : error?.name === 'AbortError' ? 'cancelled' : 'unavailable';
 }

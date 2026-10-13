@@ -1,8 +1,8 @@
 import { readSettings } from '../../core/settings.js';
 import { AI_PROVIDERS, normalizeAiRequest, explanationMessages, aiFailure } from '../../core/ai.js';
 import { createApiVault } from './ai-vault.js';
-import { streamExplanation } from './ai-client.js';
-export function createAiExplanationProduct({ vault = createApiVault(), read = readSettings, stream = streamExplanation, runtime = chrome.runtime } = {}) {
+import { streamExplanation, testConnection } from './ai-client.js';
+export function createAiExplanationProduct({ vault = createApiVault(), read = readSettings, stream = streamExplanation, test = testConnection, runtime = chrome.runtime } = {}) {
   const clients = new Set(), tests = new Set();
   function cancelRequests(provider) {
     for (const client of clients) if (!provider || client.provider === provider) client.cancel();
@@ -27,18 +27,23 @@ export function createAiExplanationProduct({ vault = createApiVault(), read = re
       cancelRequests(); await vault.clear(); return ready(sender);
     }
     if (!Object.hasOwn(AI_PROVIDERS, message.provider)) throw Error('invalidRequest');
-    if (message.type === 'AI_SAVE_KEY') await vault.save(message.provider, message.key);
+    if (message.type === 'AI_CANCEL_TEST_KEY') {
+      for(const job of tests)if(job.tabId===sender.tab.id&&job.provider===message.provider)job.controller.abort();
+    } else if (message.type === 'AI_SAVE_KEY') {cancelRequests(message.provider);await vault.save(message.provider, message.key);}
     else if (message.type === 'AI_DELETE_KEY') {
       cancelRequests(message.provider);
       await vault.remove(message.provider);
     } else if (message.type === 'AI_TEST_KEY') {
-      const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 25000);
-      const job = {provider: message.provider, controller, tabId: sender.tab.id}; tests.add(job);
+      // Repeated Settings requests cannot create overlapping paid checks.
+      for(const pending of tests)if(pending.tabId===sender.tab.id)pending.controller.abort();
+      const controller = new AbortController(),job = {provider: message.provider, controller, tabId: sender.tab.id,timedOut:false};
+      const timer = setTimeout(() => {job.timedOut=true;controller.abort();},25000); tests.add(job);
       try {
         const key = await vault.read(message.provider); controller.signal.throwIfAborted();
-        await stream(message.provider, key, { system: 'Reply with the single word OK.', messages: [{ role: 'user', content: 'Test connection.' }] }, { signal: controller.signal, onText() {} });
+        await test(message.provider, key, { signal: controller.signal });
         controller.signal.throwIfAborted();
-      } finally { clearTimeout(timer); tests.delete(job); }
+      } catch(error){if(job.timedOut)throw Error('timeout');throw error;}
+      finally { clearTimeout(timer); tests.delete(job); }
     } else throw Error('invalidRequest');
     return ready(sender);
   }

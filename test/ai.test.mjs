@@ -3,7 +3,7 @@ import test from 'node:test';
 import { AI_PROVIDERS, AI_LIMITS, normalizeAiRequest, explanationMessages, apiKey, aiFailure } from '../extension/core/ai.js';
 import { normalizeSettings, DEFAULTS } from '../extension/core/settings.js';
 import { createApiVault } from '../extension/background/products/ai-vault.js';
-import { providerRequest, streamExplanation } from '../extension/background/products/ai-client.js';
+import { providerRequest, streamExplanation, testConnection } from '../extension/background/products/ai-client.js';
 import { createAiExplanationProduct } from '../extension/background/products/ai-explanation.js';
 import { createAiBridge } from '../extension/workspaces/pdf-reader/ai-bridge.js';
 import { AI_WEBSITES, webExplanation } from '../extension/core/ai-web.js';
@@ -68,6 +68,7 @@ test('AES-256-GCM vault persists a nonextractable key, rotates IVs and authentic
  await vault.remove('gemini');await assert.rejects(vault.read('gemini'),/keyMissing/);
  await vault.clear();assert.equal(repo.values.size,0);assert.deepEqual(await vault.status(),{gemini:false,openai:false,claude:false});
  await vault.save('gemini',secret);assert.notEqual(repo.values.get('root'),root);assert.equal(await vault.read('gemini'),secret);
+ await vault.remove('gemini');assert.equal(repo.values.size,0);
 });
 test('each provider uses its fixed HTTPS endpoint and headers rather than URL credentials or browser cookies',()=>{
  for(const provider of Object.keys(AI_PROVIDERS)){
@@ -97,11 +98,11 @@ for(const provider of Object.keys(AI_PROVIDERS)){
 }
 test('provider errors, refusals, truncated streams and response limits return only sanitized error codes',async()=>{
  const call=(response,provider='openai')=>streamExplanation(provider,'test-key-not-real',{system:'Test',messages:[]},{signal:new AbortController().signal,onText(){},fetcher:async()=>response});
- for(const [status,error]of [[401,'auth'],[403,'auth'],[429,'quota'],[500,'unavailable']])await assert.rejects(call(new Response('secret-error-body',{status})),new RegExp(error));
+ for(const [status,error]of [[401,'auth'],[403,'access'],[429,'quota'],[500,'service']])await assert.rejects(call(new Response('secret-error-body',{status})),new RegExp(error));
  for(const [event,error]of [[{type:'response.refusal.delta',delta:'secret'},'blocked'],[{type:'response.incomplete'},'limit'],[{type:'error',message:'API key leaked in upstream error'},'unavailable']]){
   await assert.rejects(call(new Response('data: '+JSON.stringify(event)+'\n\n',{headers:{'content-type':'text/event-stream'}})),new RegExp(error));
  }
- await assert.rejects(call(new Response('data: {"type":"response.output_text.delta","delta":"partial"}\n\n',{headers:{'content-type':'text/event-stream'}})),/unavailable/);
+ await assert.rejects(call(new Response('data: {"type":"response.output_text.delta","delta":"partial"}\n\n',{headers:{'content-type':'text/event-stream'}})),/incomplete/);
  await assert.rejects(call(new Response('data: '+JSON.stringify({type:'response.output_text.delta',delta:'x'.repeat(AI_LIMITS.output+1)})+'\n\n',{headers:{'content-type':'text/event-stream'}})),/limit/);
  assert.equal(aiFailure(Error('secret provider error')),'unavailable');
  await assert.rejects(call(new Response('data: '+JSON.stringify({ignored:'x'.repeat(AI_LIMITS.event)})+'\n\n',{headers:{'content-type':'text/event-stream'}})),/limit/);
@@ -177,7 +178,7 @@ test('deleting all keys or leaving Settings aborts connection tests and never re
  for(const action of ['clear','close']){
   const repo=repository(),vault=createApiVault(repo);await vault.save('gemini','test-key-not-real');
   const entered=deferred();let signal;
-  const product=createAiExplanationProduct({runtime,vault,read:async()=>normalizeSettings(),stream:async(_p,_k,_m,options)=>{signal=options.signal;entered.resolve();await new Promise((_resolve,reject)=>signal.addEventListener('abort',()=>reject(new DOMException('abort','AbortError')),{once:true}));}});
+  const product=createAiExplanationProduct({runtime,vault,read:async()=>normalizeSettings(),test:async(_p,_k,options)=>{signal=options.signal;entered.resolve();await new Promise((_resolve,reject)=>signal.addEventListener('abort',()=>reject(new DOMException('abort','AbortError')),{once:true}));}});
   const running=product.handleMessage({type:'AI_TEST_KEY',provider:'gemini'},sender);const rejected=assert.rejects(running,{name:'AbortError'});await entered.promise;
   if(action==='clear')await product.handleMessage({type:'AI_DELETE_ALL_KEYS'},sender);else product.disposeTab(7);
   await rejected;assert.equal(signal.aborted,true);if(action==='clear')assert.equal(repo.values.size,0);
@@ -248,4 +249,36 @@ test('web bridge cancels pending handoffs and ignores late replies without using
  const events=[],messages=[],pending=deferred();const runtime={sendMessage(message){messages.push(message);return message.type==='AI_OPEN_WEBSITE'?pending.promise:Promise.resolve({ok:true});},connect(){assert.fail('subscription cannot open an API connection');}};
  const bridge=createAiBridge({runtime,onEvent:e=>events.push(e),onStatus(){}});const request=bridge.openWebsite('web-1',selection);bridge.cancel('web-1');pending.resolve({ok:true,result:{provider:'chatgpt',presentation:'tab'}});await request;
  assert.deepEqual(messages.map(m=>m.type),['AI_OPEN_WEBSITE','AI_CANCEL_WEBSITE']);assert.equal(events.length,1);assert.equal(events[0].error,'cancelled');bridge.destroy();
+});
+
+test('connection checks use bounded plain JSON generation with fixed models and no document payload',async()=>{
+ for(const provider of Object.keys(AI_PROVIDERS)){
+  const payload=provider==='gemini'?{candidates:[{content:{parts:[{text:'OK'}]},finishReason:'STOP'}]}:provider==='openai'?{output:[{type:'message',content:[{type:'output_text',text:'OK'}]}]}:{content:[{type:'text',text:'OK'}]};
+  await testConnection(provider,'test-key-not-real',{signal:new AbortController().signal,fetcher:async(url,init)=>{
+   const body=JSON.parse(init.body);assert.equal(init.headers.Accept,'application/json');assert.equal(init.credentials,'omit');assert.equal(init.redirect,'error');assert.equal(init.body.includes('test-key-not-real'),false);assert.equal(init.body.includes('selected_text'),false);
+   if(provider==='gemini'){assert.equal(url,'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent');assert.equal(body.generationConfig.maxOutputTokens,32);assert.equal(body.generationConfig.thinkingConfig.thinkingBudget,0);}
+   else{assert.equal(url,AI_PROVIDERS[provider].endpoint);assert.equal(body.model,AI_PROVIDERS[provider].id);assert.equal(body.stream,false);assert.equal(body.max_output_tokens||body.max_tokens,32);}
+   return Response.json(payload);
+  }});
+ }
+});
+test('provider diagnostics distinguish Gemini 400 causes, project restrictions and real network errors without leaking raw bodies',async()=>{
+ const attempt=(status,error)=>testConnection('gemini','test-key-not-real',{signal:new AbortController().signal,fetcher:async()=>Response.json({error},{status})});
+ for(const [status,error,code]of [
+  [400,{status:'INVALID_ARGUMENT',details:[{reason:'API_KEY_INVALID'}],message:'secret raw key'},'auth'],
+  [403,{status:'PERMISSION_DENIED',details:[{reason:'API_KEY_HTTP_REFERRER_BLOCKED'}]},'access'],
+  [403,{details:[{reason:'SERVICE_DISABLED'}]},'serviceDisabled'],[400,{status:'FAILED_PRECONDITION'},'accountSetup'],
+  [404,{status:'NOT_FOUND'},'modelUnavailable'],[429,{status:'RESOURCE_EXHAUSTED'},'quota'],[400,{status:'INVALID_ARGUMENT'},'requestRejected'],[503,{},'service']
+ ])await assert.rejects(attempt(status,error),e=>e.message===code&&aiFailure(e)===code&&!e.message.includes('secret'));
+ await assert.rejects(testConnection('gemini','test-key-not-real',{signal:new AbortController().signal,fetcher:async()=>{throw new TypeError('private proxy address');}}),{message:'network'});
+ await assert.rejects(testConnection('gemini','test-key-not-real',{signal:new AbortController().signal,fetcher:async()=>new Response('x'.repeat(65537))}),{message:'incomplete'});
+});
+test('connection-test Stop is scoped to the owning Settings tab and provider',async t=>{
+ const previous=globalThis.chrome;globalThis.chrome={extension:{inIncognitoContext:false}};t.after(()=>{globalThis.chrome=previous;});
+ const runtime={id:'test',getURL:path=>'chrome-extension://test/'+path},sender={id:'test',frameId:0,tab:{id:7},url:runtime.getURL('settings/index.html')},vault=createApiVault(repository());await vault.save('gemini','test-key-not-real');
+ let signal;const entered=deferred(),product=createAiExplanationProduct({runtime,vault,test:async(_p,_k,options)=>{signal=options.signal;entered.resolve();await new Promise((_r,reject)=>signal.addEventListener('abort',()=>reject(new DOMException('abort','AbortError')),{once:true}));}});
+ const pending=product.handleMessage({type:'AI_TEST_KEY',provider:'gemini'},sender),rejected=assert.rejects(pending,{name:'AbortError'});await entered.promise;
+ await product.handleMessage({type:'AI_CANCEL_TEST_KEY',provider:'gemini'},{...sender,tab:{id:8}});assert.equal(signal.aborted,false);
+ await product.handleMessage({type:'AI_CANCEL_TEST_KEY',provider:'openai'},sender);assert.equal(signal.aborted,false);
+ await product.handleMessage({type:'AI_CANCEL_TEST_KEY',provider:'gemini'},sender);await rejected;assert.equal(signal.aborted,true);assert.equal(await vault.read('gemini'),'test-key-not-real');
 });
