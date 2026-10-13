@@ -27,6 +27,8 @@ export function createPdfViewer({ container, locale, sampling, settings, filenam
     if (!closed) channel.port1.postMessage({ type: 'fullscreen', active: document.fullscreenElement === container });
   };
   document.addEventListener('fullscreenchange', fullscreenChanged);
+  const focusLost = () => { if (!closed && !document.hasFocus()) channel.port1.postMessage({ type: 'clear-selection' }); };
+  window.addEventListener('blur', focusLost);
   function sendDocument() {
     if (closed || !frameLoaded || !pending) return;
     const { bytes, filename } = pending; pending = null;
@@ -35,6 +37,7 @@ export function createPdfViewer({ container, locale, sampling, settings, filenam
   function destroy() {
     if (closed) return; closed = true; pending = null; clearTimeout(timeout);
     document.removeEventListener('fullscreenchange', fullscreenChanged);
+    window.removeEventListener('blur', focusLost);
     if (document.fullscreenElement === container) void document.exitFullscreen().catch(() => {});
     aiBridge.destroy(); channel.port1.close(); iframe.remove();
   }

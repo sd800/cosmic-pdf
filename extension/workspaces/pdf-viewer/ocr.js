@@ -4,9 +4,11 @@ import { createOcrWorker } from './ocr-worker-client.js';
 import { AnnotationMode, PermissionFlag } from '../../vendor/pdfjs/pdf.min.mjs';
 import { languageChoices } from '../../shared/ocr-languages.js';
 import { bindPressAction } from './press-action.js';
+import { createAutomaticOcr } from './automatic-ocr.js';
 const $=id=>document.getElementById(id);
-export function createOcr({pdf,viewer,eventBus,settings,text,signal}){
+export function createOcr({pdf,viewer,eventBus,settings,text,signal,canAutoRecognize=()=>false}){
  const cache=new Map(),layerStates=new WeakMap();let active=null,generation=0,closed=false,action=settings.ocrAction,statusKey='',readingPage=0,readingEnd=0,hideFeedback=0,feedbackUntil=0,progress=0;
+ const automatic=createAutomaticOcr({signal,currentPage:()=>viewer.currentPageNumber,eligible:()=>!closed&&!document.hidden&&canAutoRecognize(),hasResult:number=>cache.has(number),isBusy:()=>!!active,recognize:number=>run({from:number,to:number},true)});
  const languages=languageChoices($('ocr-languages'),settings.ocrLanguages,{eng:text.ocrEnglish,chi_sim:text.ocrSimplified,chi_tra:text.ocrTraditional});$('ocr-to').max=$('ocr-from').max=pdf.numPages;
  function updateStatus() {
   const value=statusKey==='ocrReading'?`${text.ocrReading} ${readingPage} / ${readingEnd}`:text[statusKey]||'';
@@ -20,7 +22,7 @@ export function createOcr({pdf,viewer,eventBus,settings,text,signal}){
  function clear(){for(const page of cache.keys())viewer.getPageView(page-1)?.div.querySelector('.ocr-text-layer')?.remove();cache.clear();$('ocr-clear').disabled=true;msg('');}
  function busy(value){$('ocr-start').disabled=value;$('ocr-languages').disabled=value;$('ocr-from').disabled=value;$('ocr-to').disabled=value;$('ocr-cancel').hidden=!value;$('ocr-progress').hidden=!value;$('ocr-toggle').setAttribute('aria-busy',String(value));updateStatus();if(!value&&statusKey){clearTimeout(hideFeedback);hideFeedback=setTimeout(()=>{$('ocr-feedback').hidden=true;},6000);}}
  async function release(job){if(!job)return;job.cancelled=true;job.abort.abort();job.render?.cancel();clearTimeout(job.timer);if(job.worker)await job.worker.terminate().catch(()=>{});if(job.workerURL)URL.revokeObjectURL(job.workerURL);if(job.canvas)job.canvas.width=job.canvas.height=0;}
- function stop(message='ocrCancelled'){generation++;const job=active;active=null;void release(job);busy(false);if(message)msg(message);}
+ function stop(message='ocrCancelled'){automatic.manual(viewer.currentPageNumber);generation++;const job=active;active=null;void release(job);busy(false);if(message)msg(message);}
  function overlay(number){
   const result=cache.get(number),view=viewer.getPageView(number-1);if(!view)return;
   const previous=view.div.querySelector('.ocr-text-layer');
@@ -33,10 +35,11 @@ export function createOcr({pdf,viewer,eventBus,settings,text,signal}){
   // Publish a complete replacement at once; do not briefly expose both sources.
   if(previous)previous.replaceWith(layer);else view.div.append(layer);
  }
- async function run(requested){
-  if(active){openPanel();return;}const range=requested||ocrRange($('ocr-from').value,$('ocr-to').value,pdf.numPages);if(!range){msg('ocrInvalid');return;}
+ async function run(requested,isAutomatic=false){
+  if(active){if(!isAutomatic)active.automatic=false;openPanel();return;}const range=requested||ocrRange($('ocr-from').value,$('ocr-to').value,pdf.numPages);if(!range){msg('ocrInvalid');return;}
+  if(!isAutomatic)automatic.manual(range.from,range.to);
   $('ocr-from').value=range.from;$('ocr-to').value=range.to;
-  const id=++generation,job={abort:new AbortController(),cancelled:false};active=job;clearTimeout(hideFeedback);progress=0;busy(true);msg('ocrLoading');
+  const id=++generation,job={abort:new AbortController(),cancelled:false,automatic:isAutomatic};active=job;clearTimeout(hideFeedback);progress=0;busy(true);msg('ocrLoading');
   const alive=()=>!closed&&generation===id&&!job.cancelled;
   try{
    const permissions=await pdf.getPermissions();if(permissions&&!permissions.includes(PermissionFlag.COPY)){if(alive())msg('ocrNoPermission');return;}
@@ -62,13 +65,13 @@ export function createOcr({pdf,viewer,eventBus,settings,text,signal}){
     const result={characters:words.reduce((count,word)=>count+word.text.length,0),words,rotation:raster.rotation};
     cache.delete(number);if(words.length)cache.set(number,result);
     // Bound all result state, not only the number of rendered layers.
-    while(cache.size>20||[...cache.values()].reduce((n,r)=>n+r.words.length,0)>50000||[...cache.values()].reduce((n,r)=>n+r.characters,0)>OCR_LIMITS.characters){const oldest=cache.keys().next().value;cache.delete(oldest);viewer.getPageView(oldest-1)?.div.querySelector('.ocr-text-layer')?.remove();}
+    while(cache.size>20||[...cache.values()].reduce((n,r)=>n+r.words.length,0)>50000||[...cache.values()].reduce((n,r)=>n+r.characters,0)>OCR_LIMITS.characters){const oldest=cache.keys().next().value;cache.delete(oldest);automatic.evicted(oldest);viewer.getPageView(oldest-1)?.div.querySelector('.ocr-text-layer')?.remove();}
     $('ocr-clear').disabled=!cache.size;overlay(number);completed++;progress=completed/(range.to-range.from+1);updateStatus();
     await new Promise(resolve=>setTimeout(resolve,0));
    }
    if(alive())msg([...cache].some(([number,result])=>number>=range.from&&number<=range.to&&result.words.length)?'ocrDone':'ocrEmpty');
   }catch{if(alive())msg('ocrFailed');}
-  finally{await release(job);if(active===job){active=null;busy(false);}}
+  finally{await release(job);if(active===job){active=null;busy(false);}automatic.request();}
  }
  function openPanel(){
   $('ocr-panel').hidden=false;document.documentElement.dataset.ocrOpen='true';
@@ -76,6 +79,7 @@ export function createOcr({pdf,viewer,eventBus,settings,text,signal}){
   updateStatus();
  }
  function activate(){
+  if(active)active.automatic=false;
   if(action==='panel'){
    if($('ocr-panel').hidden)openPanel();else closePanel();
   }else void run(quickOcrRange(action,viewer.currentPageNumber,pdf.numPages));
@@ -85,10 +89,13 @@ export function createOcr({pdf,viewer,eventBus,settings,text,signal}){
  $('ocr-close').onclick=closePanel;
  $('ocr-start').onclick=()=>void run();$('ocr-cancel').onclick=$('ocr-feedback-cancel').onclick=()=>stop();$('ocr-clear').onclick=()=>{stop('');clear();};
  eventBus.on('pagerendered',({pageNumber})=>overlay(pageNumber),{signal});
+ eventBus.on('textlayerrendered',({pageNumber,error})=>{const layer=viewer.getPageView(pageNumber-1)?.textLayer?.div;automatic.observe(pageNumber,!!layer?.textContent.trim(),!!error||!layer);},{signal});
  eventBus.on('scalechanging',()=>{for(const number of cache.keys())overlay(number);},{signal});
- eventBus.on('pagechanging',({pageNumber})=>{if(!active)$('ocr-from').value=$('ocr-to').value=pageNumber;},{signal});
+ eventBus.on('pagechanging',({pageNumber})=>{if(!active)$('ocr-from').value=$('ocr-to').value=pageNumber;automatic.request();},{signal});
+ document.addEventListener('visibilitychange',()=>automatic.request(),{signal});
  return {
   openPanel,
+  refreshAutomatic(){if(active?.automatic&&!canAutoRecognize())stop('');automatic.request();},
   setInterface(nextAction){
    action=nextAction;
    const names={eng:text.ocrEnglish,chi_sim:text.ocrSimplified,chi_tra:text.ocrTraditional};
@@ -96,6 +103,6 @@ export function createOcr({pdf,viewer,eventBus,settings,text,signal}){
    for(const layer of document.querySelectorAll('.ocr-text-layer'))layer.setAttribute('aria-label',text.ocrResult);
    updateStatus();
   },
-  destroy(){closed=true;stop('');clearTimeout(hideFeedback);for(const number of cache.keys())viewer.getPageView(number-1)?.div.querySelector('.ocr-text-layer')?.remove();cache.clear();}
+  destroy(){closed=true;automatic.destroy();stop('');clearTimeout(hideFeedback);for(const number of cache.keys())viewer.getPageView(number-1)?.div.querySelector('.ocr-text-layer')?.remove();cache.clear();}
  };
 }

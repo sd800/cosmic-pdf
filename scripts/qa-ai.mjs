@@ -5,6 +5,7 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { AI_PROVIDERS } from '../extension/core/ai.js';
 import { AI_WEBSITES } from '../extension/core/ai-web.js';
+import { scannedPdf } from '../test/fixtures/pdf-viewer.mjs';
 export const mockAi = { calls: [], mode: 'normal', cancelled: 0 };
 export function handleAiMock(req, res) {
   if (!req.url.startsWith('/mock-ai/')) return false;
@@ -188,4 +189,65 @@ export async function runWebAiQa({context,worker,page,settings,open,report,base}
   assert.deepEqual((await page.evaluate(()=>chrome.runtime.sendMessage({type:'AI_STATUS'}))).result.keys,{gemini:false,openai:false,claude:false});
   report.checks.push('subscription needs no keys; normal/OCR-safe selection bridge; adjacent tab fallback and same-reader reuse/provider change/reload; source tokens omitted; context/language; complete long-question copy/open; closed companion recovery; bilingual/narrow settings and API mode retained');
   report.screenshots=out;await writeFile(join(out,'README.md'),'# Subscription AI 3.2.1 QA\n\nAuthored local PDF and localhost prefilled-question pages, not real accounts. No subscription/API request, website reply extraction or system clipboard write. Run `PDF_QA=ai-web` with scripts/test-browser.mjs. Native split availability is version-dependent; unit tests cover optional createSplit and existing-split ownership. Screenshots cover bilingual settings and complete-question fallback.\n');await writeFile(join(out,'report.json'),JSON.stringify(report,null,2));
+}
+
+// Focus/selection and OCR-context QA uses local authored data and a real local
+// OCR worker. The visible peer iframe tests focus loss without hiding the PDF;
+// it does not claim to be Chrome's version-dependent native split interface.
+export async function runSelectionQa({context,worker,page,open,report,base,setScan}){
+ const {version}=JSON.parse(await readFile('extension/manifest.json','utf8')),out=resolve('test-dist/selection-'+version);await mkdir(out,{recursive:true});
+ await worker.evaluate(()=>chrome.storage.local.set({settings:{locale:'en-US',sampling:1,aiEnabled:false,aiMode:'subscription',aiIncludeContext:true,ocrLanguages:['eng'],ocrQuality:1.5}}));
+ let frame=await open('/selection');await frame.waitForSelector('.textLayer span');
+ async function select(selector='.textLayer span'){
+  await page.bringToFront();await frame.locator(selector).first().click();
+  await frame.locator(selector).first().evaluate(n=>{const r=document.createRange();r.selectNodeContents(n);getSelection().removeAllRanges();getSelection().addRange(r);});
+  await frame.waitForFunction(()=>!!getSelection().toString());
+ }
+ await select();await frame.locator('#viewport').click({position:{x:5,y:120}});assert.equal(await frame.evaluate(()=>getSelection().isCollapsed),true,'blank margin clears selection even with AI off');
+ await select();await frame.locator('#theme').click();assert.equal(await frame.evaluate(()=>getSelection().isCollapsed),true,'toolbar click clears reading selection');
+ await select();await frame.locator('.textLayer span').first().click({button:'right'});assert.notEqual(await frame.evaluate(()=>getSelection().toString()),'','right-click leaves text available to Copy');await page.keyboard.press('Escape');
+ // A second live frame receives focus while the PDF remains visible.
+ await select();await page.evaluate(()=>{const p=document.createElement('iframe');p.id='qa-peer';p.src=URL.createObjectURL(new Blob(['<!doctype html><textarea id="question" rows="8"></textarea>'],{type:'text/html'}));p.style.cssText='position:fixed;right:0;top:150px;width:250px;height:340px;z-index:10;background:white';document.body.append(p);});
+ const peer=await(await page.waitForSelector('#qa-peer')).contentFrame();await peer.waitForSelector('#question');await peer.locator('#question').click();
+ await frame.waitForFunction(()=>getSelection().isCollapsed);assert.equal(await frame.evaluate(()=>document.hidden),false,'visible focus loss does not rely on visibilitychange');await page.evaluate(()=>{const p=document.querySelector('#qa-peer');URL.revokeObjectURL(p.src);p.remove();});
+ await worker.evaluate(()=>chrome.storage.local.set({settings:{locale:'en-US',sampling:1,aiEnabled:true,aiMode:'subscription',aiIncludeContext:true,ocrLanguages:['eng'],ocrQuality:1.5}}));
+ await frame.waitForFunction(()=>qaSettings().aiEnabled);
+ // Authored OCR rows on a page that also has native text: OCR must own both
+ // selection and context, with no native fallback or merged neighboring rows.
+ await frame.evaluate(async()=>{
+  const {createOcrTextLayer}=await import('./ocr-text-layer.js'),view=qaViewer.getPageView(0);
+  const words=['BEFORE_OCR_ONLY','SELECTED_OCR_ONLY','AFTER_OCR_ONLY'].map((text,line)=>({text,separator:'',line,topLeft:[60,770-line*40],topRight:[260,770-line*40],bottomLeft:[60,750-line*40]}));
+  view.div.append(createOcrTextLayer({rotation:0,words},view.viewport));
+ });
+ await select('.ocr-text-line:nth-child(2) .ocr-text-glyphs');await frame.waitForSelector('#ai-selection:not([hidden])');
+ const created=context.waitForEvent('page');await frame.locator('#ai-selection').click();const companion=await created;await companion.waitForSelector('#question');
+ const prompt=await companion.locator('#question').inputValue(),data=JSON.parse(prompt.split('document_data JSON:\n')[1]);
+ assert.equal(data.selected_text,'SELECTED_OCR_ONLY');assert.match(data.nearby_context,/BEFORE_OCR_ONLY/);assert.match(data.nearby_context,/AFTER_OCR_ONLY/);assert.doesNotMatch(data.nearby_context,/Small text|PDF Viewer page|Searchable needle/);
+ await frame.waitForFunction(()=>getSelection().isCollapsed);assert.equal(await frame.locator('#ai-selection').isVisible(),false,'handoff focus loss clears the UI but preserves the captured question');
+ await companion.close();await page.bringToFront();await page.screenshot({path:join(out,'ocr-context-selection.png')});
+ // Cross-page selection must not include the hidden native layer of page two.
+ await frame.evaluate(()=>{qaViewer.currentPageNumber=2;});await frame.waitForSelector('.page[data-page-number="2"] .textLayer span');
+ const text=await frame.evaluate(async()=>{
+  const {createOcrTextLayer}=await import('./ocr-text-layer.js'),{pdfSelection}=await import('./ai-reader.js'),view=qaViewer.getPageView(1);
+  view.div.append(createOcrTextLayer({rotation:0,words:[{text:'SECOND_OCR_ONLY',separator:'',line:0,topLeft:[60,760],topRight:[260,760],bottomLeft:[60,740]}]},view.viewport));
+  const a=document.querySelector('.page[data-page-number="1"] .ocr-text-line:nth-child(2) .ocr-text-glyphs').firstChild,b=view.div.querySelector('.ocr-text-glyphs').firstChild,r=document.createRange();r.setStart(a,0);r.setEnd(b,b.length);getSelection().removeAllRanges();getSelection().addRange(r);
+  return pdfSelection(getSelection(),document.querySelector('#pages')).text;
+ });
+ assert.match(text,/SELECTED_OCR_ONLY/);assert.match(text,/SECOND_OCR_ONLY/);assert.doesNotMatch(text,/Small text|PDF Viewer page|Searchable needle/);
+ // Reusable two-page image-only PDF, with no private file or OCR API service.
+ let bytes;try{bytes=await readFile(join(out,'scan.pdf'));}catch{
+  const jpeg=await page.evaluate(async()=>{const c=document.createElement('canvas');c.width=1000;c.height=1400;const g=c.getContext('2d');g.fillStyle='white';g.fillRect(0,0,c.width,c.height);g.fillStyle='black';g.font='58px sans-serif';['BEFORE LOCAL OCR','SELECTED LOCAL OCR','AFTER LOCAL OCR'].forEach((t,i)=>g.fillText(t,60,160+i*130));return Array.from(new Uint8Array(await(await new Promise(r=>c.toBlob(r,'image/jpeg',.98))).arrayBuffer()));});bytes=scannedPdf(Buffer.from(jpeg),1000,1400,2);await writeFile(join(out,'scan.pdf'),bytes);
+ }setScan(bytes);
+ await worker.evaluate(async()=>{const s=(await chrome.storage.local.get('settings')).settings;await chrome.storage.local.set({settings:{...s,aiEnabled:false}});});
+ frame=await open('/scan');await frame.waitForSelector('.textLayer');await new Promise(r=>setTimeout(r,650));assert.equal(await frame.evaluate(()=>globalThis.qaOcrStarts||0),0,'AI off never starts automatic OCR');
+ await worker.evaluate(async()=>{const s=(await chrome.storage.local.get('settings')).settings;await chrome.storage.local.set({settings:{...s,aiEnabled:true}});});
+ await frame.waitForFunction(()=>document.querySelector('.ocr-text-layer')?.textContent.includes('LOCAL OCR')&&document.querySelector('#ocr-toggle').getAttribute('aria-busy')==='false',undefined,{timeout:130000});
+ assert.equal(await frame.evaluate(()=>qaOcrStarts),1);assert.equal(await frame.locator('.page[data-page-number="2"] .ocr-text-layer').count(),0,'no whole-document recognition');
+ await page.screenshot({path:join(out,'automatic-current-page.png')});
+ await frame.evaluate(()=>{window.qaOcrDelay=3000;qaViewer.currentPageNumber=2;});
+ await frame.waitForFunction(()=>document.querySelector('#ocr-toggle').getAttribute('aria-busy')==='true',undefined,{timeout:5000});
+ await worker.evaluate(async()=>{const s=(await chrome.storage.local.get('settings')).settings;await chrome.storage.local.set({settings:{...s,aiEnabled:false}});});
+ await frame.waitForFunction(()=>document.querySelector('#ocr-toggle').getAttribute('aria-busy')==='false');assert.equal(await frame.locator('.page[data-page-number="2"] .ocr-text-layer').count(),0,'switch-off cancels only unfinished automatic OCR');
+ report.checks.push('reading selection clears on blank/toolbar clicks and visible peer focus; right-click Copy and AI handoff preserve intended data; OCR selection/context excludes native duplicates including cross-page ranges; real local current-page automatic OCR only with AI enabled and switch-off cancellation');
+ report.screenshots=out;await writeFile(join(out,'README.md'),'# Selection and OCR context QA '+version+'\n\nRun PDF_QA=selection with scripts/test-browser.mjs in an isolated profile. scan.pdf is a reusable authored two-page scan. Screenshots show OCR priority and current-page auto recognition. The local peer iframe keeps the PDF visible while focus moves, testing the focus boundary needed for split panes; native Chrome split UI itself is not claimed verified. No real AI account, private document or system clipboard write.\n');await writeFile(join(out,'report.json'),JSON.stringify(report,null,2));
 }

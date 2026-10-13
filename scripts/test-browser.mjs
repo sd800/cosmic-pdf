@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {mkdtemp,writeFile,readFile,cp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';import {resolve,join} from 'node:path';import {pathToFileURL} from 'node:url';import {createServer} from 'node:http';
 import {viewerPdf,scannedPdf} from '../test/fixtures/pdf-viewer.mjs';
-import {handleAiMock,prepareAiMock,runAiQa,handleWebAiMock,prepareWebAiMock,runWebAiQa} from './qa-ai.mjs';
+import {handleAiMock,prepareAiMock,runAiQa,handleWebAiMock,prepareWebAiMock,runWebAiQa,runSelectionQa} from './qa-ai.mjs';
 const {chromium}=await import(process.env.PDF_PLAYWRIGHT?pathToFileURL(process.env.PDF_PLAYWRIGHT).href:'playwright');
 const folder=await mkdtemp(join(tmpdir(),'cosmic-pdf-qa-')),ext=join(folder,'extension');await cp(resolve('extension'),ext,{recursive:true});
 // Expose renderer state in the disposable QA copy only.
@@ -13,11 +13,12 @@ const qaSettingsPath=join(ext,'settings/settings.js');await writeFile(qaSettings
 const guardFile=join(ext,'workspaces/pdf-viewer/dark-paper.js');await writeFile(guardFile,(await readFile(guardFile,'utf8')).replace('context.drawImage(source, 0, 0, size, size);', '(globalThis.qaPaperReads ||= []).push(size); context.drawImage(source, 0, 0, size, size);').replace('    try {\n      canvas ||= makeCanvas();', '    const qaStart=performance.now(); try {\n      canvas ||= makeCanvas();').replace('finally { if (canvas)', 'finally { (globalThis.qaPaperTimings ||= []).push(performance.now()-qaStart); if (canvas)'));
 // Delayed recognition in the disposable test copy makes in-flight UI assertions deterministic.
 const ocrClient=join(ext,'workspaces/pdf-viewer/ocr-worker-client.js');await writeFile(ocrClient,(await readFile(ocrClient,'utf8')).replace('const image=new Uint8Array','if(globalThis.qaOcrDelay)await new Promise(r=>setTimeout(r,globalThis.qaOcrDelay));const image=new Uint8Array'));
+const ocrProduct=join(ext,'workspaces/pdf-viewer/ocr.js');await writeFile(ocrProduct,(await readFile(ocrProduct,'utf8')).replace('const worker=createOcrWorker(', 'globalThis.qaOcrStarts=(globalThis.qaOcrStarts||0)+1;const worker=createOcrWorker('));
 const report={checks:[],errors:[],remoteRequests:[],screenshots:folder};let englishScan,chineseScan,batchScan,blackScan;const slowResponses=new Set();
 function releaseSlow(){for(const res of slowResponses)res.end(viewerPdf(6));slowResponses.clear();}
 const server=createServer((req,res)=>{
  if(process.env.PDF_QA==='ai'&&handleAiMock(req,res))return;
- if(process.env.PDF_QA==='ai-web'&&handleWebAiMock(req,res))return;
+ if(['ai-web','selection'].includes(process.env.PDF_QA)&&handleWebAiMock(req,res))return;
  const path=req.url.split('?')[0];
  if(path==='/html.pdf'){res.setHeader('Content-Type','text/html');res.end('<h1>Not a PDF</h1>');return;}
  if(path==='/links'){res.setHeader('Content-Type','text/html');res.end('<a href="/history.pdf">Read PDF</a>');return;}
@@ -52,7 +53,7 @@ const server=createServer((req,res)=>{
  res.end(path==='/black-scan'?blackScan:path==='/scan-many'?batchScan:path==='/scan'?englishScan:path==='/chinese'?chineseScan:viewerPdf(6));
 });await new Promise(r=>server.listen(0,'127.0.0.1',r));const base='http://127.0.0.1:'+server.address().port;
 if(process.env.PDF_QA==='ai')await prepareAiMock(ext,base);
-if(process.env.PDF_QA==='ai-web')await prepareWebAiMock(ext,base);
+if(['ai-web','selection'].includes(process.env.PDF_QA))await prepareWebAiMock(ext,base);
 const context=await chromium.launchPersistentContext(join(folder,'profile'),{executablePath:process.env.PDF_CHROME,headless:true,viewport:{width:1360,height:960},deviceScaleFactor:2,args:['--force-device-scale-factor=2',`--disable-extensions-except=${ext}`,`--load-extension=${ext}`]});
 function observe(page){page.on('pageerror',e=>report.errors.push(e.message));page.on('console',m=>{if(m.type()==='error'||/fake worker|autofocusing|permissions policy|Content Security Policy|cross-origin redirects/i.test(m.text()))report.errors.push(m.text());});page.on('request',r=>{if(/^https?:/.test(r.url())&&!r.url().startsWith(base))report.remoteRequests.push(r.url());});}
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
@@ -123,7 +124,9 @@ try{
   await saved.delete();
  }
  // PDF_QA=ocr-priority runs only the text-layer handover regression.
- if(process.env.PDF_QA==='ai-web'){
+ if(process.env.PDF_QA==='selection'){
+  await runSelectionQa({context,worker,page,open,report,base,setScan:bytes=>{englishScan=bytes;}});
+ }else if(process.env.PDF_QA==='ai-web'){
   await runWebAiQa({context,worker,page,settings,open,report,base});
  }else if(process.env.PDF_QA==='ai'){
   await runAiQa({context,worker,page,settings,open,report,folder});

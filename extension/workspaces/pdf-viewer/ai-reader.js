@@ -38,15 +38,30 @@ export function pdfSelection(selection, pages) {
   if (!selection || selection.isCollapsed || selection.rangeCount !== 1) return null;
   const range=selection.getRangeAt(0),start=layerFor(range.startContainer),end=layerFor(range.endContainer);
   if(!start||!end||!pages.contains(start)||!pages.contains(end)||getComputedStyle(start).display==='none'||getComputedStyle(end).display==='none')return null;
-  const text=range.toString();if(!text.trim())return null;
+  // Selection.toString reflects visible text. Range.toString can include the
+  // hidden native layer between OCR pages, reintroducing unreliable duplicates.
+  const text=selection.toString();if(!text.trim())return null;
   const page=Number(start.closest('.page')?.dataset.pageNumber);if(!Number.isSafeInteger(page)||page<1)return null;
   return {text,page,range:range.cloneRange(),start,end};
 }
 function nearby(snapshot) {
+  function excerpt(range, layer, fromEnd) {
+    if(!layer.classList.contains('ocr-text-layer'))return fromEnd?range.toString().slice(-1500):range.toString().slice(0,1500);
+    let value='';
+    for(const row of layer.querySelectorAll('.ocr-text-line')){
+      if(!range.intersectsNode(row))continue;
+      const part=document.createRange();part.selectNodeContents(row);
+      if(row.contains(range.startContainer))part.setStart(range.startContainer,range.startOffset);
+      if(row.contains(range.endContainer))part.setEnd(range.endContainer,range.endOffset);
+      const text=part.toString();if(!text)continue;
+      value=(value?value+'\n':'')+text;
+      value=fromEnd?value.slice(-1500):value.slice(0,1500);if(!fromEnd&&value.length===1500)break;
+    }return value;
+  }
   try {
     const before=document.createRange();before.selectNodeContents(snapshot.start);before.setEnd(snapshot.range.startContainer,snapshot.range.startOffset);
     const after=document.createRange();after.selectNodeContents(snapshot.end);after.setStart(snapshot.range.endContainer,snapshot.range.endOffset);
-    return before.toString().slice(-1500)+'\n[Selected passage]\n'+after.toString().slice(0,1500);
+    return excerpt(before,snapshot.start,true)+'\n[Selected text]\n'+excerpt(after,snapshot.end,false);
   } catch { return ''; }
 }
 export function createAiReader({settings,post,getPdf,getLocale,signal,onBusy=()=>{}}) {
@@ -168,6 +183,8 @@ export function createAiReader({settings,post,getPdf,getLocale,signal,onBusy=()=
   signal.addEventListener('abort',destroy,{once:true});
   render();
   return {
+    dismissSelection(){selecting=false;hideEntry();},
+    canExplain(){return enabled()&&(subscription()||status.private!==true&&status.keys?.[prefs.aiProvider]===true);},
     preferences(next){const was=enabled(),methodChanged=prefs.aiMode!==next.aiMode;prefs=next;if(was&&!enabled()||methodChanged){sequence++;hideEntry();cancel();closePanel();}if(methodChanged){source=null;history=[];copyRequired=false;$('ai-messages').replaceChildren();$('ai-model').textContent='';notice='';}if(!was&&enabled()&&source&&!subscription())openPanel();render();if((!was&&enabled())||methodChanged){post({type:'ai-refresh'});scheduleSelection();}},
     status(next){status=next||{keys:{}};render();if(enabled()&&!subscription()&&!status.keys?.[prefs.aiProvider]&&!source)openPanel();},
     localize:render,

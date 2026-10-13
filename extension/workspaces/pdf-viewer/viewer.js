@@ -1,4 +1,5 @@
 import { createAiReader } from './ai-reader.js';
+import { bindPdfSelection } from './selection.js';
 import { showReaderDialog } from './dialog.js';
 import { createPdfWorker } from './worker.js';
 import { createOcr } from './ocr.js';
@@ -25,6 +26,7 @@ const workerReady = createPdfWorker(pdfjs, signal).then(worker => {
 void workerReady.catch(() => {});
 let firstPageReady = false, themeDark = false, darkPaper;
 let aiReader;
+const readingSelection = bindPdfSelection({ pages: $('pages'), signal, onClear: () => aiReader?.dismissSelection() });
 let customZoomScale = null, toolbarMenu, externalLinksCapture, linkRequest = 0;
 let thumbnailObserver, thumbnailTask, thumbnailBusy = false, thumbnailGeneration = 0, outlineLoaded = false;
 const nearThumbnails = new Set(), thumbnailCache = new Map(), printUrls = new Set();
@@ -160,9 +162,10 @@ window.addEventListener('message', event => {
       });
     }
     else if (data?.type === 'ai-preferences') {
-      const next=normalizeSettings(data.preferences);settings={...settings,aiEnabled:next.aiEnabled,aiMode:next.aiMode,aiWebsite:next.aiWebsite,aiProvider:next.aiProvider,aiLanguage:next.aiLanguage,aiIncludeContext:next.aiIncludeContext};aiReader?.preferences(settings);
+      const next=normalizeSettings(data.preferences);settings={...settings,aiEnabled:next.aiEnabled,aiMode:next.aiMode,aiWebsite:next.aiWebsite,aiProvider:next.aiProvider,aiLanguage:next.aiLanguage,aiIncludeContext:next.aiIncludeContext};aiReader?.preferences(settings);ocr?.refreshAutomatic();
     }
-    else if (data?.type === 'ai-status') aiReader?.status(data.state);
+    else if (data?.type === 'ai-status') { aiReader?.status(data.state); ocr?.refreshAutomatic(); }
+    else if (data?.type === 'clear-selection') readingSelection.clear();
     else if (data?.type === 'ai-event') aiReader?.event(data.event);
     else if (data?.type === 'theme') theme(data.dark);
     else if (data?.type === 'toolbar') {
@@ -315,7 +318,7 @@ async function open(bytes, sampling) {
   eventBus.on('updatefindcontrolstate', ({ state, matchesCount }) => {
     $('matches').textContent = state === 3 ? text.searching : state === 1 ? text.noMatches : `${matchesCount?.current || 0} / ${matchesCount?.total || 0}`;
   }, { signal });
-  ocr = createOcr({ pdf, viewer, eventBus, settings, text, signal });
+  ocr = createOcr({ pdf, viewer, eventBus, settings, text, signal, canAutoRecognize: () => aiReader?.canExplain() === true });
   viewer.setDocument(pdf);
   click('previous', () => viewer.previousPage()); click('next', () => viewer.nextPage());
   $('page').onchange = () => { viewer.currentPageNumber = pdfPageNumber($('page').value, pdf.numPages, viewer.currentPageNumber); $('page').value = viewer.currentPageNumber; };

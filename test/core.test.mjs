@@ -5,6 +5,8 @@ import { formatPdfDate,parsePdfDate } from '../extension/workspaces/pdf-viewer/d
 import { safeSource,sourceFromReader,filenameFrom,isPdf } from '../extension/core/source.js';
 import { ocrScale,ocrRange,ocrWords,OCR_LIMITS,quickOcrRange } from '../extension/workspaces/pdf-viewer/ocr-model.js';
 import { pdfDetailCanvasPixels,stepPdfScale,rotateLeft,safePdfLink,pdfOptions,pdfFileSize,parsePdfZoom } from '../extension/workspaces/pdf-viewer/model.js';
+import { clearPdfSelection } from '../extension/workspaces/pdf-viewer/selection.js';
+import { createAutomaticOcr } from '../extension/workspaces/pdf-viewer/automatic-ocr.js';
 test('settings whitelist, defaults and all six sampling levels',()=>{assert.deepEqual(normalizeSettings(null),DEFAULTS);assert.equal(DEFAULTS.captureLinks,true);for(const captureLinks of [true,false])assert.equal(normalizeSettings({captureLinks}).captureLinks,captureLinks);assert.equal(normalizeSettings({captureLinks:'false'}).captureLinks,true);assert.equal(DEFAULTS.useChromeFind,true);for(const useChromeFind of [true,false])assert.equal(normalizeSettings({useChromeFind}).useChromeFind,useChromeFind);assert.equal(normalizeSettings({useChromeFind:'false'}).useChromeFind,true);for(let n=1;n<=6;n++)assert.equal(normalizeSettings({sampling:n}).sampling,n);assert.equal(normalizeSettings({sampling:Infinity}).sampling,4);assert.equal(normalizeSettings({sharpening:'true'}).sharpening,false);assert.equal(normalizeSettings({ocrQuality:99}).ocrQuality,2);assert.equal(normalizeSettings({locale:'zh-TW'}).locale,'auto');assert.equal(normalizeSettings({obsolete:true}).obsolete,undefined);for(const [showFilename,showBranding,mode]of [[true,true,'both'],[false,true,'branding'],[true,false,'filename'],[false,false,'none']])assert.equal(toolbarMode(normalizeSettings({showFilename,showBranding})),mode);assert.equal(toolbarMode(normalizeSettings({showFilename:'false',showBranding:null})),'filename');});
 test('UI supports only English/Simplified Chinese',()=>{assert.equal(uiLocale(DEFAULTS,'zh-TW'),'zh-CN');assert.equal(uiLocale(DEFAULTS,'ja'),'en-US');assert.equal(uiLocale({...DEFAULTS,locale:'en-US'},'zh-CN'),'en-US');});
 test('raw DNR source preserves all signed query parameters and fragments',()=>{const reader='chrome-extension://id/workspaces/pdf-reader/index.html',source='https://example.com/a?one=1&signed=A%2BB%3D&source=2#page=2';assert.equal(sourceFromReader(reader+'?source='+source,reader),source);assert.equal(sourceFromReader('https://evil.test/?source='+source,reader),null);for(const value of ['javascript:alert(1)','data:application/pdf,abc','https://u:p@example.com/a'])assert.equal(safeSource(value),null);assert.equal(safeSource('file:///tmp/a.pdf'),'file:///tmp/a.pdf');});
@@ -300,4 +302,26 @@ test('a delayed save callback cannot replace a newer settings notification',asyn
  const saving=store.save('sampling',3);await new Promise(resolve=>setImmediate(resolve));
  stored=normalizeSettings({locale:'zh-CN',sampling:5});store.receive(stored);release();await saving;
  assert.equal(view.locale,'zh-CN');assert.equal(view.sampling,5);
+});
+
+test('reading-selection dismissal leaves reply/input selections alone and clears cross-page ranges',()=>{
+ const text={},outside={},pages={contains:n=>n===text};let cleared=0;
+ const value={isCollapsed:false,rangeCount:1,anchorNode:text,focusNode:text,removeAllRanges(){cleared++;},getRangeAt(){return {intersectsNode:()=>true};}};
+ assert.equal(clearPdfSelection(pages,value),true);
+ value.anchorNode=value.focusNode=outside;assert.equal(clearPdfSelection(pages,value),true);
+ value.getRangeAt=()=>({intersectsNode:()=>false});assert.equal(clearPdfSelection(pages,value),false);
+ value.anchorNode=text;value.isCollapsed=true;assert.equal(clearPdfSelection(pages,value),false);assert.equal(cleared,2);
+});
+test('automatic OCR debounces empty current pages, preserves manual priority and separates failed attempts from cache eviction',async()=>{
+ let page=1,enabled=false,busy=false,serial=0;const calls=[],timers=new Map(),results=new Set(),abort=new AbortController();
+ const automatic=createAutomaticOcr({currentPage:()=>page,eligible:()=>enabled,hasResult:n=>results.has(n),isBusy:()=>busy,recognize:async n=>{calls.push(n);if(n===5)results.add(n);},signal:abort.signal,schedule:fn=>{timers.set(++serial,fn);return serial;},cancel:id=>timers.delete(id)});
+ const flush=async()=>{const jobs=[...timers.values()];timers.clear();for(const job of jobs)job();await new Promise(r=>setImmediate(r));};
+ automatic.observe(1,false);assert.equal(timers.size,0);enabled=true;
+ automatic.observe(1,true);assert.equal(timers.size,0);automatic.observe(1,false);assert.equal(timers.size,1);
+ page=2;automatic.observe(2,false);assert.equal(timers.size,1);busy=true;await flush();assert.deepEqual(calls,[]);
+ busy=false;automatic.request();await flush();assert.deepEqual(calls,[2]);automatic.request();assert.equal(timers.size,0);
+ page=1;automatic.request();automatic.manual(1);await flush();assert.deepEqual(calls,[2]);
+ page=3;automatic.observe(3,false,true);assert.equal(timers.size,0);automatic.observe(3,false);results.add(3);await flush();assert.deepEqual(calls,[2]);
+ page=5;automatic.observe(5,false);await flush();assert.deepEqual(calls,[2,5]);results.delete(5);automatic.evicted(5);automatic.request();await flush();assert.deepEqual(calls,[2,5,5]);
+ page=4;automatic.observe(4,false);abort.abort();await flush();assert.deepEqual(calls,[2,5,5]);assert.equal(timers.size,0);
 });

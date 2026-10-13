@@ -3,7 +3,7 @@ import { AI_WEBSITES } from '../core/ai-web.js';
 const words = {
  'en-US': {
   title:'AI explanations',
-  enabled:'Explain with AI',enabledHelp:'Explain selected PDF text and ask follow-up questions. You can also use the sparkle switch in the reader.',
+  enabled:'Explain with AI',enabledHelp:'Explain selected PDF text and ask follow-up questions. Pages without selectable text are recognized as you read. You can also use the sparkle switch in the reader.',
   model:'Model',language:'Explanation language',auto:'Interface language (default)',english:'English',chinese:'简体中文',
   method:'AI connection',api:'Built-in AI via API',subscription:'Bring Your Own AI via Subscription',website:'Website',apiHelp:'Receive explanations in Cosmic PDF using your own API key.',webHelp:'Use your existing ChatGPT or Claude account without an API key. Opens beside the PDF where Chrome supports automatic split view, otherwise in the next tab.',webPrivacy:'Only selected text and any nearby paragraphs you choose are passed to the AI website. Questions are included in links and may appear in browser history or sync. Responses and follow-up questions stay on the website. Reusing the paired tab starts a new question and can replace an unsent draft.',
   context:'Include nearby paragraphs',contextHelp:'Send a small amount of text around the selection for additional context. Off by default.',
@@ -19,7 +19,7 @@ const words = {
  },
  'zh-CN': {
   title:'AI 解释',
-  enabled:'使用 AI 解释',enabledHelp:'解释选中的 PDF 文字，也可针对选段继续提问。阅读器中的星芒开关也可控制此功能。',
+  enabled:'使用 AI 解释',enabledHelp:'解释选中的 PDF 文字，也可针对选段继续提问。当前页没有可选文字时会自动识别，阅读器中的星芒开关也可控制此功能。',
   model:'模型',language:'解释语言',auto:'跟随界面语言（默认）',english:'English',chinese:'简体中文',
   method:'AI 使用方式',api:'内置 AI（API）',subscription:'自带 AI（订阅账号）',website:'网站',apiHelp:'使用您自己的 API 密钥，直接在 Cosmic PDF 中查看解释。',webHelp:'使用已有的 ChatGPT 或 Claude 账号，无需 API 密钥。Chrome 支持时在 PDF 旁分屏打开，否则在相邻标签页打开。',webPrivacy:'仅将选中文字和您选择附带的附近段落交给 AI 网站。问题包含在链接中，可能出现在浏览器历史记录或同步记录中。回复和后续提问均留在该网站；复用配套标签页会开始新问题，可能替换尚未发送的草稿。',
   context:'包含附近段落',contextHelp:'附带选段附近的少量文字，帮助理解上下文。默认关闭。',

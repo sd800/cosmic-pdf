@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.2.3 — 2026-10-13
+
+- Clear PDF text selections when clicking elsewhere or changing focus, while preserving AI handoff and native copy gestures.
+- Use recognized text for AI selections and nearby context without mixing in superseded native layers.
+- Recognize textless current pages automatically when AI explanations are enabled, with bounded work and manual-recognition priority.
+
 ## 3.2.2 — 2026-10-13
 
 - Remove the AI toolbar button’s background while retaining its neutral icon and off-state indicator.
