@@ -19,7 +19,7 @@ test('AI defaults, fixed models and bounded explicit requests do not include cre
  assert.equal(DEFAULTS.aiEnabled,false);assert.equal(DEFAULTS.aiIncludeContext,false);
  assert.equal(normalizeSettings({aiProvider:'evil',aiLanguage:'zh-TW',apiKey:'not-a-setting'}).aiProvider,'gemini');
  assert.equal(normalizeSettings({apiKey:'not-a-setting'}).apiKey,undefined);
- assert.deepEqual(Object.values(AI_PROVIDERS).map(p=>p.id),['gemini-2.5-flash','gpt-5.6-luna','claude-haiku-5-5']);
+ assert.deepEqual(Object.values(AI_PROVIDERS).map(p=>p.id),['gemini-3.5-flash-lite','gpt-5.6-luna','claude-haiku-5-5']);
  const request=normalizeAiRequest({...selection,url:'https://private.test/',key:'never-send',locale:'zh-CN'});
  const prompt=explanationMessages(request);
  assert.match(prompt.system,/Simplified Chinese/);assert.match(prompt.system,/untrusted/);
@@ -78,7 +78,7 @@ test('each provider uses its fixed HTTPS endpoint and headers rather than URL cr
   assert.equal(result.init.referrerPolicy,'no-referrer');assert.equal(result.init.body.includes('test-key'),false);
   const body=JSON.parse(result.init.body);
   if(provider==='openai')assert.equal(body.store,false);
-  else if(provider==='gemini')assert.equal(body.generationConfig.thinkingConfig.thinkingBudget,0);
+  else if(provider==='gemini')assert.deepEqual(body.generationConfig.thinkingConfig,{thinkingLevel:'minimal'});
   else assert.deepEqual(body.thinking,{type:'disabled'});
  }
 });
@@ -256,7 +256,7 @@ test('connection checks use bounded plain JSON generation with fixed models and 
   const payload=provider==='gemini'?{candidates:[{content:{parts:[{text:'OK'}]},finishReason:'STOP'}]}:provider==='openai'?{output:[{type:'message',content:[{type:'output_text',text:'OK'}]}]}:{content:[{type:'text',text:'OK'}]};
   await testConnection(provider,'test-key-not-real',{signal:new AbortController().signal,fetcher:async(url,init)=>{
    const body=JSON.parse(init.body);assert.equal(init.headers.Accept,'application/json');assert.equal(init.credentials,'omit');assert.equal(init.redirect,'error');assert.equal(init.body.includes('test-key-not-real'),false);assert.equal(init.body.includes('selected_text'),false);
-   if(provider==='gemini'){assert.equal(url,'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent');assert.equal(body.generationConfig.maxOutputTokens,32);assert.equal(body.generationConfig.thinkingConfig.thinkingBudget,0);}
+   if(provider==='gemini'){assert.equal(url,'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent');assert.equal(body.generationConfig.maxOutputTokens,32);assert.deepEqual(body.generationConfig.thinkingConfig,{thinkingLevel:'minimal'});}
    else{assert.equal(url,AI_PROVIDERS[provider].endpoint);assert.equal(body.model,AI_PROVIDERS[provider].id);assert.equal(body.stream,false);assert.equal(body.max_output_tokens||body.max_tokens,32);}
    return Response.json(payload);
   }});

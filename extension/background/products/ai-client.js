@@ -9,7 +9,7 @@ export function providerRequest(provider, key, system, messages) {
   } else if (provider === 'gemini') {
     headers['x-goog-api-key'] = key;
     body = { systemInstruction: { parts: [{ text: system }] }, contents: messages.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })),
-      generationConfig: { maxOutputTokens: 2048, thinkingConfig: { thinkingBudget: 0 } } };
+      generationConfig: { maxOutputTokens: 2048, thinkingConfig: { thinkingLevel: 'minimal' } } };
   } else {
     headers['x-api-key'] = key; headers['anthropic-version'] = '2023-06-01';
     headers['anthropic-dangerous-direct-browser-access'] = 'true';

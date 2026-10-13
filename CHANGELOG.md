@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.2.5 — 2026-10-13
+
+- Update Google Gemini to Gemini 3.5 Flash-Lite for explanations and connection tests, with compatible request settings and existing saved keys preserved.
+
 ## 3.2.4 — 2026-10-13
 
 - Redesign saved API keys as per-service rows with separate add/replace inputs, connection testing, Stop and individual deletion.

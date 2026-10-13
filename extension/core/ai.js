@@ -1,7 +1,7 @@
 // Public configuration only. API credentials never enter Settings snapshots or
 // the opaque PDF sandbox.
 export const AI_PROVIDERS = Object.freeze({
-  gemini: Object.freeze({ label: 'Google Gemini', model: 'Gemini 2.5 Flash', id: 'gemini-2.5-flash', endpoint: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse' }),
+  gemini: Object.freeze({ label: 'Google Gemini', model: 'Gemini 3.5 Flash-Lite', id: 'gemini-3.5-flash-lite', endpoint: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:streamGenerateContent?alt=sse' }),
   openai: Object.freeze({ label: 'OpenAI', model: 'GPT-5.6 Luna', id: 'gpt-5.6-luna', endpoint: 'https://api.openai.com/v1/responses' }),
   claude: Object.freeze({ label: 'Anthropic Claude', model: 'Claude Haiku 5.5', id: 'claude-haiku-5-5', endpoint: 'https://api.anthropic.com/v1/messages' })
 });
