@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.2.2 — 2026-10-13
+
+- Remove the AI toolbar button’s background while retaining its neutral icon and off-state indicator.
+- Make AI explanations adapt to keywords and longer selections without a fixed answer template, and phrase requests naturally from the reader’s perspective.
+
 ## 3.2.1 — 2026-10-13
 
 - Add Bring Your Own AI via Subscription for ChatGPT and Claude, alongside Built-in AI via API, with radio choices and website mode selected by default.

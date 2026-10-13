@@ -114,7 +114,7 @@ header button:hover,header select:hover{background:var(--surface-raised)}
 header #ocr-toggle[aria-busy=true]{color:var(--text);background:var(--surface-raised)}
 #ai-toggle[aria-pressed=false] svg>path:first-child{opacity:.45}
 #ai-toggle[aria-pressed=true] .ai-off-mark{display:none}
-#ai-toggle[aria-pressed=true]{background:var(--surface-raised)}
+header #ai-toggle,header #ai-toggle:hover{background:transparent}
 .ai-off-mark{fill:none;stroke:currentColor;stroke-width:1.5}
 #ai-selection{position:fixed;z-index:15;padding:8px 12px;font-size:14px;min-height:36px;background:var(--surface);color:var(--text);border:1px solid var(--line);border-radius:9px;box-shadow:0 3px 12px #0003}
 #ai-panel{position:absolute;inset:0 0 0 auto;width:min(390px,92vw);padding:18px;display:flex;flex-direction:column;gap:12px;background:var(--surface);color:var(--text);border-left:1px solid var(--line);z-index:3;overflow:auto;font-size:15px}
