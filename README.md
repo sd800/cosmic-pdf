@@ -20,7 +20,7 @@ Recognize scanned pages in English, Simplified Chinese or Traditional Chinese, i
 
 ## Explain with AI
 
-Select a passage to clarify its meaning or ask a follow-up question. Choose **Built-in AI via API** for answers inside Cosmic PDF using your own Google Gemini, OpenAI or Claude API key, or **Bring Your Own AI via Subscription** to use your existing ChatGPT or Claude website account without an API key. The website opens beside the PDF where supported, otherwise in the next tab. The sparkle switch controls the selection button. Only your chosen text and nearby context you opt to include are passed along.
+Select a passage to clarify its meaning or ask a follow-up question. Choose **Built-in AI via API** for answers inside Cosmic PDF using your own Google Gemini, OpenAI or Claude API key, or **Bring Your Own AI via Subscription** to use your existing ChatGPT or Claude website account without an API key. The website opens beside the PDF where supported, otherwise in the next tab. The sparkle switch controls the selection button. Only your chosen text and nearby context when enabled are passed along.
 
 ## Make it yours
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.2.6 — 2026-10-13
+
+- Enable Include nearby paragraphs by default while preserving existing saved preferences.
+
 ## 3.2.5 — 2026-10-13
 
 - Update Google Gemini to Gemini 3.5 Flash-Lite for explanations and connection tests, with compatible request settings and existing saved keys preserved.

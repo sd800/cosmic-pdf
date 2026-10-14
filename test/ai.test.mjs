@@ -16,7 +16,9 @@ function repository(){
  const values=new Map();return {values,async get(key){return structuredClone(values.get(key));},async set(key,value){values.set(key,structuredClone(value));},async remove(key){values.delete(key);},async clear(){values.clear();}};
 }
 test('AI defaults, fixed models and bounded explicit requests do not include credentials or document URLs',()=>{
- assert.equal(DEFAULTS.aiEnabled,false);assert.equal(DEFAULTS.aiIncludeContext,false);
+ assert.equal(DEFAULTS.aiEnabled,false);assert.equal(DEFAULTS.aiIncludeContext,true);
+ assert.equal(normalizeSettings({}).aiIncludeContext,true);
+ for(const enabled of [false,true])assert.equal(normalizeSettings({aiIncludeContext:enabled}).aiIncludeContext,enabled);
  assert.equal(normalizeSettings({aiProvider:'evil',aiLanguage:'zh-TW',apiKey:'not-a-setting'}).aiProvider,'gemini');
  assert.equal(normalizeSettings({apiKey:'not-a-setting'}).apiKey,undefined);
  assert.deepEqual(Object.values(AI_PROVIDERS).map(p=>p.id),['gemini-3.5-flash-lite','gpt-5.6-luna','claude-haiku-5-5']);
@@ -164,7 +166,7 @@ test('private readers cannot access keys, and trusted context preferences remove
  const runtime={id:'test',getURL:path=>'chrome-extension://test/'+path};
  const sender=path=>({id:'test',frameId:0,tab:{id:7},url:runtime.getURL(path)});
  const vault=createApiVault(repository());await vault.save('gemini','test-key-not-real');
- let prompt;const product=createAiExplanationProduct({runtime,vault,read:async()=>normalizeSettings({aiEnabled:true,aiMode:'api'}),stream:async(_p,_k,input,{onText})=>{prompt=input;onText('answer');return 'answer';}});
+ let prompt;const product=createAiExplanationProduct({runtime,vault,read:async()=>normalizeSettings({aiEnabled:true,aiMode:'api',aiIncludeContext:false}),stream:async(_p,_k,input,{onText})=>{prompt=input;onText('answer');return 'answer';}});
  const privateSettings={...sender('settings/index.html'),tab:{id:8,incognito:true}};
  assert.deepEqual(await product.handleMessage({type:'AI_STATUS'},privateSettings),{keys:{},private:true});
  await assert.rejects(product.handleMessage({type:'AI_DELETE_ALL_KEYS'},privateSettings),/disabled/);
@@ -235,7 +237,7 @@ test('web opening rejects wrong callers, stale documents and API mode; trusted p
  const h=websiteHarness();
  for(const change of [{id:'other'},{frameId:1},{documentId:''},{url:'https://evil.test/'},{url:h.sender.url+'.evil'}])await assert.rejects(h.product.open({id:'wrong',request:selection},{...h.sender,...change}),/invalidRequest/);
  h.contexts[0].documentId='another-document';await assert.rejects(h.open('stale'),/cancelled/);assert.equal(h.created.length,0);h.contexts[0].documentId=h.sender.documentId;
- h.settings={aiMode:'api'};await assert.rejects(h.open('api'),/disabled/);h.settings={aiMode:'subscription'};
+ h.settings={aiMode:'api'};await assert.rejects(h.open('api'),/disabled/);h.settings={aiMode:'subscription',aiIncludeContext:false};
  await h.open('context',{request:{...selection,context:'unapproved nearby text',url:'https://private.test/',provider:'evil'}});
  const query=new URL(h.created[0].url).searchParams.get('q');assert.equal(query.includes('unapproved nearby text'),false);assert.equal(query.includes('private.test'),false);
 });

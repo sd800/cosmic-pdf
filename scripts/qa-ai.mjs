@@ -45,6 +45,7 @@ export async function runAiQa({context,worker,page,settings,open,report,folder})
   const {version}=JSON.parse(await readFile('extension/manifest.json','utf8'));const out=resolve('test-dist/ai-api-'+version);await mkdir(out,{recursive:true});
   const prefs=await context.newPage();await prefs.goto(settings);
   await prefs.waitForSelector('#aiLanguage');
+  assert.equal(await prefs.locator('#aiIncludeContext').isChecked(),true);await prefs.locator('#aiIncludeContext').uncheck();
   await prefs.locator('#ai-mode-api').check();
   await prefs.locator('#locale').selectOption('en-US');await prefs.locator('#appearance').selectOption('light');
   await prefs.locator('#sampling').selectOption('1');
@@ -162,6 +163,7 @@ export async function prepareWebAiMock(ext,base){
 export async function runWebAiQa({context,worker,page,settings,open,report,base}){
   const out=resolve('test-dist/ai-subscription-3.2.1');await mkdir(out,{recursive:true});
   const prefs=await context.newPage();await prefs.goto(settings);await prefs.waitForSelector('#aiMode');
+  assert.equal(await prefs.locator('#aiIncludeContext').isChecked(),true);await prefs.locator('#aiIncludeContext').uncheck();
   await prefs.locator('#locale').selectOption('en-US');await prefs.locator('#sampling').selectOption('1');await prefs.locator('#appearance').selectOption('light');
   assert.equal(await prefs.locator('#ai-mode-subscription').isChecked(),true);
   assert.deepEqual(await prefs.locator('#aiMode input').evaluateAll(nodes=>nodes.map(n=>n.value)),['api','subscription']);

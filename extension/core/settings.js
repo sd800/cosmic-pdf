@@ -2,7 +2,7 @@ import { normalizeOcrLanguages, DEFAULT_OCR_LANGUAGES } from './ocr-languages.js
 export const TOOLBAR_ACTIONS = Object.freeze(['pages','find','paging','zoom','fit','rotate','fullscreen','ocr','print','properties','native']);
 const DEFAULT_HIDDEN = new Set(['find','paging','fit','print','properties','native']);
 export const DEFAULTS = Object.freeze({ enabled:true, locale:'auto', appearance:'auto', preserveDarkPaper:true, sampling:4, sharpening:false,
-  aiEnabled:false, aiMode:'subscription', aiWebsite:'chatgpt', aiProvider:'gemini', aiLanguage:'auto', aiIncludeContext:false,
+  aiEnabled:false, aiMode:'subscription', aiWebsite:'chatgpt', aiProvider:'gemini', aiLanguage:'auto', aiIncludeContext:true,
   zoom:'1', gap:16, showFilename:true, showBranding:false, toolbarHidden:Object.freeze({}), sidebar:false, links:true, captureLinks:true, motion:true, darkStrength:.96,
   propertyDateFormat:'auto', useChromeFind:true, ocrAction:'page', ocrLanguages:DEFAULT_OCR_LANGUAGES, ocrQuality:2, ocrLayout:'3' });
 const choices = { locale:['auto','en-US','zh-CN'], appearance:['auto','light','dark'], sampling:[1,2,3,4,5,6],

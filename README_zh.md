@@ -20,7 +20,7 @@ Cosmic PDF 是一款提供 PDF 阅读深色模式的 Chrome 扩展，配备可�
 
 ## AI 解释
 
-选取一段文字，解释其含义或继续提问。选择**内置 AI（API）**，使用您自己的 Google Gemini、OpenAI 或 Claude API 密钥在 Cosmic PDF 中查看回答；也可选择**自带 AI（订阅账号）**，直接使用已有的 ChatGPT 或 Claude 网页账号，无需 API 密钥。支持时在 PDF 旁分屏打开网站，否则打开相邻标签页。星芒开关控制选中文字时是否显示解释按钮，仅传递您选择的文字和主动附带的附近内容。
+选取一段文字，解释其含义或继续提问。选择**内置 AI（API）**，使用您自己的 Google Gemini、OpenAI 或 Claude API 密钥在 Cosmic PDF 中查看回答；也可选择**自带 AI（订阅账号）**，直接使用已有的 ChatGPT 或 Claude 网页账号，无需 API 密钥。支持时在 PDF 旁分屏打开网站，否则打开相邻标签页。星芒开关控制选中文字时是否显示解释按钮，仅传递您选择的文字和该选项开启时的附近内容。
 
 ## 自定义
 
