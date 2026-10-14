@@ -45,3 +45,9 @@ PDF 阅读和 OCR 均在本机进行。文档、识别结果和内置 AI 对话�
 ## 开发
 
 运行 `npm test` 和 `npm run check`。参见[技术文档](docs/TECHNICAL.md)、[浏览器验证说明](docs/QA.md)，以及随扩展打包的 [`extension/vendor/`](extension/vendor/) 中的第三方许可证和声明。
+
+## 发布下载包
+
+[安装包下载](https://cpdf.songming.org/downloads/cosmic-pdf.zip) · [完整源码下载](https://cpdf.songming.org/downloads/cosmic-pdf-source.zip)。解压后，在 Chrome「加载已解压的扩展程序」中选择 `extension` 文件夹。
+
+发布更新前运行 `python3 scripts/build-downloads.py`，将重新生成的 `downloads/` 文件随版本一并提交。

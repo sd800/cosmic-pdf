@@ -28,10 +28,10 @@ Settings cover appearance, toolbar layout, 1×–6× rendering quality, optional
 
 ## Install
 
-Requires Chrome 128 or later.
+Requires Chrome 128 or later. [Download the installation ZIP](https://cpdf.songming.org/downloads/cosmic-pdf.zip), then unzip it. The [complete source package](https://cpdf.songming.org/downloads/cosmic-pdf-source.zip) is available separately.
 
 1. Open `chrome://extensions` and enable **Developer mode**.
-2. Choose **Load unpacked** and select this repository's `extension` directory.
+2. Choose **Load unpacked** and select the `extension` directory inside the unzipped package (or this repository).
 3. Pin **Cosmic PDF** if you want quick access to the file picker. Settings are available from the reader or the extension's options menu.
 
 To open `file://` PDF links automatically, enable **Allow access to file URLs** in Chrome's extension details, then reopen the extension or its Settings. Selecting or dropping a file works without that permission.
@@ -44,4 +44,4 @@ PDF reading and OCR run on this device. Documents, recognition results and built
 
 ## Development
 
-Run `npm test` and `npm run check`. See [technical documentation](docs/TECHNICAL.md), [browser QA](docs/QA.md) and licenses and notices bundled under [`extension/vendor/`](extension/vendor/).
+Run `npm test` and `npm run check`. Before publishing an update, run `python3 scripts/build-downloads.py` and commit the regenerated `downloads/` files with the release. See [technical documentation](docs/TECHNICAL.md), [browser QA](docs/QA.md) and licenses and notices bundled under [`extension/vendor/`](extension/vendor/).

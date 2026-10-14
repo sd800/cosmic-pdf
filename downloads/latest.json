@@ -1,0 +1,16 @@
+{
+  "version": "3.2.8",
+  "minimumChromeVersion": "128",
+  "packages": {
+    "extension": {
+      "url": "https://cpdf.songming.org/downloads/cosmic-pdf.zip",
+      "bytes": 11010017,
+      "sha256": "62460afa68af0f7f8b1ea6ed8ce65cc77dce53922068a5226ecc4ea8befa2c20"
+    },
+    "source": {
+      "url": "https://cpdf.songming.org/downloads/cosmic-pdf-source.zip",
+      "bytes": 11120829,
+      "sha256": "31fadd71ed9992192062d348a6c998751cdf7fc5dc383e407cdad63b376854c0"
+    }
+  }
+}

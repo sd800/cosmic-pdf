@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.2.8 — 2026-10-14
+
+- Add direct installation and source downloads with reproducible local packaging.
+
 ## 3.2.7 — 2026-10-14
 
 - Clean up repository maintenance files.
