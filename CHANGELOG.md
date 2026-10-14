@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.2.7 — 2026-10-14
+
+- Clean up repository maintenance files.
+
 ## 3.2.6 — 2026-10-13
 
 - Enable Include nearby paragraphs by default while preserving existing saved preferences.

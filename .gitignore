@@ -7,3 +7,4 @@ sidenote/
 .env*
 coverage/
 test-dist/
+/g.sh
