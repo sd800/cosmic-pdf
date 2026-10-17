@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.2.11 — 2026-10-17
+
+- Align the concise completion status to the right of the AI model name and tighten nearby-context control spacing.
+
 ## 3.2.10 — 2026-10-17
 
 - Start API explanations at the answer opening and follow-ups at the question, without automatic scrolling as replies stream.

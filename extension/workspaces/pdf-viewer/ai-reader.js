@@ -7,7 +7,7 @@ const copy = {
   selected:'Selected passage',page:'Page',intro:'Select text on a PDF page, then choose Explain with AI.',
   privacy:'Only the selected passage and any nearby text you choose to include are sent to your selected AI service.',
   context:'Include nearby paragraphs',again:'Explain again',ask:'Ask a follow-up',send:'Send',placeholder:'Ask about this passage…',stop:'Stop',
-  clear:'Clear conversation',working:'Explaining…',complete:'Explanation complete.',settings:'Open Settings',missing:'Add an API key in Settings to start.',
+  clear:'Clear conversation',working:'Explaining…',complete:'Complete',settings:'Open Settings',missing:'Add an API key in Settings to start.',
   private:'AI explanations are available in regular browsing windows.',
   auth:'The service did not accept the saved key. Check it in Settings.',quota:'This service’s quota or usage limit has been reached.',
   unavailable:'The explanation could not finish. Please try again.',network:'Could not connect. Check your network and access to the service.',service:'The service is temporarily unavailable. Try again later.',incomplete:'The service returned an incomplete or unexpected response. Try again.',access:'The service denied access. Check the API key’s project permissions and restrictions.',accountSetup:'The service requires changes to the project, billing or regional settings. Check your service account.',serviceDisabled:'Enable the service API for this key’s project.',modelUnavailable:'The selected model is unavailable to this API key.',requestRejected:'The service rejected the request configuration. Update the extension or check service compatibility.',timeout:'The service took too long to respond.',empty:'The service returned no explanation.',
@@ -22,7 +22,7 @@ const copy = {
   selected:'选中文字',page:'页',intro:'选取 PDF 页面上的文字，再点击「使用 AI 解释」。',
   privacy:'仅将选中文字和您选择附带的附近文字发送至所选 AI 服务。',
   context:'包含附近段落',again:'重新解释',ask:'继续提问',send:'发送',placeholder:'针对这段内容提问…',stop:'停止',
-  clear:'清除对话',working:'正在解释…',complete:'解释完成。',settings:'打开设置',missing:'请先在设置中添加 API 密钥。',
+  clear:'清除对话',working:'正在解释…',complete:'完成',settings:'打开设置',missing:'请先在设置中添加 API 密钥。',
   private:'AI 解释在普通浏览窗口中提供。',
   auth:'服务未接受已保存的密钥，请在设置中检查。',quota:'已达到此服务的额度或使用上限。',
   unavailable:'未能完成解释，请重试。',network:'无法建立连接，请检查网络及服务访问情况。',service:'服务暂时不可用，请稍后重试。',incomplete:'服务返回的内容不完整或格式异常，请重试。',access:'服务拒绝访问，请检查 API 密钥的项目权限及使用限制。',accountSetup:'服务要求调整项目、结算或地区设置，请检查服务账号。',serviceDisabled:'请为此密钥所属项目启用相应 API 服务。',modelUnavailable:'此 API 密钥无法使用所选模型。',requestRejected:'服务拒绝了请求配置，请更新插件或检查服务兼容性。',timeout:'服务响应超时。',empty:'服务未返回解释内容。',
@@ -96,6 +96,7 @@ export function createAiReader({settings,post,getPdf,getLocale,signal,onBusy=()=
     $('ai-question').disabled=$('ai-send').disabled=blocked;
     $('ai-settings').hidden=!!configured && notice!=='auth' && notice!=='keyMissing';
     $('ai-form').hidden=$('ai-messages').hidden=$('ai-model').hidden=subscription();
+    $('ai-meta').hidden=!notice&&(subscription()||!$('ai-model').textContent);
     $('ai-web-handoff').hidden=!subscription()||!copyRequired;
     $('ai-web-help').textContent=text.webHelp;$('ai-web-copy').textContent=text.copyQuestion;$('ai-web-open').textContent=text.openWebsite;
     $('ai-web-open').disabled=!!active||!source||!enabled();
