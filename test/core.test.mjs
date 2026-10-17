@@ -1,3 +1,4 @@
+import { isAppearanceMode, resolveReaderAppearance, toggleReaderAppearance } from '../extension/core/appearance.js';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';import assert from 'node:assert/strict';
 import { DEFAULTS,normalizeSettings,uiLocale,toolbarMode,TOOLBAR_ACTIONS,hiddenToolbarActions } from '../extension/core/settings.js';
@@ -324,4 +325,20 @@ test('automatic OCR debounces empty current pages, preserves manual priority and
  page=3;automatic.observe(3,false,true);assert.equal(timers.size,0);automatic.observe(3,false);results.add(3);await flush();assert.deepEqual(calls,[2]);
  page=5;automatic.observe(5,false);await flush();assert.deepEqual(calls,[2,5]);results.delete(5);automatic.evicted(5);automatic.request();await flush();assert.deepEqual(calls,[2,5,5]);
  page=4;automatic.observe(4,false);abort.abort();await flush();assert.deepEqual(calls,[2,5,5]);assert.equal(timers.size,0);
+});
+
+test('reader appearance choices follow the system only in Auto and never alter configured defaults',()=>{
+ for(const configured of ['auto','light','dark'])for(const systemDark of [false,true]){
+  assert.equal(resolveReaderAppearance(configured,'auto',systemDark).dark,systemDark);
+  assert.deepEqual(resolveReaderAppearance(configured,'light',systemDark),{dark:false,mode:'light'});
+  assert.deepEqual(resolveReaderAppearance(configured,'dark',systemDark),{dark:true,mode:'dark'});
+  const base=configured==='dark'||configured==='auto'&&systemDark;
+  assert.equal(resolveReaderAppearance(configured,null,systemDark).dark,base);
+  assert.equal(resolveReaderAppearance(configured,'opposite',systemDark).dark,!base);
+  assert.equal(toggleReaderAppearance(configured,null,systemDark),'opposite');
+  assert.equal(toggleReaderAppearance(configured,'opposite',systemDark),null);
+  for(const mode of ['auto','light','dark'])assert.equal(resolveReaderAppearance(configured,toggleReaderAppearance(configured,mode,systemDark),systemDark).dark,!resolveReaderAppearance(configured,mode,systemDark).dark);
+ }
+ for(const value of [null,undefined,'opposite','DARK','__proto__',{},true])assert.equal(isAppearanceMode(value),false);
+ for(const value of ['auto','light','dark'])assert.equal(isAppearanceMode(value),true);
 });

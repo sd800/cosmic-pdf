@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.2.18 — 2026-10-17
+
+- Add a right-click appearance menu with Auto, Light and Dark choices, while keeping one-click switching.
+
 ## 3.2.17 — 2026-10-17
 
 - Add a subtle divider below the AI model and status row, with matching model and status text sizes.

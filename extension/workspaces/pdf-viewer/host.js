@@ -1,10 +1,12 @@
+import { isAppearanceMode } from '../../core/appearance.js';
 import { createAiBridge } from '../pdf-reader/ai-bridge.js';
 import { normalizeSettings } from '../../core/settings.js';
 import { PDF_LIMITS } from './model.js';
 // This host is the only connection to a product. The opaque viewer has no
 // extension APIs, storage access, network capability, or arbitrary command channel.
 // The validated source URL is passed only as inert text for Document properties.
-export function createPdfViewer({ container, locale, sampling, settings, filename = 'PDF', documentUrl = '', canUseNative = false, sharpening = false, dark, onDownload, onNative, onSettings, onTheme, onReady, onError, onAiPreference }) {
+export function createPdfViewer({ container, locale, sampling, settings, filename = 'PDF', documentUrl = '', canUseNative = false, sharpening = false, dark, themeMode, onDownload, onNative, onSettings, onTheme, onReady, onError, onAiPreference }) {
+  themeMode = isAppearanceMode(themeMode) ? themeMode : normalizeSettings(settings).appearance;
   const iframe = document.createElement('iframe');
   iframe.className = 'pdf-viewer-frame'; iframe.title = 'PDF Viewer';
   iframe.referrerPolicy = 'no-referrer';
@@ -56,7 +58,7 @@ export function createPdfViewer({ container, locale, sampling, settings, filenam
     else if (data.type === 'download') onDownload();
     else if (data.type === 'native') onNative();
     else if (data.type === 'settings') onSettings();
-    else if (data.type === 'theme') onTheme();
+    else if (data.type === 'theme') { if (data.mode === undefined) onTheme(); else if (isAppearanceMode(data.mode)) onTheme(data.mode); }
     else if (data.type === 'fullscreen') {
       // User activation from the reader reaches its ancestor. Fullscreen belongs
       // to the trusted host; the opaque sandbox never receives extra privileges.
@@ -67,7 +69,7 @@ export function createPdfViewer({ container, locale, sampling, settings, filenam
   };
   iframe.addEventListener('load', () => {
     if (closed) return;
-    iframe.contentWindow.postMessage({ type: 'CP_PDF_INIT', filename, documentUrl, canUseNative, locale, settings, sampling, sharpening: sharpening === true, dark }, '*', [channel.port2]);
+    iframe.contentWindow.postMessage({ type: 'CP_PDF_INIT', filename, documentUrl, canUseNative, locale, settings, sampling, sharpening: sharpening === true, dark, themeMode }, '*', [channel.port2]);
     frameLoaded = true; sendDocument();
   }, { once: true });
   container.append(iframe);
@@ -104,7 +106,7 @@ export function createPdfViewer({ container, locale, sampling, settings, filenam
       if (!closed) channel.port1.postMessage({ type: 'dark-paper', enabled: settings.preserveDarkPaper });
     },
     setSharpening(value) { if (!closed) { sharpening = value === true; channel.port1.postMessage({ type: 'sharpening', enabled: sharpening }); } },
-    setTheme(nextDark) { dark = !!nextDark; if (!closed) channel.port1.postMessage({ type: 'theme', dark }); },
+    setTheme(nextDark, mode) { dark = !!nextDark; if (isAppearanceMode(mode)) themeMode = mode; if (!closed) channel.port1.postMessage({ type: 'theme', dark, themeMode }); },
     destroy
   };
 }

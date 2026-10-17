@@ -124,7 +124,53 @@ try{
   await saved.delete();
  }
  // PDF_QA=ocr-priority runs only the text-layer handover regression.
- if(process.env.PDF_QA==='selection'){
+ if(process.env.PDF_QA==='appearance'){
+  const prefs=await context.newPage();observe(prefs);await prefs.goto(settings);await prefs.waitForSelector('#appearance');
+  await prefs.locator('#appearance').selectOption('dark');await prefs.locator('#sampling').selectOption('1');
+  await prefs.waitForFunction(async()=>{const s=(await chrome.storage.local.get('settings')).settings;return s.appearance==='dark'&&s.sampling===1;});
+  await page.emulateMedia({colorScheme:'light'});
+  const frame=await open('/appearance');
+  const menu=frame.locator('#appearance-menu'),trigger=frame.locator('#theme');
+
+  async function dark(value){await frame.waitForFunction(v=>document.documentElement.dataset.dark===String(v),value);await page.waitForFunction(v=>document.documentElement.dataset.dark===String(v),value);}
+  async function show(keyboard=false){
+    if(keyboard){await trigger.focus();await trigger.press('Shift+F10');}else await trigger.click({button:'right'});
+    await frame.waitForSelector('#appearance-menu:popover-open',{timeout:5000});
+    assert.equal(await menu.locator('[role=menuitemradio]').count(),3);
+  }
+  async function choose(mode,label){await show();await menu.getByRole('menuitemradio',{name:label,exact:true}).click();await frame.waitForFunction(()=>!document.querySelector('#appearance-menu').matches(':popover-open'));await show();assert.equal(await menu.locator('[aria-checked=true]').getAttribute('data-mode'),mode);await page.keyboard.press('Escape');}
+  await dark(true);await show();assert.deepEqual(await menu.locator('button span:last-child').allTextContents(),['Auto','Light','Dark']);
+  assert.equal(await menu.locator('[aria-checked=true]').getAttribute('data-mode'),'dark');await page.keyboard.press('Escape');
+  await choose('auto','Auto');await dark(false);
+  await page.emulateMedia({colorScheme:'dark'});await dark(true);
+  await choose('light','Light');await dark(false);
+  await page.emulateMedia({colorScheme:'light'});await page.emulateMedia({colorScheme:'dark'});await dark(false);
+  await choose('dark','Dark');await dark(true);
+  await page.emulateMedia({colorScheme:'light'});await dark(true);
+  await trigger.click();await dark(false);await trigger.click();await dark(true);
+  await choose('auto','Auto');await dark(false);
+  await show();await frame.locator('#viewport').click({position:{x:10,y:10}});
+  await frame.waitForFunction(()=>!document.querySelector('#appearance-menu').matches(':popover-open'));await dark(false);
+  assert.equal(await prefs.locator('#appearance').inputValue(),'dark','reader choices do not rewrite global appearance');
+  await prefs.locator('#locale').selectOption('zh-CN');
+  await frame.waitForFunction(()=>document.documentElement.lang==='zh-CN');
+  await show(true);assert.deepEqual(await menu.locator('button span:last-child').allTextContents(),['自动','浅色','深色']);
+  assert.equal(await trigger.getAttribute('title'),'切换浅色／深色模式');
+  await menu.getByRole('menuitemradio',{name:'自动',exact:true}).press('ArrowDown');
+  assert.equal(await frame.evaluate(()=>document.activeElement.dataset.mode),'light');
+  await page.keyboard.press('Escape');assert.equal(await trigger.evaluate(n=>document.activeElement===n),true);
+  await show();await frame.locator('#settings').click();
+  await frame.waitForSelector('#more-actions:popover-open');
+  assert.equal(await menu.evaluate(n=>n.matches(':popover-open')),false);
+  await page.keyboard.press('Escape');
+  await show();await menu.getByRole('menuitemradio',{name:'深色',exact:true}).click();await dark(true);
+  const out=resolve('test-dist/appearance-'+JSON.parse(await readFile('extension/manifest.json','utf8')).version);
+  const fs=await import('node:fs/promises');await fs.mkdir(out,{recursive:true});
+  await show();await page.screenshot({path:join(out,'appearance-menu.png')});await page.keyboard.press('Escape');
+  report.checks.push('right-click Auto/Light/Dark, checked mode, explicit Auto with frozen Dark default, live system changes, fixed overrides, unchanged global preference, left-click toggling, outside dismissal, keyboard focus and live Chinese labels');
+  await fs.writeFile(join(out,'README.md'),'# Appearance menu regression\n\nRun PDF_QA=appearance with scripts/test-browser.mjs in the isolated test browser. Uses an authored local PDF and sampling 1. Checks mouse and keyboard menu operation, all three modes, device changes, unchanged saved default, original click/tooltip behavior, dismissal and live Chinese. No real documents, user Chrome, API credentials or remote requests.\n');
+  await fs.writeFile(join(out,'report.json'),JSON.stringify(report,null,2)+'\n');
+ }else if(process.env.PDF_QA==='selection'){
   await runSelectionQa({context,worker,page,open,report,base,setScan:bytes=>{englishScan=bytes;}});
  }else if(process.env.PDF_QA==='ai-web'){
   await runWebAiQa({context,worker,page,settings,open,report,base});

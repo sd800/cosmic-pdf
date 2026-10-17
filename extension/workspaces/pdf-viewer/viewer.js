@@ -1,3 +1,5 @@
+import { createAppearanceMenu } from './appearance-menu.js';
+import { isAppearanceMode } from '../../core/appearance.js';
 import { createAiReader } from './ai-reader.js';
 import { bindPdfSelection } from './selection.js';
 import { showReaderDialog } from './dialog.js';
@@ -27,6 +29,7 @@ void workerReady.catch(() => {});
 let firstPageReady = false, themeDark = false, darkPaper;
 let aiReader;
 const readingSelection = bindPdfSelection({ pages: $('pages'), signal, onClear: () => aiReader?.dismissSelection() });
+let themeMode = 'auto', appearanceMenu;
 let customZoomScale = null, toolbarMenu, externalLinksCapture, linkRequest = 0;
 let thumbnailObserver, thumbnailTask, thumbnailBusy = false, thumbnailGeneration = 0, outlineLoaded = false;
 const nearThumbnails = new Set(), thumbnailCache = new Map(), printUrls = new Set();
@@ -53,12 +56,14 @@ function syncRenderProgress() {
     }, 200);
   }
 }
-function theme(dark) {
+function theme(dark, mode = themeMode) {
+  if (isAppearanceMode(mode)) themeMode = mode;
   themeDark = !!dark;
   document.documentElement.dataset.dark = String(themeDark); document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
   if (themeDark) for (const view of viewer?.getCachedPageViews() || []) updateDarkPaper(view);
   setReaderIcon($('theme'), dark ? 'sun' : 'moon');
   $('theme').title = text.theme; $('theme').setAttribute('aria-label', text.theme);
+  appearanceMenu?.refresh();
 }
 function toolbarPreferences(toolbar) {
   document.documentElement.dataset.toolbar = toolbar;
@@ -167,7 +172,7 @@ window.addEventListener('message', event => {
     else if (data?.type === 'ai-status') { aiReader?.status(data.state); ocr?.refreshAutomatic(); }
     else if (data?.type === 'clear-selection') readingSelection.clear();
     else if (data?.type === 'ai-event') aiReader?.event(data.event);
-    else if (data?.type === 'theme') theme(data.dark);
+    else if (data?.type === 'theme') theme(data.dark, data.themeMode);
     else if (data?.type === 'toolbar') {
       const next = normalizeSettings(data.toolbar);
       settings = { ...settings, showFilename: next.showFilename, showBranding: next.showBranding, toolbarHidden: next.toolbarHidden };
@@ -193,7 +198,7 @@ window.addEventListener('message', event => {
   localize(input.locale);
   setFilename(input.filename);
   setSharpening(input.sharpening);
-  theme(input.dark); status('loading', true);
+  theme(input.dark, input.themeMode); status('loading', true);
   setReaderIcons(document);
   aiReader=createAiReader({settings,post:message=>port?.postMessage(message),getPdf:()=>pdf,getLocale:()=>document.documentElement.lang,signal,onBusy:value=>{if(aiBusy!==value){aiBusy=value;paintProgress();}}});
   port.postMessage({type:'ai-refresh'});
@@ -201,6 +206,7 @@ window.addEventListener('message', event => {
   $('scale-input').value = (Number(settings.zoom) > 0 ? Math.round(Number(settings.zoom) * 100) : 100) + '%';
   toolbarMenu = createToolbarMenu({ text, signal, onSettings: () => emit('settings'), onOcrPanel: () => ocr?.openPanel(), canHoldOcr: () => settings.ocrAction !== 'panel', onFit: value => { if (viewer) viewer.currentScaleValue = value; } });
   toolbarMenu.update(settings);
+  appearanceMenu = createAppearanceMenu({text,signal,getMode:()=>themeMode,onChoose:mode=>port?.postMessage({type:'theme',mode})});
   // Keep form navigation forbidden by the sandbox, including method=dialog.
   // These controls only validate local input and close the local dialog.
   for (const form of document.querySelectorAll('dialog form')) {

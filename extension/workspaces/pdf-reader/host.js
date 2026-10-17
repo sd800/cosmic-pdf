@@ -1,3 +1,4 @@
+import { resolveReaderAppearance, toggleReaderAppearance, isAppearanceMode } from '../../core/appearance.js';
 import { readSettings, normalizeSettings, uiLocale, toolbarSignature } from '../../core/settings.js';
 import { sourceFromReader, READER_PATH, isPdf, filenameFrom, cleanFilename } from '../../core/source.js';
 import { createPdfViewer } from '../pdf-viewer/host.js';
@@ -18,10 +19,10 @@ function localize(nextLocale){
 localize(locale);document.documentElement.dataset.motion=String(settings.motion);
 let source=sourceFromReader(location.href,chrome.runtime.getURL(READER_PATH)), reader, original, blobURL, filename, controller, generation=0;
 let activeSettings=settings,appearanceOverride=null; const media=matchMedia('(prefers-color-scheme:dark)');
-function defaultDark(){return activeSettings.appearance==='dark'||(activeSettings.appearance==='auto'&&media.matches);}
-function currentDark(){return appearanceOverride===null?defaultDark():!defaultDark();}
-function applyTheme(){const dark=currentDark();document.documentElement.dataset.dark=String(dark);try{localStorage.setItem('appearance',settings.appearance);}catch{}reader?.setTheme(dark);return dark;}
-applyTheme();media.addEventListener('change',()=>{if(activeSettings.appearance==='auto')applyTheme();});
+function appearance(){return resolveReaderAppearance(activeSettings.appearance,appearanceOverride,media.matches);}
+function currentDark(){return appearance().dark;}
+function applyTheme(){const dark=currentDark();document.documentElement.dataset.dark=String(dark);try{localStorage.setItem('appearance',settings.appearance);}catch{}reader?.setTheme(dark,appearance().mode);return dark;}
+applyTheme();media.addEventListener('change',()=>{if(appearanceOverride==='auto'||(appearanceOverride===null||appearanceOverride==='opposite')&&activeSettings.appearance==='auto')applyTheme();});
 function setView(view){document.documentElement.dataset.view=view;}
 function fail(message){$('message').textContent=message; setView('home');}
 async function native(){if(source){const result=await chrome.runtime.sendMessage({type:'NATIVE_READER'}).catch(()=>null);if(!result?.ok){if(reader)reader.showError(text.nativeFailed);else fail(text.nativeFailed);}}else if(blobURL){try{await chrome.tabs.create({url:blobURL});}catch{reader?.showError(text.nativeFailed);}}}
@@ -51,13 +52,13 @@ async function load(loader, initialFilename='PDF'){
  const deadline=setTimeout(()=>current.abort(),60000);
  try{
   // Load the isolated rendering shell and its bundled worker while fetching the PDF.
-  const prepared=createPdfViewer({container:$('reader'),locale,settings,filename:cleanFilename(initialFilename),documentUrl:source||'',canUseNative:!!source,sampling:settings.sampling,sharpening:settings.sharpening,dark:applyTheme(),onNative:native,onSettings:openSettings,onAiPreference:(key,enabled)=>{
+  const prepared=createPdfViewer({container:$('reader'),locale,settings,filename:cleanFilename(initialFilename),documentUrl:source||'',canUseNative:!!source,sampling:settings.sampling,sharpening:settings.sharpening,dark:applyTheme(),themeMode:appearance().mode,onNative:native,onSettings:openSettings,onAiPreference:(key,enabled)=>{
     void chrome.runtime.sendMessage({type:'SAVE_AI_PREFERENCE',key,enabled}).then(result=>{
       // Durable storage notifications publish successful edits. A late reply
       // must not repaint an older snapshot over a newer toolbar/context edit.
       if(run===generation&&!result?.ok)reader?.setAi(settings);
     },()=>{if(run===generation)reader?.setAi(settings);});
-  },onDownload:download,onTheme:()=>{appearanceOverride=appearanceOverride===null?'opposite':null;applyTheme();},onReady:()=>{if(run===generation){setView('reader');}},onError:()=>{if(run===generation&&!$('reader').querySelector('iframe')){reader=null;$('reader').hidden=true;fail(text.failed);}}});
+  },onDownload:download,onTheme:mode=>{appearanceOverride=isAppearanceMode(mode)?mode:toggleReaderAppearance(activeSettings.appearance,appearanceOverride,media.matches);applyTheme();},onReady:()=>{if(run===generation){setView('reader');}},onError:()=>{if(run===generation&&!$('reader').querySelector('iframe')){reader=null;$('reader').hidden=true;fail(text.failed);}}});
   reader=prepared;
   const result=await loader(current.signal);if(run!==generation)return;if(!isPdf(result.bytes))throw Error('format');
   filename=cleanFilename(result.filename);original=new Blob([result.bytes],{type:'application/pdf'});blobURL=URL.createObjectURL(original);document.title=filename+' — Cosmic PDF';
