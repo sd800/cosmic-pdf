@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.2.15 — 2026-10-17
+
+- Add a subtle divider above the AI follow-up area.
+
 ## 3.2.13 — 2026-10-17
 
 - Format API explanations with common Markdown, including emphasis, headings, unindented lists, quotes, code and tables, without running HTML or loading external content.
