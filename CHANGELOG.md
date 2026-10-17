@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.2.17 — 2026-10-17
+
+- Add a subtle divider below the AI model and status row, with matching model and status text sizes.
+
 ## 3.2.16 — 2026-10-17
 
 - Add a local AI test model, toggled with 1 in Settings, with local streaming explanations and varied follow-up samples without API calls.
