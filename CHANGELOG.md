@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.2.9 — 2026-10-17
+
+- Simplify the API explanation panel by removing the selected-passage preview and repeated provider notice, and shorten the smaller AI accuracy reminder.
+
 ## 3.2.8 — 2026-10-14
 
 - Add direct installation and source downloads with reproducible local packaging.

@@ -127,7 +127,7 @@ header #ai-toggle,header #ai-toggle:hover{background:transparent}
 .ai-message{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.7;font-size:15px;padding:12px 0;user-select:text}.ai-message+.ai-message{border-top:1px solid var(--line)}.ai-user{background:var(--surface-raised);border-radius:8px;padding:10px 12px;margin-top:12px}.ai-incomplete{opacity:.8}
 .ai-result-status{display:flex;align-items:center;justify-content:space-between;gap:10px}#ai-stop{flex:none}
 #ai-form{display:flex;flex-direction:column;gap:8px}#ai-ask-label{font-size:14px}#ai-question{resize:vertical;min-height:64px;max-height:180px;width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--surface-raised);color:var(--text);font-size:15px}
-.ai-form-actions{display:flex;justify-content:space-between;gap:10px}#ai-send{background:var(--blue);color:var(--on-blue);border-color:transparent}#ai-panel #ai-note,#ai-panel #ai-gemini-note{font-size:14px}
+.ai-form-actions{display:flex;justify-content:space-between;gap:10px}#ai-send{background:var(--blue);color:var(--on-blue);border-color:transparent}#ai-panel #ai-note{font-size:13px}
 :root:lang(zh-CN) #ai-selection{letter-spacing:.04em}
 @media(max-width:850px){:root[data-ai-open=true] #viewport{right:0}#ai-panel{box-shadow:-4px 0 18px #0003}}
 @media print{#ai-selection,#ai-panel{display:none!important}}

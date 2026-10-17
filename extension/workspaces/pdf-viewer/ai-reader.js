@@ -8,13 +8,13 @@ const copy = {
   privacy:'Only the selected passage and any nearby text you choose to include are sent to your selected AI service.',
   context:'Include nearby paragraphs',again:'Explain again',ask:'Ask a follow-up',send:'Send',placeholder:'Ask about this passage…',stop:'Stop',
   clear:'Clear conversation',working:'Explaining…',complete:'Explanation complete.',settings:'Open Settings',missing:'Add an API key in Settings to start.',
-  private:'AI explanations are available in regular browsing windows.',sensitive:'Google’s free-tier data policy differs from its paid tier. Use the appropriate API plan for private documents.',
+  private:'AI explanations are available in regular browsing windows.',
   auth:'The service did not accept the saved key. Check it in Settings.',quota:'This service’s quota or usage limit has been reached.',
   unavailable:'The explanation could not finish. Please try again.',network:'Could not connect. Check your network and access to the service.',service:'The service is temporarily unavailable. Try again later.',incomplete:'The service returned an incomplete or unexpected response. Try again.',access:'The service denied access. Check the API key’s project permissions and restrictions.',accountSetup:'The service requires changes to the project, billing or regional settings. Check your service account.',serviceDisabled:'Enable the service API for this key’s project.',modelUnavailable:'The selected model is unavailable to this API key.',requestRejected:'The service rejected the request configuration. Update the extension or check service compatibility.',timeout:'The service took too long to respond.',empty:'The service returned no explanation.',
   blocked:'The service could not explain this passage.',limit:'This explanation reached its limit. Select a shorter passage or start a new explanation.',
   invalidRequest:'Select a shorter passage or start a new explanation.',disabled:'Turn on AI explanations to continue.',keyMissing:'Add an API key in Settings to start.',
   cancelled:'Explanation stopped.',permission:'This document does not allow text extraction.',tooLong:'Select up to 8,000 characters.',
-  historyLimit:'Start a new explanation to continue.',finishedNote:'AI explanations can contain mistakes. Check them against the passage.'
+  historyLimit:'Start a new explanation to continue.',finishedNote:'AI explanations can contain mistakes.'
   ,webIntro:'Select a passage to open a question in ChatGPT or Claude. Continue the conversation on that website.',webPrivacy:'Questions are included in the website link and may appear in browser history. Only your selected text and any context you choose are included.',opening:'Opening AI website…',copyRequired:'Copy the question, then paste it into the AI website.',webHelp:'This question is too long for a prefilled link. The complete question is available below.',copyQuestion:'Copy question',openWebsite:'Open AI website',copied:'Question copied.',copyFailed:'Could not copy. Select the question and copy it manually.',webUnavailable:'Could not open the AI website. Please try again.'
  },
  'zh-CN': {
@@ -23,13 +23,13 @@ const copy = {
   privacy:'仅将选中文字和您选择附带的附近文字发送至所选 AI 服务。',
   context:'包含附近段落',again:'重新解释',ask:'继续提问',send:'发送',placeholder:'针对这段内容提问…',stop:'停止',
   clear:'清除对话',working:'正在解释…',complete:'解释完成。',settings:'打开设置',missing:'请先在设置中添加 API 密钥。',
-  private:'AI 解释在普通浏览窗口中提供。',sensitive:'Google 免费层与付费层的数据使用政策不同。私密文档请使用适合的 API 方案。',
+  private:'AI 解释在普通浏览窗口中提供。',
   auth:'服务未接受已保存的密钥，请在设置中检查。',quota:'已达到此服务的额度或使用上限。',
   unavailable:'未能完成解释，请重试。',network:'无法建立连接，请检查网络及服务访问情况。',service:'服务暂时不可用，请稍后重试。',incomplete:'服务返回的内容不完整或格式异常，请重试。',access:'服务拒绝访问，请检查 API 密钥的项目权限及使用限制。',accountSetup:'服务要求调整项目、结算或地区设置，请检查服务账号。',serviceDisabled:'请为此密钥所属项目启用相应 API 服务。',modelUnavailable:'此 API 密钥无法使用所选模型。',requestRejected:'服务拒绝了请求配置，请更新插件或检查服务兼容性。',timeout:'服务响应超时。',empty:'服务未返回解释内容。',
   blocked:'服务未能解释这段内容。',limit:'已达到此次解释的上限，请缩短选段或重新解释。',
   invalidRequest:'请缩短选段或重新开始解释。',disabled:'请开启 AI 解释后继续。',keyMissing:'请先在设置中添加 API 密钥。',
   cancelled:'已停止解释。',permission:'此文档不允许提取文字。',tooLong:'请选择不超过 8,000 个字符的文字。',
-  historyLimit:'请重新开始解释后继续。',finishedNote:'AI 解释可能存在错误，请结合原文核对。'
+  historyLimit:'请重新开始解释后继续。',finishedNote:'AI 解释可能存在错误。'
   ,webIntro:'选取一段文字，在 ChatGPT 或 Claude 中打开问题，并在该网站继续对话。',webPrivacy:'问题包含在网页链接中，可能出现在浏览器历史记录中。仅包含选中文字和您选择附带的上下文。',opening:'正在打开 AI 网站…',copyRequired:'请复制问题，再粘贴到 AI 网站中。',webHelp:'问题较长，不适合通过链接预填。下方提供完整问题。',copyQuestion:'复制问题',openWebsite:'打开 AI 网站',copied:'已复制问题。',copyFailed:'未能复制，请选中问题文字后手动复制。',webUnavailable:'未能打开 AI 网站，请重试。'
  }
 };
@@ -85,10 +85,10 @@ export function createAiReader({settings,post,getPdf,getLocale,signal,onBusy=()=
     $('ai-intro').textContent=subscription()?text.webIntro:status.private?text.private:configured?text.intro:text.missing;
     $('ai-intro').hidden=!!source&&!!configured;
     $('ai-disclosure').hidden=!!source&&!copyRequired;$('ai-disclosure').textContent=subscription()?text.webPrivacy:text.privacy;
-    $('ai-gemini-note').hidden=subscription()||prefs.aiProvider!=='gemini';$('ai-gemini-note').textContent=text.sensitive;
-    $('ai-source').hidden=!source;
-    $('ai-source-label').textContent=source?text.selected+' · '+text.page+' '+source.page:'';
-    $('ai-source-text').textContent=source?.selection||'';
+    const showSource=subscription()&&!!source;
+    $('ai-source').hidden=!showSource;
+    $('ai-source-label').textContent=showSource?text.selected+' · '+text.page+' '+source.page:'';
+    $('ai-source-text').textContent=showSource?source.selection:'';
     $('ai-status').textContent=notice?text[notice]||text.unavailable:'';
     $('ai-stop').hidden=!active;$('ai-again').disabled=!source||!!active||!enabled()||!configured;
     $('ai-clear').disabled=!source&& !history.length;
