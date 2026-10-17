@@ -2,7 +2,7 @@
 // the opaque PDF sandbox.
 export const AI_PROVIDERS = Object.freeze({
   gemini: Object.freeze({ label: 'Google Gemini', model: 'Gemini 3.5 Flash-Lite', id: 'gemini-3.5-flash-lite', endpoint: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:streamGenerateContent?alt=sse' }),
-  openai: Object.freeze({ label: 'OpenAI', model: 'GPT-5.6 Luna', id: 'gpt-5.6-luna', endpoint: 'https://api.openai.com/v1/responses' }),
+  openai: Object.freeze({ label: 'OpenAI', model: 'GPT-6 Luna', id: 'gpt-6-luna', endpoint: 'https://api.openai.com/v1/responses' }),
   claude: Object.freeze({ label: 'Anthropic Claude', model: 'Claude Haiku 5.5', id: 'claude-haiku-5-5', endpoint: 'https://api.anthropic.com/v1/messages' })
 });
 export const AI_LIMITS = Object.freeze({ selection: 8000, context: 6000, question: 1500, history: 16000, turns: 10, output: 16000, stream: 512000, event: 64000 });

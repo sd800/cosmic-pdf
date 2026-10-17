@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.2.12 — 2026-10-17
+
+- Update the OpenAI API option to GPT-6 Luna for explanations and connection tests, preserving saved keys.
+
 ## 3.2.11 — 2026-10-17
 
 - Align the concise completion status to the right of the AI model name and tighten nearby-context control spacing.

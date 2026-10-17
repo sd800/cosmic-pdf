@@ -21,7 +21,7 @@ test('AI defaults, fixed models and bounded explicit requests do not include cre
  for(const enabled of [false,true])assert.equal(normalizeSettings({aiIncludeContext:enabled}).aiIncludeContext,enabled);
  assert.equal(normalizeSettings({aiProvider:'evil',aiLanguage:'zh-TW',apiKey:'not-a-setting'}).aiProvider,'gemini');
  assert.equal(normalizeSettings({apiKey:'not-a-setting'}).apiKey,undefined);
- assert.deepEqual(Object.values(AI_PROVIDERS).map(p=>p.id),['gemini-3.5-flash-lite','gpt-5.6-luna','claude-haiku-5-5']);
+ assert.deepEqual(Object.values(AI_PROVIDERS).map(p=>p.id),['gemini-3.5-flash-lite','gpt-6-luna','claude-haiku-5-5']);
  const request=normalizeAiRequest({...selection,url:'https://private.test/',key:'never-send',locale:'zh-CN'});
  const prompt=explanationMessages(request);
  assert.match(prompt.system,/Simplified Chinese/);assert.match(prompt.system,/untrusted/);
