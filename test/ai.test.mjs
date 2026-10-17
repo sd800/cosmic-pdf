@@ -1,4 +1,3 @@
-import { aiAnswerTree } from '../extension/workspaces/pdf-viewer/ai-format.js';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { AI_PROVIDERS, AI_LIMITS, normalizeAiRequest, explanationMessages, apiKey, aiFailure } from '../extension/core/ai.js';
@@ -7,6 +6,9 @@ import { createApiVault } from '../extension/background/products/ai-vault.js';
 import { providerRequest, streamExplanation, testConnection } from '../extension/background/products/ai-client.js';
 import { createAiExplanationProduct } from '../extension/background/products/ai-explanation.js';
 import { createAiBridge } from '../extension/workspaces/pdf-reader/ai-bridge.js';
+import { AI_TEST_MODE_KEY, normalizeAiTestMode } from '../extension/core/ai-test-mode.js';
+import { sampleExplanation, streamSampleExplanation } from '../extension/background/products/ai-samples.js';
+import { aiAnswerTree } from '../extension/workspaces/pdf-viewer/ai-format.js';
 import { AI_WEBSITES, webExplanation } from '../extension/core/ai-web.js';
 import { createAiWebsiteProduct } from '../extension/background/products/ai-website.js';
 
@@ -80,7 +82,10 @@ test('each provider uses its fixed HTTPS endpoint and headers rather than URL cr
   assert.equal(result.init.credentials,'omit');assert.equal(result.init.redirect,'error');
   assert.equal(result.init.referrerPolicy,'no-referrer');assert.equal(result.init.body.includes('test-key'),false);
   const body=JSON.parse(result.init.body);
-  if(provider==='openai')assert.equal(body.store,false);
+  if(provider==='openai'){
+   assert.equal(body.model,'gpt-6-luna');assert.equal(body.stream,true);assert.equal(body.store,false);
+   assert.deepEqual(body.reasoning,{effort:'none'});assert.equal(body.tools,undefined);
+  }
   else if(provider==='gemini')assert.deepEqual(body.generationConfig.thinkingConfig,{thinkingLevel:'minimal'});
   else assert.deepEqual(body.thinking,{type:'disabled'});
  }
@@ -145,6 +150,66 @@ test('provider errors, refusals, truncated streams and response limits return on
 });
 function listener(){const callbacks=[];return {addListener(fn){callbacks.push(fn);},emit(value){for(const fn of callbacks)fn(value);}};}
 function port(sender){return {name:'ai-explanation',sender,onMessage:listener(),onDisconnect:listener(),messages:[],postMessage(value){this.messages.push(value);},disconnect(){this.onDisconnect.emit();}};}
+function testModeStore(initial={}){
+ const values=structuredClone(initial);return {values,async get(key){return {[key]:structuredClone(values[key])};},async set(input){Object.assign(values,structuredClone(input));}};
+}
+test('local AI examples vary follow-ups and gate code/tables only on question keywords',async()=>{
+ assert.deepEqual(normalizeAiTestMode({selected:true}),{enabled:false,selected:false});
+ const first=sampleExplanation({...selection,selection:'code table in the selected document'});
+ assert.equal(answerNodes(aiAnswerTree(first),'code').length,0);assert.equal(answerNodes(aiAnswerTree(first),'table').length,0);
+ assert.match(first,/No API key was read/);
+ const follow={...selection,history:[{role:'assistant',content:first}],question:'Another example.'};
+ assert.notEqual(sampleExplanation(follow),first);
+ const later={...follow,history:[...follow.history,{role:'user',content:follow.question},{role:'assistant',content:sampleExplanation(follow)}]};
+ assert.notEqual(sampleExplanation(later),sampleExplanation(follow));
+ for(const [question,code,table]of [['Another example.',false,false],['a notable decoding issue',false,false],['Show CODE',true,false],['Show a table',false,true],['代码和表格',true,true]]){
+  const tree=aiAnswerTree(sampleExplanation({...follow,question}));
+  assert.equal(answerNodes(tree,'pre').length,code?1:0);assert.equal(answerNodes(tree,'table').length,table?1:0);
+ }
+ assert.match(sampleExplanation({...follow,locale:'zh-CN'}),/追问示例/);
+ const controller=new AbortController(),chunks=[];
+ await streamSampleExplanation(follow,'auto',{signal:controller.signal,pause:async()=>{},onText:text=>chunks.push(text)});
+ assert.ok(chunks.length>1);assert.equal(chunks.join(''),sampleExplanation(follow));
+ await assert.rejects(streamSampleExplanation(follow,'auto',{signal:controller.signal,pause:async()=>{},onText(){controller.abort();}}),{name:'AbortError'});
+ assert.equal(normalizeSettings({aiProvider:'test'}).aiProvider,'gemini','test is never a durable API provider');
+});
+test('local test selection survives worker reconstruction without reading a key or invoking transport',async t=>{
+ const previous=globalThis.chrome;globalThis.chrome={extension:{inIncognitoContext:false}};t.after(()=>{globalThis.chrome=previous;});
+ const runtime={id:'test',getURL:path=>'chrome-extension://test/'+path},session=testModeStore();let reads=0,calls=0;
+ const sender=path=>({id:'test',frameId:0,tab:{id:7},url:runtime.getURL(path)}),settings=sender('settings/index.html');
+ const options={runtime,testStorage:session,vault:{async status(){return {};},async read(){reads++;throw Error('keyMissing');}},read:async()=>normalizeSettings({aiEnabled:true,aiMode:'api'}),stream:async()=>{calls++;}};
+ const product=createAiExplanationProduct(options);
+ await assert.rejects(product.handleMessage({type:'AI_SELECT_TEST_MODE',selected:true},settings),/invalidRequest/);
+ await assert.rejects(product.handleMessage({type:'AI_TOGGLE_TEST_MODE'},sender('workspaces/pdf-reader/index.html')),/invalidRequest/);
+ await assert.rejects(product.handleMessage({type:'AI_TOGGLE_TEST_MODE'},{...settings,tab:{id:8,incognito:true}}),/disabled/);
+ assert.equal((await product.handleMessage({type:'AI_TOGGLE_TEST_MODE'},settings)).testMode.enabled,true);
+ assert.equal((await product.handleMessage({type:'AI_SELECT_TEST_MODE',selected:true},settings)).testMode.selected,true);
+ const reconstructed=createAiExplanationProduct(options);assert.equal((await reconstructed.handleMessage({type:'AI_STATUS'},settings)).testMode.selected,true);
+ const owned=port(sender('workspaces/pdf-reader/index.html')),complete=deferred(),post=owned.postMessage;
+ owned.postMessage=function(value){post.call(this,value);if(['done','error'].includes(value.type))complete.resolve(value);};
+ reconstructed.connect(owned);owned.onMessage.emit({type:'explain',id:'local-test',request:selection});
+ assert.equal((await complete.promise).type,'done');owned.disconnect();
+ assert.equal(owned.messages[0].model,'Test mode');assert.match(owned.messages.filter(m=>m.type==='delta').map(m=>m.text).join(''),/local test explanation/);
+ assert.equal(reads,0);assert.equal(calls,0);assert.deepEqual(session.values,{[AI_TEST_MODE_KEY]:{enabled:true,selected:true}});
+ const pending=port(sender('workspaces/pdf-reader/index.html')),began=deferred(),ended=deferred(),pendingPost=pending.postMessage;
+ pending.postMessage=function(value){pendingPost.call(this,value);if(value.type==='started')began.resolve();if(['done','error'].includes(value.type))ended.resolve(value);};
+ reconstructed.connect(pending);pending.onMessage.emit({type:'explain',id:'stop-test-mode',request:selection});await began.promise;
+ assert.equal((await reconstructed.handleMessage({type:'AI_TOGGLE_TEST_MODE'},settings)).testMode,undefined);
+ assert.equal((await ended.promise).error,'cancelled');pending.disconnect();
+ assert.deepEqual(session.values[AI_TEST_MODE_KEY],{enabled:false,selected:false});
+ assert.deepEqual((await reconstructed.handleMessage({type:'AI_TOGGLE_TEST_MODE'},settings)).testMode,{enabled:true,selected:false});
+ assert.equal(reads,0);assert.equal(calls,0);
+ await reconstructed.handleMessage({type:'AI_SELECT_TEST_MODE',selected:false},settings);
+ assert.equal((await reconstructed.handleMessage({type:'AI_STATUS'},settings)).testMode.selected,false);
+ assert.equal((await createAiExplanationProduct({...options,testStorage:testModeStore()}).handleMessage({type:'AI_STATUS'},settings)).testMode,undefined);
+});
+test('test-state read failure does not fall back to a real AI service',async t=>{
+ const previous=globalThis.chrome;globalThis.chrome={extension:{inIncognitoContext:false}};t.after(()=>{globalThis.chrome=previous;});
+ let reads=0,calls=0;const runtime={id:'test',getURL:path=>'chrome-extension://test/'+path};
+ const product=createAiExplanationProduct({runtime,testStorage:{async get(){throw Error('test state unavailable');}},vault:{async read(){reads++;}},read:async()=>normalizeSettings({aiEnabled:true,aiMode:'api'}),stream:async()=>{calls++;}});
+ const owned=port({id:'test',frameId:0,tab:{id:7},url:runtime.getURL('workspaces/pdf-reader/index.html')});product.connect(owned);owned.onMessage.emit({type:'explain',id:'failed-session',request:selection});await tick();
+ assert.equal(owned.messages.at(-1).error,'unavailable');assert.equal(reads,0);assert.equal(calls,0);owned.disconnect();
+});
 test('AI product rejects non-owned settings/reader callers and closes obsolete requests without publishing late text',async t=>{
  const previous=globalThis.chrome;globalThis.chrome={extension:{inIncognitoContext:false}};t.after(()=>{globalThis.chrome=previous;});
  const runtime={id:'test',getURL:path=>'chrome-extension://test/'+path};
@@ -194,6 +259,14 @@ test('reader bridge scopes stream replies and disconnects on cancel/disposal wit
  assert.equal(events.some(e=>e.text==='stale'),false);
  ports[1].onMessage.emit({type:'delta',id:'second',text:'current'});assert.equal(events.at(-1).text,'current');
  bridge.destroy();ports[1].onMessage.emit({type:'delta',id:'second',text:'late'});assert.equal(events.some(e=>e.text==='late'),false);
+});
+test('reader bridge refreshes test selection from local events and removes its listener on disposal',async()=>{
+ const handlers=new Set(),states=[];let selected=false;
+ const storage={onChanged:{addListener:fn=>handlers.add(fn),removeListener:fn=>handlers.delete(fn)}};
+ const runtime={async sendMessage(){return {ok:true,result:{keys:{},testMode:{enabled:true,selected}}};}};
+ const bridge=createAiBridge({runtime,storage,onEvent(){},onStatus:state=>states.push(state)});
+ await bridge.refresh();selected=true;for(const fn of handlers)fn({[AI_TEST_MODE_KEY]:{}},'local');await tick();
+ assert.equal(states.at(-1).testMode.selected,true);bridge.destroy();assert.equal(handlers.size,0);
 });
 test('private readers cannot access keys, and trusted context preferences remove unapproved context',async t=>{
  const previous=globalThis.chrome;globalThis.chrome={extension:{inIncognitoContext:false}};t.after(()=>{globalThis.chrome=previous;});
@@ -294,6 +367,7 @@ test('connection checks use bounded plain JSON generation with fixed models and 
    const body=JSON.parse(init.body);assert.equal(init.headers.Accept,'application/json');assert.equal(init.credentials,'omit');assert.equal(init.redirect,'error');assert.equal(init.body.includes('test-key-not-real'),false);assert.equal(init.body.includes('selected_text'),false);
    if(provider==='gemini'){assert.equal(url,'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent');assert.equal(body.generationConfig.maxOutputTokens,32);assert.deepEqual(body.generationConfig.thinkingConfig,{thinkingLevel:'minimal'});}
    else{assert.equal(url,AI_PROVIDERS[provider].endpoint);assert.equal(body.model,AI_PROVIDERS[provider].id);assert.equal(body.stream,false);assert.equal(body.max_output_tokens||body.max_tokens,32);}
+   if(provider==='openai'){assert.equal(body.model,'gpt-6-luna');assert.equal(body.store,false);assert.deepEqual(body.reasoning,{effort:'none'});assert.equal(body.tools,undefined);}
    return Response.json(payload);
   }});
  }

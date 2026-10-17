@@ -1,4 +1,5 @@
 import { AI_PROVIDERS, AI_LIMITS } from '../../core/ai.js';
+import { AI_TEST_MODEL } from '../../core/ai-test-mode.js';
 import { webExplanation } from '../../core/ai-web.js';
 import { PermissionFlag } from '../../vendor/pdfjs/pdf.min.mjs';
 const copy = {
@@ -71,6 +72,7 @@ export function createAiReader({settings,post,getPdf,getLocale,signal,onBusy=()=
   const t=()=>copy[getLocale()]||copy['en-US'];
   function enabled(){return prefs.aiEnabled===true;}
   function subscription(){return prefs.aiMode==='subscription';}
+  function testing(){return !subscription()&&status.testMode?.enabled===true&&status.testMode?.selected===true;}
   function questionRequest(){return {selection:source.selection,context:prefs.aiIncludeContext?source.context:'',page:source.page,history:[],question:'',locale:getLocale()};}
   function openPanel(){panel.hidden=false;document.documentElement.dataset.aiOpen='true';$('ocr-panel').hidden=true;document.documentElement.dataset.ocrOpen='false';}
   function closePanel(){panel.hidden=true;document.documentElement.dataset.aiOpen='false';}
@@ -82,7 +84,7 @@ export function createAiReader({settings,post,getPdf,getLocale,signal,onBusy=()=
       if(id==='ai-close'){$(id).title=text[key];$(id).setAttribute('aria-label',text[key]);}else $(id).textContent=text[key];
     }
     $('ai-question').placeholder=text.placeholder;$('ai-context').checked=prefs.aiIncludeContext;
-    const configured=subscription()||!status.private&&status.keys?.[prefs.aiProvider];
+    const configured=subscription()||!status.private&&(testing()||status.keys?.[prefs.aiProvider]);
     $('ai-intro').textContent=subscription()?text.webIntro:status.private?text.private:configured?text.intro:text.missing;
     $('ai-intro').hidden=!!source&&!!configured;
     $('ai-disclosure').hidden=!!source&&!copyRequired;$('ai-disclosure').textContent=subscription()?text.webPrivacy:text.privacy;
@@ -148,12 +150,12 @@ export function createAiReader({settings,post,getPdf,getLocale,signal,onBusy=()=
   function run(question=''){
     if(subscription()){openWebsite();return;}
     if(!source||active||!enabled()||history.length&&!question.trim())return;
-    if(status.private||!status.keys?.[prefs.aiProvider]){notice='keyMissing';openPanel();render();return;}
+    if(status.private||!testing()&&!status.keys?.[prefs.aiProvider]){notice='keyMissing';openPanel();render();return;}
     if(history.length>AI_LIMITS.turns||history.reduce((n,m)=>n+m.content.length,0)>AI_LIMITS.history){notice='historyLimit';render();return;}
     const id='ai-'+(++sequence)+'-'+Array.from(crypto.getRandomValues(new Uint8Array(8)),n=>n.toString(16).padStart(2,'0')).join('');
     const asked=question.trim(),turn=document.createElement('div');turn.className='ai-turn';$('ai-messages').append(turn);
     const questionNode=asked?article('user',asked,turn):null;
-    const node=article('assistant','',turn);active={id,kind:'api',node,answer:'',question:asked,model:AI_PROVIDERS[prefs.aiProvider].model};
+    const node=article('assistant','',turn);active={id,kind:'api',node,answer:'',question:asked,model:testing()?AI_TEST_MODEL.model:AI_PROVIDERS[prefs.aiProvider].model};
     void prepareFormat();
     notice='working';$('ai-model').textContent=active.model;$('ai-question').value='';openPanel();render();startReadingAt(questionNode||node);
     post({type:'ai-request',id,request:{selection:source.selection,context:prefs.aiIncludeContext?source.context:'',page:source.page,
@@ -204,9 +206,9 @@ export function createAiReader({settings,post,getPdf,getLocale,signal,onBusy=()=
   render();
   return {
     dismissSelection(){selecting=false;hideEntry();},
-    canExplain(){return enabled()&&(subscription()||status.private!==true&&status.keys?.[prefs.aiProvider]===true);},
+    canExplain(){return enabled()&&(subscription()||status.private!==true&&(testing()||status.keys?.[prefs.aiProvider]===true));},
     preferences(next){const was=enabled(),methodChanged=prefs.aiMode!==next.aiMode;prefs=next;if(was&&!enabled()||methodChanged){sequence++;hideEntry();cancel();closePanel();}if(methodChanged){source=null;history=[];copyRequired=false;$('ai-messages').replaceChildren();$('ai-model').textContent='';notice='';}if(!was&&enabled()&&source&&!subscription())openPanel();render();if((!was&&enabled())||methodChanged){post({type:'ai-refresh'});scheduleSelection();}},
-    status(next){status=next||{keys:{}};render();if(enabled()&&!subscription()&&!status.keys?.[prefs.aiProvider]&&!source)openPanel();},
+    status(next){status=next||{keys:{}};render();if(enabled()&&!subscription()&&!testing()&&!status.keys?.[prefs.aiProvider]&&!source)openPanel();},
     localize:render,
     event(message){
       const job=active;if(!job||message.id!==job.id||closed)return;

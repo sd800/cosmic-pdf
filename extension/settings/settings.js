@@ -19,7 +19,9 @@ const actionIcons={pages:'sidebar-toggle',find:'search-toggle',paging:'next',zoo
 const defaultHidden=new Set(hiddenToolbarActions(DEFAULTS));
 let aiSettings;
 let state=await readSettings();const $=id=>document.getElementById(id);
-$('version').textContent='Cosmic PDF '+chrome.runtime.getManifest().version;
+const versionText='Cosmic PDF '+chrome.runtime.getManifest().version;
+function showTestMode(enabled){const text=versionText+(enabled?' (Test mode)':'');if($('version').textContent!==text)$('version').textContent=text;}
+showTestMode(false);
 function render(){const locale=uiLocale(state,chrome.i18n.getUILanguage()),t=copy[locale],v=t.values;document.documentElement.lang=locale;document.title='Cosmic PDF · '+t.title;
  document.documentElement.dataset.dark=String(state.appearance==='dark'||(state.appearance==='auto'&&matchMedia('(prefers-color-scheme:dark)').matches));try{localStorage.setItem('appearance',state.appearance);}catch{}
  for(const [id,key] of [['title','title'],['intro','intro'],['open-reader','open'],['reset','reset'],['privacy','privacy']])$(id).textContent=t[key];
@@ -50,7 +52,7 @@ function refresh(next) {
  document.documentElement.dataset.dark=String(state.appearance==='dark'||(state.appearance==='auto'&&matchMedia('(prefers-color-scheme:dark)').matches));
  try{localStorage.setItem('appearance',state.appearance);}catch{}
  for(const [key,value]of Object.entries(state)){
-  const input=$(key);if(!input||!['INPUT','SELECT'].includes(input.tagName))continue;
+  const input=$(key);if(!input||input.closest('#ai-settings')||!['INPUT','SELECT'].includes(input.tagName))continue;
   if(input.type==='checkbox')input.checked=value;else input.value=value;
  }
  $('preserveDarkPaper').closest('.row').hidden=state.appearance==='light';
@@ -63,7 +65,7 @@ function save(key,value){report(store.save(key,value));}
 $('open-reader').onclick=()=>location.assign(chrome.runtime.getURL('workspaces/pdf-reader/index.html'));
 $('reset').onclick=()=>{const t=copy[uiLocale(state,chrome.i18n.getUILanguage())];if(confirm(t.confirm))report(store.reset());};
 matchMedia('(prefers-color-scheme:dark)').addEventListener('change',()=>{if(state.appearance==='auto')document.documentElement.dataset.dark=String(matchMedia('(prefers-color-scheme:dark)').matches);});render();
-aiSettings=createAiSettings({container:$('ai-settings'),locale:uiLocale(state,chrome.i18n.getUILanguage()),state,save});
+aiSettings=createAiSettings({container:$('ai-settings'),locale:uiLocale(state,chrome.i18n.getUILanguage()),state,save,onTestMode:showTestMode});
 
 // Refresh file-scheme eligibility when the settings page is reopened.
 void chrome.runtime.sendMessage({type:'SETTINGS_SAVED'}).catch(()=>{});

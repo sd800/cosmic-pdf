@@ -19,7 +19,7 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
   if(message?.type==='AI_OPEN_WEBSITE'||message?.type==='AI_CANCEL_WEBSITE'){
     void Promise.resolve().then(()=>message.type==='AI_OPEN_WEBSITE'?aiWebsite.open(message,sender):aiWebsite.cancel(message,sender)).then(result=>respond({ok:true,result}),error=>respond({ok:false,error:aiFailure(error)}));return true;
   }
-  if(typeof message?.type==='string' && ['AI_STATUS','AI_SAVE_KEY','AI_DELETE_KEY','AI_DELETE_ALL_KEYS','AI_TEST_KEY','AI_CANCEL_TEST_KEY'].includes(message.type)){
+  if(typeof message?.type==='string' && ['AI_TOGGLE_TEST_MODE','AI_SELECT_TEST_MODE','AI_STATUS','AI_SAVE_KEY','AI_DELETE_KEY','AI_DELETE_ALL_KEYS','AI_TEST_KEY','AI_CANCEL_TEST_KEY'].includes(message.type)){
     void aiExplanation.handleMessage(message,sender).then(result=>respond({ok:true,result}),error=>respond({ok:false,error:aiFailure(error)}));return true;
   }
   if(message?.type==='SAVE_SETTING' && sender.frameId===0 && operations.isSettingsPage(sender.url)){

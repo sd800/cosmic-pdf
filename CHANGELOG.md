@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.2.16 — 2026-10-17
+
+- Add a local AI test model, toggled with 1 in Settings, with local streaming explanations and varied follow-up samples without API calls.
+- Show code or table samples only when the follow-up requests their corresponding keywords.
+- Keep test mode until manually turned off and mark it beside the Settings footer version.
+- Simplify the AI service information in Settings.
+
 ## 3.2.15 — 2026-10-17
 
 - Add a subtle divider above the AI follow-up area.
@@ -98,22 +105,22 @@
 
 - Improve recognized-text selection with continuous text rows, more consistent word spacing, and stable selection after zooming or rotating.
 
-## 2.1.5
+## 2.1.5 — 2026-09-23
 
 - Prioritize newly recognized text after manual OCR and exclude the original text layer from browser Find and selection to avoid duplicate matches.
 - Preserve original text when recognition returns no text, and restore it when results are cleared.
 
-## 2.1.3
+## 2.1.3 — 2026-09-23
 
 - Reduce extension permissions while retaining automatic PDF opening and native-reader fallback.
 - Save original PDFs through ordinary browser downloads, following Chrome’s download preferences without download-management access.
 
-## 2.1.2
+## 2.1.2 — 2026-09-23
 
 - Extend external-link capture to application protocols, with an explicit Open application/Copy prompt. Email, telephone, and SMS links remain copy-only.
 - Unify the underlying protocol parsing and confirmation components.
 
-## 2.1.1
+## 2.1.1 — 2026-09-23
 
 - Avoid OCR WASM loading warnings without expanding network access.
 - Place the product name above Settings and add matching tool icons and muted default-hidden notes to More actions choices.
@@ -126,44 +133,44 @@
 - Return from Settings to Open a PDF in the same tab.
 - Add a default-on Capture external links setting: document and outline web links show an Open/Copy prompt, with direct opening available when capture is off. Email/telephone/SMS links always offer copying only.
 
-## 1.2.15
+## 1.2.15 — 2026-09-23
 
 - Add a default-on Preserve dark-paper colors setting to preserve original colors when strictly recognized black or gray paper would otherwise become brighter in dark mode, while keeping white-paper and mixed layouts under normal dark-mode processing. Reuse per-page decisions during zooming and rotation.
 
-## 1.2.13
+## 1.2.13 — 2026-09-23
 
 - Slightly narrow the toolbar filename while preserving its size, ellipsis and document properties shortcut.
 
-## 1.2.12
+## 1.2.12 — 2026-09-23
 
 - Open Document properties by clicking the regular-weight toolbar filename, and make properties dialogs more compact without reducing text size. Overflowing dialogs open at the top.
 - Let More actions close when its button is clicked again, and keep hidden controls consistent across toolbar layouts.
 - Use one light/dark appearance button in every layout and place Chrome reader in More actions by default.
 - Keep Pages and outline at the left edge, alongside a sole branding or filename and on the second row when both are shown.
 
-## 1.2.11
+## 1.2.11 — 2026-09-23
 
 - Make the reader’s Find button always open built-in search, independently of the Chrome Find shortcut preference, and remove shortcut banners.
 - Highlight PDF search matches in orange and simplify the Chrome Find setting description.
 - Abbreviate document-property time zones, keeping minutes only for non-whole-hour offsets.
 
-## 1.2.10
+## 1.2.10 — 2026-09-23
 
 - Refine the Document properties information icon’s proportions and spacing.
 
-## 1.2.9
+## 1.2.9 — 2026-09-23
 
 - Use a plain information icon for Document properties in the PDF reader.
 
-## 1.2.8
+## 1.2.8 — 2026-09-23
 
 - Update the PDF reader’s Rotate left icon to a rounded square with a counterclockwise arrow, aligned with the other toolbar icons.
 
-## 1.2.7
+## 1.2.7 — 2026-09-23
 
 - Align the Document properties date-format dropdown with other settings and prevent oversized dropdowns from overflowing narrow cards.
 
-## 1.2.6
+## 1.2.6 — 2026-09-23
 
 - Add customizable Document properties date formats, spaced Chinese dates, and source time zones and seconds when available. Allow clicking outside the dialog to close it.
 - Apply interface-language changes immediately to open readers and Settings pages.
@@ -173,7 +180,7 @@
 - Use Chrome for ⌘F/Ctrl+F by default, with a Settings switch to use Cosmic PDF search instead.
 - Size More actions to its contents, simplify Find labels and the Properties menu label, and mark default-hidden controls in Settings.
 
-## 1.2.5
+## 1.2.5 — 2026-09-23
 
 - Let toolbar controls move into an icon-labeled More actions menu through Settings, with immediate updates to open readers.
 - Simplify the toolbar when filename and branding are hidden, including moving Previous/next page into the menu while retaining the page counter and keeping Pages and outline at the left.
@@ -181,7 +188,7 @@
 - Open reader Settings immediately to the right of the current PDF tab.
 - Keep compact toolbars on one row whenever their visible controls fit, and reduce the README heading logo size.
 
-## 1.2.3
+## 1.2.3 — 2026-09-23
 
 - Show the toolbar immediately while opening a PDF, with loading progress in its bottom divider instead of a separate loading screen.
 - Add an on-demand Document properties dialog between Print and Settings.
@@ -189,11 +196,11 @@
 - Give current and total page counts equal, centered widths, and place custom zoom values between their neighboring presets.
 - Hide the filename and Cosmic PDF branding by default while preserving saved choices.
 
-## 1.2.2
+## 1.2.2 — 2026-09-23
 
 - Tighten spacing within the page-navigation and zoom controls while preserving button sizes and other toolbar spacing.
 
-## 1.2.1
+## 1.2.1 — 2026-09-23
 
 - Simplify PDF loading to the Cosmic PDF logo, name, and progress bar, and prepare the reader while the file loads.
 - Open homepage Settings in the same tab and improve browser Back/Forward navigation from the PDF reader.
@@ -201,7 +208,7 @@
 - Use a compact layout with a single appearance button when either item is hidden, while preserving the original two-row controls when both are shown.
 - Mark default appearance, reading, and OCR dropdown choices, and refine the README presentation and extension description.
 
-## 1.1.6
+## 1.1.6 — 2026-09-23
 
 - Set the opening-screen copyright to 13px and center it vertically between the file hint and the card border.
 

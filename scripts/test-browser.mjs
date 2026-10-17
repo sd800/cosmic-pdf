@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {mkdtemp,writeFile,readFile,cp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';import {resolve,join} from 'node:path';import {pathToFileURL} from 'node:url';import {createServer} from 'node:http';
 import {viewerPdf,scannedPdf} from '../test/fixtures/pdf-viewer.mjs';
-import {handleAiMock,prepareAiMock,runAiQa,handleWebAiMock,prepareWebAiMock,runWebAiQa,runSelectionQa} from './qa-ai.mjs';
+import {handleAiMock,prepareAiMock,runAiQa,runAiTestQa,handleWebAiMock,prepareWebAiMock,runWebAiQa,runSelectionQa} from './qa-ai.mjs';
 const {chromium}=await import(process.env.PDF_PLAYWRIGHT?pathToFileURL(process.env.PDF_PLAYWRIGHT).href:'playwright');
 const folder=await mkdtemp(join(tmpdir(),'cosmic-pdf-qa-')),ext=join(folder,'extension');await cp(resolve('extension'),ext,{recursive:true});
 // Expose renderer state in the disposable QA copy only.
@@ -128,6 +128,8 @@ try{
   await runSelectionQa({context,worker,page,open,report,base,setScan:bytes=>{englishScan=bytes;}});
  }else if(process.env.PDF_QA==='ai-web'){
   await runWebAiQa({context,worker,page,settings,open,report,base});
+ }else if(process.env.PDF_QA==='ai-test'){
+  await runAiTestQa({context,worker,page,settings,open,report});
  }else if(process.env.PDF_QA==='ai'){
   await runAiQa({context,worker,page,settings,open,report,folder});
  }else if(process.env.PDF_QA==='lifecycle'){

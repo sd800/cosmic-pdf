@@ -1,7 +1,8 @@
 // A private reader channel carries only bounded text requests and public state.
 // No credential, caller-supplied endpoint or arbitrary runtime command crosses it.
+import { AI_TEST_MODE_KEY } from '../../core/ai-test-mode.js';
 import { normalizeAiRequest, aiFailure } from '../../core/ai.js';
-export function createAiBridge({ onEvent, onStatus, runtime = chrome.runtime }) {
+export function createAiBridge({ onEvent, onStatus, runtime = chrome.runtime, storage = globalThis.chrome?.storage }) {
   let port = null, current = '', webPending = false, closed = false, heartbeat = null, statusRevision = 0;
   const stopHeartbeat = () => { clearInterval(heartbeat); heartbeat = null; };
   function disconnect() { stopHeartbeat(); const previous = port; port = null; current = ''; webPending=false;previous?.disconnect(); }
@@ -10,6 +11,8 @@ export function createAiBridge({ onEvent, onStatus, runtime = chrome.runtime }) 
     const result = await runtime.sendMessage({type:'AI_STATUS'}).catch(()=>null);
     if (!closed && revision === statusRevision) onStatus(result?.ok ? result.result : {keys:{},unavailable:true});
   }
+  const testModeChanged=(changes,area)=>{if(area==='local'&&changes[AI_TEST_MODE_KEY])void refresh();};
+  storage?.onChanged?.addListener(testModeChanged);
   function post(event) { if (!closed) onEvent(event); }
   function request(id, request) {
     if (closed || current || typeof id !== 'string' || !/^[a-z0-9-]{1,80}$/i.test(id)) return;
@@ -48,5 +51,5 @@ export function createAiBridge({ onEvent, onStatus, runtime = chrome.runtime }) 
     if(webPending)void runtime.sendMessage({type:'AI_CANCEL_WEBSITE',id}).catch(()=>{});
     disconnect(); post({type:'error',id,error:'cancelled'});
   }
-  return { refresh, request, openWebsite, cancel, destroy(){if(webPending)void runtime.sendMessage({type:'AI_CANCEL_WEBSITE',id:current}).catch(()=>{});closed=true;statusRevision++;disconnect();} };
+  return { refresh, request, openWebsite, cancel, destroy(){storage?.onChanged?.removeListener(testModeChanged);if(webPending)void runtime.sendMessage({type:'AI_CANCEL_WEBSITE',id:current}).catch(()=>{});closed=true;statusRevision++;disconnect();} };
 }
