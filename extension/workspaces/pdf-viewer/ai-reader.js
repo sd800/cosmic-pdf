@@ -118,10 +118,15 @@ export function createAiReader({settings,post,getPdf,getLocale,signal,onBusy=()=
     entry.style.top=(below+box.height<=Math.min(viewport.bottom,innerHeight)-8?below:Math.max(viewport.top+8,last.top-box.height-8))+'px';
   }
   function scheduleSelection(){if(closed||selecting||!enabled()||selectionFrame)return;selectionFrame=requestAnimationFrame(select);}
-  function article(role,content){
-    const node=document.createElement('article');node.className='ai-message ai-'+role;node.textContent=content;node.setAttribute('dir','auto');$('ai-messages').append(node);return node;
+  function article(role,content,turn){
+    const node=document.createElement('article');node.className='ai-message ai-'+role;node.textContent=content;node.setAttribute('dir','auto');turn.append(node);return node;
   }
-  function scrollBottom(){const list=$('ai-messages');list.scrollTop=list.scrollHeight;}
+  function startReadingAt(node){
+    // Position only this scroll container, once per turn. Streaming never
+    // follows the bottom or overrides a reader's subsequent scrolling.
+    const list=$('ai-messages');
+    list.scrollTop+=node.getBoundingClientRect().top-list.getBoundingClientRect().top-list.clientTop;
+  }
   function openWebsite(withoutPrompt=false){
     if(!source||active||!enabled())return;
     const id='web-'+(++sequence)+'-'+crypto.randomUUID();active={id,kind:'web'};notice='opening';hideEntry();render();
@@ -133,9 +138,10 @@ export function createAiReader({settings,post,getPdf,getLocale,signal,onBusy=()=
     if(status.private||!status.keys?.[prefs.aiProvider]){notice='keyMissing';openPanel();render();return;}
     if(history.length>AI_LIMITS.turns||history.reduce((n,m)=>n+m.content.length,0)>AI_LIMITS.history){notice='historyLimit';render();return;}
     const id='ai-'+(++sequence)+'-'+Array.from(crypto.getRandomValues(new Uint8Array(8)),n=>n.toString(16).padStart(2,'0')).join('');
-    const asked=question.trim();if(asked)article('user',asked);
-    const node=article('assistant','');active={id,kind:'api',node,answer:'',question:asked,model:AI_PROVIDERS[prefs.aiProvider].model};
-    notice='working';$('ai-model').textContent=active.model;$('ai-question').value='';openPanel();render();scrollBottom();
+    const asked=question.trim(),turn=document.createElement('div');turn.className='ai-turn';$('ai-messages').append(turn);
+    const questionNode=asked?article('user',asked,turn):null;
+    const node=article('assistant','',turn);active={id,kind:'api',node,answer:'',question:asked,model:AI_PROVIDERS[prefs.aiProvider].model};
+    notice='working';$('ai-model').textContent=active.model;$('ai-question').value='';openPanel();render();startReadingAt(questionNode||node);
     post({type:'ai-request',id,request:{selection:source.selection,context:prefs.aiIncludeContext?source.context:'',page:source.page,
       history,question:asked,locale:getLocale()}});
   }
@@ -196,9 +202,8 @@ export function createAiReader({settings,post,getPdf,getLocale,signal,onBusy=()=
       }
       if(message.type==='started'){job.model=String(message.model||'').slice(0,100);$('ai-model').textContent=job.model;}
       else if(message.type==='delta'&&typeof message.text==='string'){
-        const list=$('ai-messages'),atBottom=list.scrollHeight-list.scrollTop-list.clientHeight<60;
         job.answer+=message.text;if(job.answer.length>AI_LIMITS.output){cancel();notice='limit';render();return;}
-        job.node.textContent=job.answer;if(atBottom)scrollBottom();
+        job.node.textContent=job.answer;
       }else if(message.type==='done'){
         if(job.question)history.push({role:'user',content:job.question});history.push({role:'assistant',content:job.answer});
         active=null;notice='complete';render();

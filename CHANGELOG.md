@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.2.10 — 2026-10-17
+
+- Start API explanations at the answer opening and follow-ups at the question, without automatic scrolling as replies stream.
+- Make the brief AI accuracy reminder smaller with tighter line spacing.
+
 ## 3.2.9 — 2026-10-17
 
 - Simplify the API explanation panel by removing the selected-passage preview and repeated provider notice, and shorten the smaller AI accuracy reminder.
