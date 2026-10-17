@@ -66,6 +66,7 @@ function nearby(snapshot) {
 }
 export function createAiReader({settings,post,getPdf,getLocale,signal,onBusy=()=>{}}) {
   const $=id=>document.getElementById(id),panel=$('ai-panel'),entry=$('ai-selection'),toggle=$('ai-toggle'),pages=$('pages');
+  let formatReady,format,formatFailed=false;
   let prefs=settings,status={keys:{}},source=null,history=[],active=null,sequence=0,selectionFrame=0,selecting=false,closed=false,notice='',permission,copyRequired=false;
   const t=()=>copy[getLocale()]||copy['en-US'];
   function enabled(){return prefs.aiEnabled===true;}
@@ -73,7 +74,7 @@ export function createAiReader({settings,post,getPdf,getLocale,signal,onBusy=()=
   function questionRequest(){return {selection:source.selection,context:prefs.aiIncludeContext?source.context:'',page:source.page,history:[],question:'',locale:getLocale()};}
   function openPanel(){panel.hidden=false;document.documentElement.dataset.aiOpen='true';$('ocr-panel').hidden=true;document.documentElement.dataset.ocrOpen='false';}
   function closePanel(){panel.hidden=true;document.documentElement.dataset.aiOpen='false';}
-  function cancel(){if(!active)return;const job=active;active=null;post({type:'ai-cancel',id:job.id});notice='cancelled';render();}
+  function cancel(){if(!active)return;const job=active;if(job.node)paintAnswer(job);active=null;post({type:'ai-cancel',id:job.id});notice='cancelled';render();}
   function render(){
     const text=t();toggle.setAttribute('aria-pressed',String(enabled()));toggle.title=text[enabled()?'on':'off'];toggle.setAttribute('aria-label',toggle.title);
     toggle.disabled=status.private===true&&!subscription();
@@ -122,6 +123,17 @@ export function createAiReader({settings,post,getPdf,getLocale,signal,onBusy=()=
   function article(role,content,turn){
     const node=document.createElement('article');node.className='ai-message ai-'+role;node.textContent=content;node.setAttribute('dir','auto');turn.append(node);return node;
   }
+  function prepareFormat(){return formatReady ||= import('./ai-format.js').then(module=>format=module,()=>{formatFailed=true;return null;});}
+  function plainAnswer(job){job.node.classList.add('ai-unformatted');job.node.textContent=job.answer;}
+  function paintAnswer(job){
+    cancelAnimationFrame(job.frame);job.frame=0;
+    if(format){format.renderAiAnswer(job.node,job.answer);return;}
+    if(formatFailed){plainAnswer(job);return;}
+    if(job.waitingFormat)return;job.waitingFormat=true;
+    // The parser is loaded only after an explicit API explanation, not during
+    // PDF startup. A failed optional import leaves the answer readable as text.
+    void prepareFormat().then(module=>{if(closed||!job.node.isConnected)return;if(module)module.renderAiAnswer(job.node,job.answer);else plainAnswer(job);});
+  }
   function startReadingAt(node){
     // Position only this scroll container, once per turn. Streaming never
     // follows the bottom or overrides a reader's subsequent scrolling.
@@ -142,6 +154,7 @@ export function createAiReader({settings,post,getPdf,getLocale,signal,onBusy=()=
     const asked=question.trim(),turn=document.createElement('div');turn.className='ai-turn';$('ai-messages').append(turn);
     const questionNode=asked?article('user',asked,turn):null;
     const node=article('assistant','',turn);active={id,kind:'api',node,answer:'',question:asked,model:AI_PROVIDERS[prefs.aiProvider].model};
+    void prepareFormat();
     notice='working';$('ai-model').textContent=active.model;$('ai-question').value='';openPanel();render();startReadingAt(questionNode||node);
     post({type:'ai-request',id,request:{selection:source.selection,context:prefs.aiIncludeContext?source.context:'',page:source.page,
       history,question:asked,locale:getLocale()}});
@@ -204,11 +217,12 @@ export function createAiReader({settings,post,getPdf,getLocale,signal,onBusy=()=
       if(message.type==='started'){job.model=String(message.model||'').slice(0,100);$('ai-model').textContent=job.model;}
       else if(message.type==='delta'&&typeof message.text==='string'){
         job.answer+=message.text;if(job.answer.length>AI_LIMITS.output){cancel();notice='limit';render();return;}
-        job.node.textContent=job.answer;
+        if(!job.frame)job.frame=requestAnimationFrame(()=>paintAnswer(job));
       }else if(message.type==='done'){
+        paintAnswer(job);
         if(job.question)history.push({role:'user',content:job.question});history.push({role:'assistant',content:job.answer});
         active=null;notice='complete';render();
-      }else if(message.type==='error'){active=null;notice=job.kind==='web'&&message.error==='unavailable'?'webUnavailable':message.error;job.node?.classList.add('ai-incomplete');if(job.kind==='web'&&message.error!=='cancelled')openPanel();render();}
+      }else if(message.type==='error'){if(job.node)paintAnswer(job);active=null;notice=job.kind==='web'&&message.error==='unavailable'?'webUnavailable':message.error;job.node?.classList.add('ai-incomplete');if(job.kind==='web'&&message.error!=='cancelled')openPanel();render();}
     },
     destroy
   };

@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.2.13 — 2026-10-17
+
+- Format API explanations with common Markdown, including emphasis, headings, unindented lists, quotes, code and tables, without running HTML or loading external content.
+- Tighten the space above Include nearby paragraphs.
+
 ## 3.2.12 — 2026-10-17
 
 - Update the OpenAI API option to GPT-6 Luna for explanations and connection tests, preserving saved keys.

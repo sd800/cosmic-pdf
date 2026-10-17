@@ -1,3 +1,4 @@
+import { aiAnswerTree } from '../extension/workspaces/pdf-viewer/ai-format.js';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { AI_PROVIDERS, AI_LIMITS, normalizeAiRequest, explanationMessages, apiKey, aiFailure } from '../extension/core/ai.js';
@@ -83,6 +84,39 @@ test('each provider uses its fixed HTTPS endpoint and headers rather than URL cr
   else if(provider==='gemini')assert.deepEqual(body.generationConfig.thinkingConfig,{thinkingLevel:'minimal'});
   else assert.deepEqual(body.thinking,{type:'disabled'});
  }
+});
+function answerNodes(parts,tag){return parts.flatMap(part=>typeof part==='string'?[]:[...(part.tag===tag?[part]:[]),...answerNodes(part.children,tag)]);}
+function answerText(parts){return parts.map(part=>typeof part==='string'?part:answerText(part.children)).join('');}
+test('AI Markdown supports emphasis, escaped stars and literal code without altering the source',()=>{
+ const source='# Heading\n\n**bold** and *italic*, ***both***, ~~old~~, `a * b`.\n\n\\*literal\\* and &amp; &#x3c; &amp;lt;\n\n```js\nconst x = "**not bold**";\n```';
+ const tree=aiAnswerTree(source);
+ assert.equal(answerText(answerNodes(tree,'h1')[0].children),'Heading');
+ assert.deepEqual(answerNodes(tree,'strong').map(n=>answerText(n.children)),['bold','both']);
+ assert.deepEqual(answerNodes(tree,'em').map(n=>answerText(n.children)),['italic','both']);
+ assert.equal(answerText(answerNodes(tree,'del')[0].children),'old');
+ assert.deepEqual(answerNodes(tree,'code').map(n=>answerText(n.children)),['a * b','const x = "**not bold**";']);
+ assert.match(answerText(tree),/\*literal\* and & < &lt;/);
+ for(const value of ['**unfinished','*unfinished', '**bold *nested***', '*italic **nested***', '**中文** *解释*']){
+  for(let length=1;length<=value.length;length++)assert.doesNotThrow(()=>aiAnswerTree(value.slice(0,length)));
+ }
+ assert.equal(answerText(aiAnswerTree('**unfinished')),'**unfinished');
+ assert.equal(answerNodes(aiAnswerTree('**bold *nested***'),'em').length,1);
+});
+test('AI Markdown retains list numbering, nesting, quotes, tables and passive task markers',()=>{
+ const tree=aiAnswerTree('3. Third\n   - Nested\n4. Fourth\n\n> Quote with **emphasis**\n\n---\n\n- [x] Done\n- [ ] Next\n\n| Name | Value |\n| --- | ---: |\n| **X** | 2 |');
+ assert.equal(answerNodes(tree,'ol')[0].start,3);assert.equal(answerNodes(tree,'li').length,5);
+ assert.equal(answerText(answerNodes(tree,'blockquote')[0].children),'Quote with emphasis');
+ assert.equal(answerNodes(tree,'hr').length,1);assert.match(answerText(tree),/☑ Done☐ Next/);
+ assert.equal(answerNodes(tree,'table').length,1);assert.equal(answerNodes(tree,'th').length,2);
+ assert.equal(answerNodes(tree,'td')[1].align,'right');
+});
+test('AI Markdown treats executable markup and external resources as inert text and bounds complexity',()=>{
+ const source='<script>globalThis.unsafe=true</script>\n\n<img src="https://example.test/private" onerror="alert(1)">\n\n[unsafe](javascript:alert(1)) ![image](https://example.test/image)';
+ const tree=aiAnswerTree(source);
+ for(const tag of ['script','style','img','a','iframe','input','object'])assert.equal(answerNodes(tree,tag).length,0);
+ assert.match(answerText(tree),/<script>/);assert.match(answerText(tree),/javascript:alert\(1\)/);assert.match(answerText(tree),/!\[image\]/);
+ const nested='> '.repeat(80)+'Deep';assert.equal(answerText(aiAnswerTree(nested)),nested);
+ assert.equal(answerText(aiAnswerTree('x'.repeat(AI_LIMITS.output+100))).length,AI_LIMITS.output);
 });
 function streamFrames(provider){
  if(provider==='openai')return [{type:'response.output_text.delta',delta:'Hello '},{type:'response.output_text.delta',delta:'中文'},{type:'response.completed'}];
