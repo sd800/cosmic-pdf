@@ -1,1 +1,1 @@
-export { configureTakeover, useNative, forgetNative } from '../products/takeover.js';
+export { configureTakeover, useNative, forgetNative, openLocalPdf } from '../products/takeover.js';

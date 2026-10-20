@@ -185,7 +185,7 @@ test('local test selection survives worker reconstruction without reading a key 
  assert.equal((await product.handleMessage({type:'AI_TOGGLE_TEST_MODE'},settings)).testMode.enabled,true);
  assert.equal((await product.handleMessage({type:'AI_SELECT_TEST_MODE',selected:true},settings)).testMode.selected,true);
  const reconstructed=createAiExplanationProduct(options);assert.equal((await reconstructed.handleMessage({type:'AI_STATUS'},settings)).testMode.selected,true);
- const owned=port(sender('workspaces/pdf-reader/index.html')),complete=deferred(),post=owned.postMessage;
+ const owned=port({...sender('workspaces/pdf-reader/index.html'),frameId:3}),complete=deferred(),post=owned.postMessage;
  owned.postMessage=function(value){post.call(this,value);if(['done','error'].includes(value.type))complete.resolve(value);};
  reconstructed.connect(owned);owned.onMessage.emit({type:'explain',id:'local-test',request:selection});
  assert.equal((await complete.promise).type,'done');owned.disconnect();
@@ -342,7 +342,7 @@ test('closed or moved companions are replaced, and long questions wait for expli
 });
 test('web opening rejects wrong callers, stale documents and API mode; trusted preferences remove unwanted context',async()=>{
  const h=websiteHarness();
- for(const change of [{id:'other'},{frameId:1},{documentId:''},{url:'https://evil.test/'},{url:h.sender.url+'.evil'}])await assert.rejects(h.product.open({id:'wrong',request:selection},{...h.sender,...change}),/invalidRequest/);
+ for(const change of [{id:'other'},{frameId:-1},{documentId:''},{url:'https://evil.test/'},{url:h.sender.url+'.evil'}])await assert.rejects(h.product.open({id:'wrong',request:selection},{...h.sender,...change}),/invalidRequest/);
  h.contexts[0].documentId='another-document';await assert.rejects(h.open('stale'),/cancelled/);assert.equal(h.created.length,0);h.contexts[0].documentId=h.sender.documentId;
  h.settings={aiMode:'api'};await assert.rejects(h.open('api'),/disabled/);h.settings={aiMode:'subscription',aiIncludeContext:false};
  await h.open('context',{request:{...selection,context:'unapproved nearby text',url:'https://private.test/',provider:'evil'}});
@@ -391,4 +391,13 @@ test('connection-test Stop is scoped to the owning Settings tab and provider',as
  await product.handleMessage({type:'AI_CANCEL_TEST_KEY',provider:'gemini'},{...sender,tab:{id:8}});assert.equal(signal.aborted,false);
  await product.handleMessage({type:'AI_CANCEL_TEST_KEY',provider:'openai'},sender);assert.equal(signal.aborted,false);
  await product.handleMessage({type:'AI_CANCEL_TEST_KEY',provider:'gemini'},sender);await rejected;assert.equal(signal.aborted,true);assert.equal(await vault.read('gemini'),'test-key-not-real');
+});
+
+test('embedded reader web handoff validates the exact frame and leaves the containing website untouched',async()=>{
+ const h=websiteHarness();h.sender.frameId=h.contexts[0].frameId=3;
+ h.sender.url=h.contexts[0].documentUrl+='?source=https://example.com/embedded.pdf';
+ const result=await h.open('embedded');assert.equal(result.presentation,'tab');
+ assert.equal(h.created.length,1);assert.equal(h.created[0].openerTabId,7);
+ assert.equal(h.updated.some(update=>update.id===7),false);
+ h.contexts[0].frameId=4;await assert.rejects(h.open('wrong-frame'),/cancelled/);
 });

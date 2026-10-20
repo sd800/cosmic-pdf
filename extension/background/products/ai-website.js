@@ -1,3 +1,4 @@
+import { isReaderSender } from '../reader-sender.js';
 import { normalizeAiRequest } from '../../core/ai.js';
 import { webExplanation, isAiWebsite } from '../../core/ai-web.js';
 import { readSettings } from '../../core/settings.js';
@@ -11,12 +12,12 @@ export function createAiWebsiteProduct({runtime=chrome.runtime,tabs=chrome.tabs,
   const readerURL=runtime.getURL('workspaces/pdf-reader/index.html');
   function isReader(url){return typeof url==='string'&&(url===readerURL||url.startsWith(readerURL+'?')||url.startsWith(readerURL+'#'));}
   function authorize(sender){
-    if(sender?.id!==runtime.id||sender.frameId!==0||!Number.isInteger(sender.tab?.id)||!sender.documentId||!isReader(sender.url))throw Error('invalidRequest');
+    if(!isReaderSender(sender,runtime)||!sender.documentId)throw Error('invalidRequest');
   }
   async function owner(sender,job){
     if(job.cancelled)throw Error('cancelled');
     const [source,contexts]=await Promise.all([tabs.get(sender.tab.id),runtime.getContexts({documentIds:[sender.documentId],contextTypes:['TAB']})]);
-    if(job.cancelled||!contexts.some(c=>c.documentId===sender.documentId&&c.tabId===source.id&&c.frameId===0&&c.documentUrl===sender.url))throw Error('cancelled');
+    if(job.cancelled||!contexts.some(c=>c.documentId===sender.documentId&&c.tabId===source.id&&c.frameId===sender.frameId&&c.documentUrl===sender.url))throw Error('cancelled');
     const settings=await read();
     if(!settings.aiEnabled||settings.aiMode!=='subscription')throw Error('disabled');
     const current=signature(settings);if(job.preferences&&job.preferences!==current)throw Error('cancelled');job.preferences=current;

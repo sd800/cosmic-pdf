@@ -1,3 +1,4 @@
+import {embeddedResponse,runEmbeddedQa} from './qa-embedded.mjs';
 // Isolated integration QA. Requires an external Playwright installation; no runtime dependency.
 import assert from 'node:assert/strict';
 import {mkdtemp,writeFile,readFile,cp,rm} from 'node:fs/promises';
@@ -19,6 +20,7 @@ function releaseSlow(){for(const res of slowResponses)res.end(viewerPdf(6));slow
 const server=createServer((req,res)=>{
  if(process.env.PDF_QA==='ai'&&handleAiMock(req,res))return;
  if(['ai-web','selection'].includes(process.env.PDF_QA)&&handleWebAiMock(req,res))return;
+ if(process.env.PDF_QA==='embedded'&&embeddedResponse(req,res,englishScan))return;
  const path=req.url.split('?')[0];
  if(path==='/html.pdf'){res.setHeader('Content-Type','text/html');res.end('<h1>Not a PDF</h1>');return;}
  if(path==='/links'){res.setHeader('Content-Type','text/html');res.end('<a href="/history.pdf">Read PDF</a>');return;}
@@ -124,7 +126,9 @@ try{
   await saved.delete();
  }
  // PDF_QA=ocr-priority runs only the text-layer handover regression.
- if(process.env.PDF_QA==='appearance'){
+ if(process.env.PDF_QA==='embedded'){
+  await runEmbeddedQa({context,worker,page,reader,settings,base,folder,report,setScan:bytes=>{englishScan=bytes;},open});
+ }else if(process.env.PDF_QA==='appearance'){
   const prefs=await context.newPage();observe(prefs);await prefs.goto(settings);await prefs.waitForSelector('#appearance');
   await prefs.locator('#appearance').selectOption('dark');await prefs.locator('#sampling').selectOption('1');
   await prefs.waitForFunction(async()=>{const s=(await chrome.storage.local.get('settings')).settings;return s.appearance==='dark'&&s.sampling===1;});
@@ -796,4 +800,4 @@ assert.match(await frame.locator('[data-property=pageSize]').textContent(),/215.
  }
  assert.deepEqual(report.remoteRequests,[],'OCR/renderer never makes external network requests');assert.deepEqual(report.errors,[],'no application/CSP errors');report.checks.push('no remote document resources or console errors');
  console.log(JSON.stringify(report,null,2));await writeFile(join(folder,'report.json'),JSON.stringify(report,null,2));
-} catch(error){console.error(JSON.stringify(report,null,2));throw error;}finally{releaseSlow();await context.close();await new Promise(r=>server.close(r));}
+} catch(error){console.error(JSON.stringify(report,null,2));throw error;}finally{releaseSlow();await context.close();await new Promise(r=>server.close(r));if(process.env.PDF_QA==='embedded'){await rm(join(folder,'profile'),{recursive:true,force:true});await rm(ext,{recursive:true,force:true});}}

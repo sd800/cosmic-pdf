@@ -1,16 +1,16 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-const records=[],session={},calls=[];globalThis.chrome={runtime:{getURL:path=>'chrome-extension://test/'+path,getContexts:async()=>[{tabId:12,frameId:0,documentUrl:'chrome-extension://test/workspaces/pdf-reader/index.html?source=https://example.com/a.pdf?signature=x%2By&k=1'}]},extension:{isAllowedFileSchemeAccess:async()=>true},declarativeNetRequest:{getSessionRules:async()=>records.flatMap(r=>r.addRules||[]),updateDynamicRules:async r=>records.push(r),updateSessionRules:async r=>records.push(r),isRegexSupported:async()=>({isSupported:true})},storage:{session:{get:async key=>({[key]:session[key]}),set:async data=>Object.assign(session,data),remove:async key=>delete session[key]}},tabs:{update:async(...args)=>calls.push(args)}};
-const {takeoverRules,configureTakeover,useNative,forgetNative}=await import('../extension/background/products/takeover.js');
-test('takeover is response-type gated, GET/top-level only and respects attachments',async()=>{assert.deepEqual(takeoverRules(false,true),[]);const rules=takeoverRules(true,false);assert.equal(rules.length,3);for(const r of rules){assert.deepEqual(r.condition.requestMethods,['get']);assert.deepEqual(r.condition.resourceTypes,['main_frame']);assert.ok(r.condition.responseHeaders);}assert.equal(rules[0].action.type,'allow');assert.ok(rules[0].priority>rules[1].priority);assert.equal(rules[1].action.redirect.regexSubstitution,'chrome-extension://test/workspaces/pdf-reader/index.html?source=\\0');assert.equal(takeoverRules(true,true).length,4);await configureTakeover(true);});
-test('native exemption scoped to source and tab, cleaned only on departure',async()=>{const source='https://example.com/a.pdf?signature=x%2By&k=1';const sender={frameId:0,documentId:'reader-document',tab:{id:12},url:'chrome-extension://test/workspaces/pdf-reader/index.html?source='+source};await useNative(sender);const rule=records.at(-1).addRules[0];assert.deepEqual(rule.condition.tabIds,[12]);assert.ok(new RegExp(rule.condition.regexFilter).test(source));assert.ok(new RegExp(rule.condition.regexFilter).test(source+'#page=2'));assert.equal(new RegExp(rule.condition.regexFilter).test(source+'2'),false);await forgetNative(12,source+'#page=2');assert.ok(session['native:12']);await forgetNative(12,'https://example.com/');assert.equal(session['native:12'],undefined);await assert.rejects(useNative({...sender,frameId:2}));await assert.rejects(useNative({...sender,url:'https://evil.test/'}));});
+const records=[],session={},calls=[];globalThis.chrome={runtime:{id:'test',getURL:path=>'chrome-extension://test/'+path,getContexts:async()=>[{tabId:12,frameId:0,documentUrl:'chrome-extension://test/workspaces/pdf-reader/index.html?source=https://example.com/a.pdf?signature=x%2By&k=1'}]},extension:{isAllowedFileSchemeAccess:async()=>true},declarativeNetRequest:{getSessionRules:async()=>records.flatMap(r=>r.addRules||[]),updateDynamicRules:async r=>records.push(r),updateSessionRules:async r=>records.push(r),isRegexSupported:async()=>({isSupported:true})},storage:{session:{get:async key=>({[key]:session[key]}),set:async data=>Object.assign(session,data),remove:async key=>delete session[key]}},tabs:{update:async(...args)=>calls.push(args)}};
+const {takeoverRules,configureTakeover,useNative,forgetNative,openLocalPdf}=await import('../extension/background/products/takeover.js');
+test('takeover covers PDF tabs and embedded frames, is GET/MIME gated and respects attachments',async()=>{assert.deepEqual(takeoverRules(false,true),[]);const rules=takeoverRules(true,false);assert.equal(rules.length,3);for(const r of rules){assert.deepEqual(r.condition.requestMethods,['get']);assert.deepEqual(r.condition.resourceTypes,['main_frame','sub_frame','object']);assert.ok(r.condition.responseHeaders);}assert.equal(rules[0].action.type,'allow');assert.ok(rules[0].priority>rules[1].priority);assert.equal(rules[1].action.redirect.regexSubstitution,'chrome-extension://test/workspaces/pdf-reader/index.html?source=\\0');assert.equal(takeoverRules(true,true).length,3);await configureTakeover(true);});
+test('native exemption scoped to source and tab, cleaned only on departure',async()=>{const source='https://example.com/a.pdf?signature=x%2By&k=1';const sender={id:'test',frameId:0,documentId:'reader-document',tab:{id:12},url:'chrome-extension://test/workspaces/pdf-reader/index.html?source='+source};await useNative(sender);const rule=records.at(-1).addRules[0];assert.deepEqual(rule.condition.tabIds,[12]);assert.ok(new RegExp(rule.condition.regexFilter).test(source));assert.ok(new RegExp(rule.condition.regexFilter).test(source+'#page=2'));assert.equal(new RegExp(rule.condition.regexFilter).test(source+'2'),false);await forgetNative(12,source+'#page=2');assert.ok(session['native:12']);await forgetNative(12,'https://example.com/');assert.equal(session['native:12'],undefined);await assert.rejects(useNative({...sender,frameId:2}));await assert.rejects(useNative({...sender,url:'https://evil.test/'}));});
 
 test('native handover cancels stale requests and rolls back failures without leaking exemptions',async()=>{
  const original=globalThis.chrome;
  try {
   for(const fault of ['storage','install','navigate','depart','rollback']){
    const state={},rules=new Map();let live=true,updates=0,navigations=0;
-   const sender={frameId:0,documentId:'reader',tab:{id:20},url:'chrome-extension://test/workspaces/pdf-reader/index.html?source=https://example.com/a.pdf'};
-   globalThis.chrome={runtime:{getContexts:async()=>live?[{tabId:20,frameId:0,documentUrl:sender.url}]:[]},
+   const sender={id:'test',frameId:0,documentId:'reader',tab:{id:20},url:'chrome-extension://test/workspaces/pdf-reader/index.html?source=https://example.com/a.pdf'};
+   globalThis.chrome={runtime:{id:'test',getURL:path=>'chrome-extension://test/'+path,getContexts:async()=>live?[{tabId:20,frameId:0,documentUrl:sender.url}]:[]},
     storage:{session:{get:async key=>({[key]:state[key]}),set:async values=>{if(fault==='storage')throw Error('storage');Object.assign(state,values);},remove:async key=>delete state[key]}},
     declarativeNetRequest:{isRegexSupported:async()=>({isSupported:true}),getSessionRules:async()=>[...rules.values()],updateSessionRules:async update=>{
      updates++;if(fault==='install'||(fault==='rollback'&&updates===2))throw Error('rules');
@@ -27,6 +27,43 @@ test('native handover cancels stale requests and rolls back failures without lea
 });
 
 const { createSettingsSurface } = await import('../extension/background/settings-surface.js');
+
+test('local PDF navigation checks file access, latest tab URL and native exemptions without download-history access',async()=>{
+ const original=globalThis.chrome,source='file:///tmp/Downloaded%20File.PDF#page=2';
+ let enabled=true,access=true,current=source,pending='',state={},updates=[];
+ try{
+  globalThis.chrome={storage:{local:{get:async()=>({settings:{enabled}})},session:{get:async key=>({[key]:state[key]})}},extension:{isAllowedFileSchemeAccess:async()=>access},tabs:{get:async()=>({url:current,pendingUrl:pending}),update:async(...args)=>updates.push(args)}};
+  await openLocalPdf(8,source);assert.deepEqual(updates,[[8,{url:'chrome-extension://test/workspaces/pdf-reader/index.html?source='+source}]]);
+  updates=[];access=false;await openLocalPdf(8,source);assert.equal(updates.length,0);
+  access=true;enabled=false;await openLocalPdf(8,source);assert.equal(updates.length,0);
+  enabled=true;current='https://example.com/';await openLocalPdf(8,source);assert.equal(updates.length,0);
+  current=source;pending='https://example.com/next';await openLocalPdf(8,source);assert.equal(updates.length,0);
+  pending='';state['native:8']={entries:[{id:1000,frameId:0,url:source.split('#')[0]}]};await openLocalPdf(8,source);assert.equal(updates.length,0);
+  state={};for(const url of ['https://example.com/a.pdf','file:///tmp/report.txt','javascript:bad'])await openLocalPdf(8,url);assert.equal(updates.length,0);
+ }finally{globalThis.chrome=original;}
+});
+
+test('embedded native return keeps the parent tab and isolates simultaneous PDF exemptions',async()=>{
+ const original=globalThis.chrome,state={},rules=new Map(),updates=[];
+ const url=frame=>'chrome-extension://test/workspaces/pdf-reader/index.html?source=https://example.com/'+frame+'.pdf?token=a%2Bb&k=1';
+ const sender=frame=>({id:'test',frameId:frame,documentId:'frame-'+frame,tab:{id:30},url:url(frame)});
+ try {
+  globalThis.chrome={runtime:{id:'test',getURL:path=>'chrome-extension://test/'+path,getContexts:async({documentIds})=>[3,4].filter(frame=>documentIds.includes('frame-'+frame)).map(frame=>({frameId:frame,tabId:30,documentId:'frame-'+frame,documentUrl:url(frame)}))},
+   storage:{session:{get:async key=>({[key]:state[key]}),set:async data=>Object.assign(state,data),remove:async key=>delete state[key]}},
+   declarativeNetRequest:{isRegexSupported:async()=>({isSupported:true}),getSessionRules:async()=>[...rules.values()],updateSessionRules:async({removeRuleIds=[],addRules=[]})=>{for(const id of removeRuleIds)rules.delete(id);for(const rule of addRules)rules.set(rule.id,rule);}},
+   tabs:{update:async(...args)=>updates.push(args)}};
+  state['native:99']={entries:[{frameId:2,id:1000,url:'https://example.com/stale.pdf'}]};
+  await useNative(sender(3));await useNative(sender(4));assert.equal(rules.size,2);assert.equal(updates.length,0,'parent must not navigate');
+  assert.equal(state['native:30'].entries.length,2);
+  await forgetNative(99,null,true);assert.equal(rules.size,2,'stale metadata cannot remove another tab’s reused rule ID');
+  for(const rule of rules.values()){assert.deepEqual(rule.condition.tabIds,[30]);assert.deepEqual(rule.condition.resourceTypes,['sub_frame','object']);assert.deepEqual(rule.condition.initiatorDomains,['test']);}
+  await useNative(sender(3));assert.equal(rules.size,2,'same frame replaces only its own exemption');
+  await assert.rejects(useNative({...sender(3),frameId:5}));
+  await assert.rejects(useNative({...sender(3),id:'other'}));
+  await forgetNative(30,'https://example.com/another-page');assert.equal(rules.size,0);assert.equal(state['native:30'],undefined);
+  await useNative(sender(4));await forgetNative(30,null,true);assert.equal(rules.size,0);
+ }finally{globalThis.chrome=original;}
+});
 
 test('Settings keeps the newest registered document without reading general tab URLs', async () => {
   const base='chrome-extension://test/settings/',key='qa-settings',saved={},removed=[];

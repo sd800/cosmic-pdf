@@ -9,6 +9,13 @@ import { pdfDetailCanvasPixels,stepPdfScale,rotateLeft,safePdfLink,pdfOptions,pd
 import { clearPdfSelection } from '../extension/workspaces/pdf-viewer/selection.js';
 import { createAutomaticOcr } from '../extension/workspaces/pdf-viewer/automatic-ocr.js';
 test('settings whitelist, defaults and all six sampling levels',()=>{assert.deepEqual(normalizeSettings(null),DEFAULTS);assert.equal(DEFAULTS.captureLinks,true);for(const captureLinks of [true,false])assert.equal(normalizeSettings({captureLinks}).captureLinks,captureLinks);assert.equal(normalizeSettings({captureLinks:'false'}).captureLinks,true);assert.equal(DEFAULTS.useChromeFind,true);for(const useChromeFind of [true,false])assert.equal(normalizeSettings({useChromeFind}).useChromeFind,useChromeFind);assert.equal(normalizeSettings({useChromeFind:'false'}).useChromeFind,true);for(let n=1;n<=6;n++)assert.equal(normalizeSettings({sampling:n}).sampling,n);assert.equal(normalizeSettings({sampling:Infinity}).sampling,4);assert.equal(normalizeSettings({sharpening:'true'}).sharpening,false);assert.equal(normalizeSettings({ocrQuality:99}).ocrQuality,2);assert.equal(normalizeSettings({locale:'zh-TW'}).locale,'auto');assert.equal(normalizeSettings({obsolete:true}).obsolete,undefined);for(const [showFilename,showBranding,mode]of [[true,true,'both'],[false,true,'branding'],[true,false,'filename'],[false,false,'none']])assert.equal(toolbarMode(normalizeSettings({showFilename,showBranding})),mode);assert.equal(toolbarMode(normalizeSettings({showFilename:'false',showBranding:null})),'filename');});
+test('automatic current-page recognition is an independent explicit opt-in',()=>{
+ assert.equal(DEFAULTS.automaticOcr,false);
+ assert.equal(normalizeSettings({aiEnabled:false,automaticOcr:true}).automaticOcr,true);
+ assert.equal(normalizeSettings({aiEnabled:true,automaticOcr:false}).automaticOcr,false);
+ for(const automaticOcr of [true,false])assert.equal(normalizeSettings({automaticOcr}).automaticOcr,automaticOcr);
+ for(const automaticOcr of [null,'true',1,{}])assert.equal(normalizeSettings({automaticOcr}).automaticOcr,false);
+});
 test('UI supports only English/Simplified Chinese',()=>{assert.equal(uiLocale(DEFAULTS,'zh-TW'),'zh-CN');assert.equal(uiLocale(DEFAULTS,'ja'),'en-US');assert.equal(uiLocale({...DEFAULTS,locale:'en-US'},'zh-CN'),'en-US');});
 test('raw DNR source preserves all signed query parameters and fragments',()=>{const reader='chrome-extension://id/workspaces/pdf-reader/index.html',source='https://example.com/a?one=1&signed=A%2BB%3D&source=2#page=2';assert.equal(sourceFromReader(reader+'?source='+source,reader),source);assert.equal(sourceFromReader('https://evil.test/?source='+source,reader),null);for(const value of ['javascript:alert(1)','data:application/pdf,abc','https://u:p@example.com/a'])assert.equal(safeSource(value),null);assert.equal(safeSource('file:///tmp/a.pdf'),'file:///tmp/a.pdf');});
 test('safe filenames and PDF content sniffing',()=>{assert.equal(filenameFrom('https://e.com/download','attachment; filename*=UTF-8\'\'report%20one.pdf'),'report one.pdf');assert.equal(filenameFrom('https://e.com/abc'), 'abc.pdf');assert.equal(isPdf(new TextEncoder().encode('%PDF-1.7\n').buffer),true);assert.equal(isPdf(new TextEncoder().encode('<html>error</html>').buffer),false);});
@@ -341,4 +348,12 @@ test('reader appearance choices follow the system only in Auto and never alter c
  }
  for(const value of [null,undefined,'opposite','DARK','__proto__',{},true])assert.equal(isAppearanceMode(value),false);
  for(const value of ['auto','light','dark'])assert.equal(isAppearanceMode(value),true);
+});
+
+const {isViewerHost}=await import('../extension/workspaces/pdf-viewer/host-origin.js');
+test('web-accessible sandbox accepts initialization only from its own extension host origin',()=>{
+ const module='chrome-extension://owned/workspaces/pdf-viewer/viewer.js';
+ assert.equal(isViewerHost('chrome-extension://owned',module),true);
+ for(const origin of ['null','https://example.com','chrome-extension://other','chrome-extension://owned.evil','chrome-extension://owned/path',null])assert.equal(isViewerHost(origin,module),false);
+ assert.equal(isViewerHost('https://example.com','https://example.com/viewer.js'),false);
 });

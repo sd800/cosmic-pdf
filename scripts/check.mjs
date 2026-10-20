@@ -28,5 +28,7 @@ const permissions=['storage','declarativeNetRequestWithHostAccess'],hosts=['http
 if(JSON.stringify(manifest.permissions)!==JSON.stringify(permissions)||JSON.stringify(manifest.host_permissions)!==JSON.stringify(hosts))throw Error('Unexpected extension permissions: audit before expanding access');
 if(manifest.content_scripts||manifest.optional_permissions?.length||manifest.optional_host_permissions?.length)throw Error('No webpage injection or optional permission requests');
 if(!manifest.content_security_policy.sandbox.includes("connect-src 'self' blob:"))throw Error('Sandbox must not reach remote resources');
+const publicPages=manifest.web_accessible_resources.flatMap(group=>group.resources).sort();
+if(JSON.stringify(publicPages)!==JSON.stringify(['workspaces/pdf-reader/index.html','workspaces/pdf-viewer/viewer.html']))throw Error('Only the trusted reader entry and opaque viewer shell may be web-accessible');
 for(const file of ['CHANGELOG.md','CHANGELOG_zh.md'])if(!(await readFile(file,'utf8')).includes('## '+pkg.version))throw Error('Missing release entry');
 const files=await walk('extension');let size=0;for(const f of files)size+=(await stat(f)).size;console.log(`Checks passed. ${files.length} runtime files; ${(size/1000000).toFixed(1)} MB unpacked.`);

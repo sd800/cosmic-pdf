@@ -1,3 +1,4 @@
+import { isReaderSender } from '../reader-sender.js';
 import { readSettings } from '../../core/settings.js';
 import { AI_PROVIDERS, normalizeAiRequest, explanationMessages, aiFailure } from '../../core/ai.js';
 import { AI_TEST_MODE_KEY, AI_TEST_MODEL, normalizeAiTestMode } from '../../core/ai-test-mode.js';
@@ -27,7 +28,7 @@ export function createAiExplanationProduct({ vault = createApiVault(), read = re
     try { const url = new URL(sender.url), expected = new URL(runtime.getURL(path)); return url.protocol === expected.protocol && url.host === expected.host && url.pathname === expected.pathname; } catch { return false; }
   }
   const settingsSender = sender => isPage(sender, 'settings/index.html');
-  const readerSender = sender => isPage(sender, 'workspaces/pdf-reader/index.html');
+  const readerSender = sender => isReaderSender(sender, runtime);
   const privateSender = sender => sender?.tab?.incognito === true || chrome.extension?.inIncognitoContext === true;
   const ready = async sender => {
     if(privateSender(sender))return {keys:{},private:true};

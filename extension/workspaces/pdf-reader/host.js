@@ -4,9 +4,8 @@ import { sourceFromReader, READER_PATH, isPdf, filenameFrom, cleanFilename } fro
 import { createPdfViewer } from '../pdf-viewer/host.js';
 import { PDF_LIMITS } from '../pdf-viewer/model.js';
 const $=id=>document.getElementById(id);
-// This web-accessible entry point may only open as a top-level tab. Its sandbox
-// is private; neither bytes nor OCR results are ever sent to a web-page parent.
-if(window!==top) throw Error('Top-level reader required');
+// The extension-owned host also supports embedded PDFs. No bytes, OCR text or
+// private channel are ever shared with its containing webpage.
 let settings=await readSettings(), locale=uiLocale(settings,chrome.i18n.getUILanguage());
 function hostText(locale){return locale==='zh-CN'?{intro:'以舒适的外观阅读 PDF，按需识别扫描件中的文字。',open:'打开 PDF 文件',settings:'设置',native:'使用 Chrome 阅读器',hint:'将 PDF 拖到这里，或选择本地文件。PDF 阅读和文字识别均在本机完成。',failed:'无法打开此文件。可尝试 Chrome 阅读器或选择本地副本。',large:'文件超过 64 MB 的安全读取上限，请使用 Chrome 阅读器。',downloadFailed:'下载未能开始，请重试。',nativeFailed:'无法切换。请在设置中暂时关闭自动打开，然后重新访问原文件。'}:{intro:'Read PDFs comfortably and recognize scanned text when you need it.',open:'Open a PDF',settings:'Settings',native:'Use Chrome reader',hint:'Drop a PDF here, or choose a local file. PDF reading and text recognition stay on your device.',failed:'This file could not be opened. Try the Chrome reader or choose a local copy.',large:'This file exceeds the 64 MB safe reading limit. Use the Chrome reader instead.',downloadFailed:'The download could not start. Please try again.',nativeFailed:'Could not switch. Turn off automatic opening in Settings, then revisit the original file.'}}
 let text=hostText(locale);
@@ -25,7 +24,15 @@ function applyTheme(){const dark=currentDark();document.documentElement.dataset.
 applyTheme();media.addEventListener('change',()=>{if(appearanceOverride==='auto'||(appearanceOverride===null||appearanceOverride==='opposite')&&activeSettings.appearance==='auto')applyTheme();});
 function setView(view){document.documentElement.dataset.view=view;}
 function fail(message){$('message').textContent=message; setView('home');}
-async function native(){if(source){const result=await chrome.runtime.sendMessage({type:'NATIVE_READER'}).catch(()=>null);if(!result?.ok){if(reader)reader.showError(text.nativeFailed);else fail(text.nativeFailed);}}else if(blobURL){try{await chrome.tabs.create({url:blobURL});}catch{reader?.showError(text.nativeFailed);}}}
+async function native(){
+ if(source){
+  const requested=source,run=generation;
+  const result=await chrome.runtime.sendMessage({type:'NATIVE_READER'}).catch(()=>null);
+  if(run!==generation||source!==requested)return;
+  if(result?.ok&&window!==top){location.assign(requested);return;}
+  if(!result?.ok){if(reader)reader.showError(text.nativeFailed);else fail(text.nativeFailed);}
+ }else if(blobURL){try{await chrome.tabs.create({url:blobURL});}catch{reader?.showError(text.nativeFailed);}}
+}
 function openSettings(){if(reader)void chrome.runtime.sendMessage({type:'OPEN_SETTINGS'});else location.assign(chrome.runtime.getURL('settings/index.html'));}
 function download(){
  if(!blobURL)return;
@@ -73,10 +80,10 @@ chrome.storage.onChanged.addListener((changes,area)=>{
  { const next=normalizeSettings(changes.settings.newValue);
   settings=next;
   const nextLocale=uiLocale(next,chrome.i18n.getUILanguage()),changed=toolbarSignature(activeSettings)!==toolbarSignature(next);
-  const interfaceChanged=locale!==nextLocale||activeSettings.propertyDateFormat!==next.propertyDateFormat||activeSettings.ocrAction!==next.ocrAction||activeSettings.useChromeFind!==next.useChromeFind||activeSettings.captureLinks!==next.captureLinks;
+  const interfaceChanged=locale!==nextLocale||activeSettings.propertyDateFormat!==next.propertyDateFormat||activeSettings.ocrAction!==next.ocrAction||activeSettings.automaticOcr!==next.automaticOcr||activeSettings.useChromeFind!==next.useChromeFind||activeSettings.captureLinks!==next.captureLinks;
   const aiChanged=['aiEnabled','aiMode','aiWebsite','aiProvider','aiLanguage','aiIncludeContext'].some(key=>activeSettings[key]!==next[key]);
   const paperChanged=activeSettings.preserveDarkPaper!==next.preserveDarkPaper;
-  activeSettings={...activeSettings,aiEnabled:next.aiEnabled,aiMode:next.aiMode,aiWebsite:next.aiWebsite,aiProvider:next.aiProvider,aiLanguage:next.aiLanguage,aiIncludeContext:next.aiIncludeContext,preserveDarkPaper:next.preserveDarkPaper,locale:next.locale,propertyDateFormat:next.propertyDateFormat,ocrAction:next.ocrAction,useChromeFind:next.useChromeFind,captureLinks:next.captureLinks,showFilename:next.showFilename,showBranding:next.showBranding,toolbarHidden:next.toolbarHidden};
+  activeSettings={...activeSettings,aiEnabled:next.aiEnabled,aiMode:next.aiMode,aiWebsite:next.aiWebsite,aiProvider:next.aiProvider,aiLanguage:next.aiLanguage,aiIncludeContext:next.aiIncludeContext,preserveDarkPaper:next.preserveDarkPaper,locale:next.locale,propertyDateFormat:next.propertyDateFormat,ocrAction:next.ocrAction,automaticOcr:next.automaticOcr,useChromeFind:next.useChromeFind,captureLinks:next.captureLinks,showFilename:next.showFilename,showBranding:next.showBranding,toolbarHidden:next.toolbarHidden};
   if(aiChanged)reader?.setAi(next);
   if(paperChanged)reader?.setDarkPaper(next.preserveDarkPaper);
   if(changed)reader?.setToolbar(next);

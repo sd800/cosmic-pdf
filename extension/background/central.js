@@ -1,11 +1,10 @@
+import { isReaderSender } from './reader-sender.js';
 import * as standing from './provinces/standing.js';
 import * as operations from './provinces/operations.js';
 import { aiExplanation, aiWebsite } from './provinces/customs.js';
 import { aiFailure } from '../core/ai.js';
 void chrome.storage.local.setAccessLevel({accessLevel:'TRUSTED_CONTEXTS'}).catch(()=>{});
 void chrome.storage.session.setAccessLevel({accessLevel:'TRUSTED_CONTEXTS'}).catch(()=>{});
-const readerURL=chrome.runtime.getURL('workspaces/pdf-reader/index.html');
-const isReaderSender=sender=>sender.frameId===0&&Number.isInteger(sender.tab?.id)&&typeof sender.url==='string'&&(sender.url===readerURL||sender.url.startsWith(readerURL+'?')||sender.url.startsWith(readerURL+'#'));
 let startup=Promise.resolve();
 const start=()=>startup=startup.catch(()=>{}).then(()=>operations.readSettings()).then(s=>standing.configureTakeover(s.enabled));
 chrome.runtime.onInstalled.addListener(()=>void start().catch(console.error));
@@ -13,7 +12,7 @@ chrome.runtime.onStartup.addListener(()=>void start().catch(console.error));
 chrome.storage.onChanged.addListener((changes,area)=>{if(area==='local' && changes.settings && changes.settings.oldValue?.enabled!==changes.settings.newValue?.enabled) void start().catch(console.error);});
 chrome.action.onClicked.addListener(()=>void start().then(()=>operations.openReader()).catch(console.error));
 chrome.tabs.onRemoved.addListener(id=>{aiExplanation.disposeTab(id);void aiWebsite.disposeTab(id).catch(()=>{});void standing.forgetNative(id,null,true).catch(()=>{});});
-chrome.tabs.onUpdated.addListener((id,change)=>{if(change.status==='loading'||change.url)aiExplanation.disposeTab(id);if(change.url){void aiWebsite.disposeTab(id,change.url).catch(()=>{});void standing.forgetNative(id,change.url).catch(()=>{});}});
+chrome.tabs.onUpdated.addListener((id,change)=>{if(change.status==='loading'||change.url)aiExplanation.disposeTab(id);if(change.url){void aiWebsite.disposeTab(id,change.url).catch(()=>{});void standing.forgetNative(id,change.url).catch(()=>{});void standing.openLocalPdf(id,change.url).catch(()=>{});}});
 chrome.runtime.onMessage.addListener((message,sender,respond)=>{
   if(sender.id!==chrome.runtime.id)return;
   if(message?.type==='AI_OPEN_WEBSITE'||message?.type==='AI_CANCEL_WEBSITE'){

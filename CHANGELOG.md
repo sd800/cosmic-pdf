@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.2.19 — 2026-10-19
+
+- Support PDF opening within webpages and improve automatic takeover of downloaded/local PDFs, with Chrome-reader fallback.
+- Add independent automatic current-page text recognition, including when Explain with AI is off.
+
 ## 3.2.18 — 2026-10-17
 
 - Add a right-click appearance menu with Auto, Light and Dark choices, while keeping one-click switching.

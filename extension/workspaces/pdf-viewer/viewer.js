@@ -1,3 +1,4 @@
+import { isViewerHost } from './host-origin.js';
 import { createAppearanceMenu } from './appearance-menu.js';
 import { isAppearanceMode } from '../../core/appearance.js';
 import { createAiReader } from './ai-reader.js';
@@ -20,12 +21,7 @@ const $ = id => document.getElementById(id);
 let port, task, pdf, viewer, pdfWorker, parseTimer, destroyed = false, text = {...labels['en-US']}, fullscreenActive = false;
 const lifetime = new AbortController(), signal = lifetime.signal;
 const eventBus = new EventBus(), viewport = $('viewport');
-// Prepare the parser concurrently with the host download, without starting OCR.
-const workerReady = createPdfWorker(pdfjs, signal).then(worker => {
-  pdfWorker = worker;
-  return worker;
-});
-void workerReady.catch(() => {});
+let workerReady;
 let firstPageReady = false, themeDark = false, darkPaper;
 let aiReader;
 const readingSelection = bindPdfSelection({ pages: $('pages'), signal, onClear: () => aiReader?.dismissSelection() });
@@ -142,7 +138,11 @@ function destroy() {
 }
 window.addEventListener('pagehide', destroy, { once: true });
 window.addEventListener('message', event => {
-  if (event.source !== parent || port || event.data?.type !== 'CP_PDF_INIT' || event.ports.length !== 1) return;
+  if (destroyed || event.source !== parent || !isViewerHost(event.origin, import.meta.url) || port || event.data?.type !== 'CP_PDF_INIT' || event.ports.length !== 1) return;
+  // Start the parser during transfer, but only after our host has initialized
+  // this sandbox. Direct webpage embeds cannot allocate a parser worker.
+  workerReady = createPdfWorker(pdfjs, signal).then(worker => { pdfWorker = worker; return worker; });
+  void workerReady.catch(() => {});
   const input = event.data;
   documentUrl = typeof input.documentUrl === 'string' ? input.documentUrl : '';
   settings = normalizeSettings(input.settings);
@@ -183,9 +183,10 @@ window.addEventListener('message', event => {
     else if (data?.type === 'host-error') { $('status').textContent = String(data.message || '').slice(0,1000); taskBusy = false; paintProgress(); }
     else if (data?.type === 'interface') {
       const next = normalizeSettings(data);
-      settings = {...settings, propertyDateFormat:next.propertyDateFormat, ocrAction:next.ocrAction, useChromeFind:next.useChromeFind};
+      settings = {...settings, propertyDateFormat:next.propertyDateFormat, ocrAction:next.ocrAction, automaticOcr:next.automaticOcr, useChromeFind:next.useChromeFind};
       setLinkCapture(next.captureLinks);
       localize(data.locale);
+      ocr?.refreshAutomatic();
     }
     else if (data?.type === 'fullscreen-error') status('fullScreenFailed');
     else if (data?.type === 'fullscreen') {
@@ -324,7 +325,7 @@ async function open(bytes, sampling) {
   eventBus.on('updatefindcontrolstate', ({ state, matchesCount }) => {
     $('matches').textContent = state === 3 ? text.searching : state === 1 ? text.noMatches : `${matchesCount?.current || 0} / ${matchesCount?.total || 0}`;
   }, { signal });
-  ocr = createOcr({ pdf, viewer, eventBus, settings, text, signal, canAutoRecognize: () => aiReader?.canExplain() === true });
+  ocr = createOcr({ pdf, viewer, eventBus, settings, text, signal, canAutoRecognize: () => settings.automaticOcr || aiReader?.canExplain() === true });
   viewer.setDocument(pdf);
   click('previous', () => viewer.previousPage()); click('next', () => viewer.nextPage());
   $('page').onchange = () => { viewer.currentPageNumber = pdfPageNumber($('page').value, pdf.numPages, viewer.currentPageNumber); $('page').value = viewer.currentPageNumber; };

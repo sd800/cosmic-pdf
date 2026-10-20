@@ -91,8 +91,8 @@ export function createPdfViewer({ container, locale, sampling, settings, filenam
     setInterface(nextLocale, nextSettings) {
       const next = normalizeSettings(nextSettings);
       locale = nextLocale === 'zh-CN' ? nextLocale : 'en-US';
-      settings = { ...settings, propertyDateFormat: next.propertyDateFormat, ocrAction: next.ocrAction, useChromeFind: next.useChromeFind, captureLinks: next.captureLinks };
-      if (!closed) channel.port1.postMessage({ type: 'interface', locale, propertyDateFormat: next.propertyDateFormat, ocrAction: next.ocrAction, useChromeFind: next.useChromeFind, captureLinks: next.captureLinks });
+      settings = { ...settings, propertyDateFormat: next.propertyDateFormat, ocrAction: next.ocrAction, automaticOcr: next.automaticOcr, useChromeFind: next.useChromeFind, captureLinks: next.captureLinks };
+      if (!closed) channel.port1.postMessage({ type: 'interface', locale, propertyDateFormat: next.propertyDateFormat, ocrAction: next.ocrAction, automaticOcr: next.automaticOcr, useChromeFind: next.useChromeFind, captureLinks: next.captureLinks });
     },
     setAi(nextSettings) {
       const next=normalizeSettings(nextSettings);
