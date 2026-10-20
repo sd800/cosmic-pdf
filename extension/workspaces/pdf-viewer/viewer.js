@@ -156,6 +156,7 @@ window.addEventListener('message', event => {
   for (const control of document.querySelectorAll('header nav button:not(#fullscreen), header nav input, header nav select, #sidebar-toggle, #print, #download, #properties, #filename')) control.disabled = true;
   $('native').disabled = input.canUseNative !== true;
   port.onmessage = ({ data }) => {
+    if (destroyed) return;
     if (data?.type === 'document') {
       if (opened || !(data.bytes instanceof ArrayBuffer) || !data.bytes.byteLength || data.bytes.byteLength > PDF_LIMITS.bytes) return;
       opened = true; documentBytes = data.bytes.byteLength; documentFilename = String(data.filename || 'PDF').slice(0, 1024);
@@ -231,15 +232,17 @@ async function open(bytes, sampling) {
   task = pdfjs.getDocument({ ...pdfOptions(new Uint8Array(bytes), new URL('../../vendor/pdfjs/', import.meta.url).href), worker });
   const armParseDeadline = () => {
     clearTimeout(parseTimer);
-    parseTimer = setTimeout(() => { status('failed'); emit('error'); void task.destroy().catch(() => {}); pdfWorker?.destroy(); }, 30000);
+    parseTimer = setTimeout(() => { if (!destroyed) { status('failed'); emit('error'); void task.destroy().catch(() => {}); pdfWorker?.destroy(); } }, 30000);
   };
   armParseDeadline();
   task.onPassword = (accept, reason) => {
+    if (destroyed) return;
     clearTimeout(parseTimer);
     emit('password'); status('');
     $('password-message').textContent = text[reason === pdfjs.PasswordResponses.INCORRECT_PASSWORD ? 'passwordWrong' : 'passwordNeeded'];
     $('password').value = ''; showReaderDialog($('password-dialog'), $('password'));
     $('password-dialog').onclose = () => {
+      if (destroyed) return;
       if ($('password-dialog').returnValue === 'open') { status('loading', true); armParseDeadline(); accept($('password').value); $('password').value = ''; }
       else { passwordCancelled = true; status('cancelled'); void task.destroy().catch(() => {}); pdfWorker?.destroy(); }
     };
@@ -273,7 +276,7 @@ async function open(bytes, sampling) {
     syncRenderProgress();
   };
   document.addEventListener('visibilitychange', () => {
-    thumbnailTask?.cancel();
+    cancelThumbnails();
     if (document.hidden) viewer.cleanup(); else { viewer.update(); void drawThumbnails(); }
     syncRenderProgress();
   }, { signal });
@@ -379,7 +382,7 @@ async function open(bytes, sampling) {
   $('query').oninput = () => search(); $('match-case').onchange = () => search();
   $('query').onkeydown = event => { if (event.key === 'Enter') { event.preventDefault(); search(true, event.shiftKey); } };
   window.addEventListener('keydown', event => {
-    if (event.defaultPrevented || document.querySelector('dialog[open]')) return;
+    if (event.defaultPrevented || event.isComposing || document.querySelector('dialog[open]')) return;
     if (event.altKey) return; // Leave browser history shortcuts to Chrome.
     const modifier = event.ctrlKey || event.metaKey, editable = /INPUT|SELECT|TEXTAREA/.test(event.target.tagName);
     if (modifier && event.key.toLowerCase() === 'f') {
@@ -391,21 +394,21 @@ async function open(bytes, sampling) {
     else if (modifier && event.key.toLowerCase() === 's') { event.preventDefault(); emit('download'); }
     else if (modifier && ['+', '=', '-', '0'].includes(event.key)) { event.preventDefault(); zoomTo(event.key === '0' ? 1 : stepPdfScale(viewer.currentScale, event.key === '-' ? -1 : 1)); }
     else if (event.key === 'Escape' && !$('findbar').hidden) closeFind();
-    else if (!editable && event.key === 'ArrowLeft') { event.preventDefault(); viewer.previousPage(); }
-    else if (!editable && event.key === 'ArrowRight') { event.preventDefault(); viewer.nextPage(); }
-    else if (!editable && event.key === 'Home') { event.preventDefault(); viewer.currentPageNumber = 1; }
-    else if (!editable && event.key === 'End') { event.preventDefault(); viewer.currentPageNumber = pdf.numPages; }
+    else if (!editable && !modifier && !event.shiftKey && event.key === 'ArrowLeft') { event.preventDefault(); viewer.previousPage(); }
+    else if (!editable && !modifier && !event.shiftKey && event.key === 'ArrowRight') { event.preventDefault(); viewer.nextPage(); }
+    else if (!editable && !modifier && !event.shiftKey && event.key === 'Home') { event.preventDefault(); viewer.currentPageNumber = 1; }
+    else if (!editable && !modifier && !event.shiftKey && event.key === 'End') { event.preventDefault(); viewer.currentPageNumber = pdf.numPages; }
   }, { signal });
   click('sidebar-toggle', () => {
     $('sidebar').hidden = !$('sidebar').hidden;
     if (firstPageReady && !$('sidebar').hidden && !$('thumbnails').children.length) createThumbnails();
-    if ($('sidebar').hidden) { thumbnailTask?.cancel(); } else void drawThumbnails();
+    if ($('sidebar').hidden) cancelThumbnails(); else void drawThumbnails();
   });
   click('show-pages', () => { $('outline').hidden = true; $('thumbnails').hidden = false; void drawThumbnails(); });
-  click('show-outline', () => { $('thumbnails').hidden = true; $('outline').hidden = false; thumbnailTask?.cancel(); void showOutline(links); });
+  click('show-outline', () => { $('thumbnails').hidden = true; $('outline').hidden = false; cancelThumbnails(); void showOutline(links); });
   const openProperties = () => {
     // Import and read metadata only on demand; retain one small dialog model.
-    properties ||= import('./properties.js').then(({ createProperties }) => createProperties({ pdf, viewer, filename: documentFilename, documentUrl, byteLength: documentBytes, locale: document.documentElement.lang, dateFormat: settings.propertyDateFormat, text, signal }));
+    properties ||= import('./properties.js').then(({ createProperties }) => destroyed ? null : createProperties({ pdf, viewer, filename: documentFilename, documentUrl, byteLength: documentBytes, locale: document.documentElement.lang, dateFormat: settings.propertyDateFormat, text, signal }));
     void properties.then(dialog => { if (!destroyed) return dialog.open(); }).catch(() => { if (!destroyed) status('propertiesUnavailable'); });
   };
   click('properties', openProperties); click('filename', openProperties);
@@ -472,29 +475,41 @@ function createThumbnails() {
   for (const node of $('thumbnails').children) thumbnailObserver.observe(node);
 }
 function clearThumbnails() {
-  thumbnailGeneration++; thumbnailTask?.cancel();
+  cancelThumbnails();
   for (const [node, canvas] of thumbnailCache) { canvas.width = canvas.height = 0; node.replaceChildren(String(node.dataset.page)); }
   thumbnailCache.clear();
 }
+function cancelThumbnails() { thumbnailGeneration++; thumbnailTask?.cancel(); }
+const thumbnailsVisible = () => !destroyed && !document.hidden && !printing && !$('sidebar').hidden && !$('thumbnails').hidden;
 async function drawThumbnails() {
-  if (thumbnailBusy || destroyed || document.hidden || printing || $('sidebar').hidden || $('thumbnails').hidden) return;
+  if (thumbnailBusy || !thumbnailsVisible()) return;
   const generation = thumbnailGeneration; thumbnailBusy = true;
+  const current = () => generation === thumbnailGeneration && thumbnailsVisible();
   try {
     for (const node of nearThumbnails) {
-      if (destroyed || document.hidden || printing || $('sidebar').hidden || $('thumbnails').hidden || generation !== thumbnailGeneration) break;
+      if (!current()) break;
       if (thumbnailCache.has(node)) continue;
-      const page = await pdf.getPage(Number(node.dataset.page)); if (destroyed || generation !== thumbnailGeneration) break;
+      const page = await pdf.getPage(Number(node.dataset.page));
+      if (!current()) break;
+      if (!nearThumbnails.has(node)) continue;
       const base = page.getViewport({ scale: 1, rotation: (page.rotate + viewer.pagesRotation) % 360 });
       const viewport = page.getViewport({ scale: Math.min(144 / base.width, 145 / base.height), rotation: base.rotation });
       const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
       const canvas = document.createElement('canvas'); canvas.width = Math.ceil(viewport.width * pixelRatio); canvas.height = Math.ceil(viewport.height * pixelRatio);
       canvas.style.width = viewport.width + 'px'; canvas.style.height = viewport.height + 'px';
-      thumbnailTask = page.render({ canvasContext: canvas.getContext('2d'), viewport,
-        transform: [pixelRatio, 0, 0, pixelRatio, 0, 0], annotationMode: pdfjs.AnnotationMode.DISABLE });
-      await thumbnailTask.promise; thumbnailTask = null;
-      eventBus.dispatch('thumbnailrendered', { pageNumber: Number(node.dataset.page), pdfPage: page });
-      if (destroyed || generation !== thumbnailGeneration) { canvas.width = canvas.height = 0; break; }
-      node.replaceChildren(canvas, String(node.dataset.page)); thumbnailCache.set(node, canvas);
+      try {
+        thumbnailTask = page.render({ canvasContext: canvas.getContext('2d'), viewport,
+          transform: [pixelRatio, 0, 0, pixelRatio, 0, 0], annotationMode: pdfjs.AnnotationMode.DISABLE });
+        await thumbnailTask.promise;
+        if (!current()) break;
+        if (!nearThumbnails.has(node)) continue;
+        eventBus.dispatch('thumbnailrendered', { pageNumber: Number(node.dataset.page), pdfPage: page });
+        node.replaceChildren(canvas, String(node.dataset.page)); thumbnailCache.set(node, canvas);
+      } finally {
+        thumbnailTask = null;
+        // Cancellation also releases a canvas that never reached the cache.
+        if (!thumbnailCache.has(node)) canvas.width = canvas.height = 0;
+      }
       // Thumbnails are tiny and only requested when their sidebar region is near.
       for (const [old, image] of thumbnailCache) { if (thumbnailCache.size <= 24) break; if (nearThumbnails.has(old)) continue; image.width = image.height = 0; old.replaceChildren(String(old.dataset.page)); thumbnailCache.delete(old); }
     }
@@ -524,24 +539,33 @@ function openPrint() {
   $('print-error').textContent = ''; showReaderDialog($('print-dialog'), $('print-from'));
 }
 async function printDocument() {
+  if (destroyed || printing || !pdf || !viewer?.printingAllowed) return;
   const range = printRange($('print-from').value, $('print-to').value, pdf.numPages);
   if (!range) { $('print-error').textContent = text.invalidRange; showReaderDialog($('print-dialog'), $('print-from')); return; }
-  printing = true; $('print').disabled = true; thumbnailTask?.cancel(); status('printing', true); cleanupPrint();
+  printing = true; $('print').disabled = true; cancelThumbnails(); status('printing', true); cleanupPrint();
   let pixels = 0;
   try {
     for (let i = range.from; i <= range.to; i++) {
       if (destroyed) return;
-      const page = await pdf.getPage(i), base = page.getViewport({ scale: 1.5, rotation: (page.rotate + viewer.pagesRotation) % 360 });
+      const page = await pdf.getPage(i);
+      if (destroyed) return;
+      const base = page.getViewport({ scale: 1.5, rotation: (page.rotate + viewer.pagesRotation) % 360 });
       pixels += Math.ceil(base.width) * Math.ceil(base.height);
       if (pixels > PDF_LIMITS.printPixels || base.width > 8192 || base.height > 8192) throw Error('Print budget');
       const canvas = document.createElement('canvas'); canvas.width = Math.ceil(base.width); canvas.height = Math.ceil(base.height);
-      printTask = page.render({ canvasContext: canvas.getContext('2d'), viewport: base, intent: 'print', annotationMode: pdfjs.AnnotationMode.DISABLE });
-      await printTask.promise; printTask = null;
-      const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png')); canvas.width = canvas.height = 0;
+      let blob;
+      try {
+        printTask = page.render({ canvasContext: canvas.getContext('2d'), viewport: base, intent: 'print', annotationMode: pdfjs.AnnotationMode.DISABLE });
+        await printTask.promise;
+        if (destroyed) return;
+        blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+      } finally { printTask = null; canvas.width = canvas.height = 0; }
       if (!blob || destroyed) throw Error();
-      const url = URL.createObjectURL(blob); printUrls.add(url); const image = new Image(); image.src = url; await image.decode(); $('print-pages').append(image);
+      const url = URL.createObjectURL(blob); printUrls.add(url); const image = new Image(); image.src = url; await image.decode();
+      if (destroyed) return;
+      $('print-pages').append(image);
     }
     if (!destroyed) { status(''); window.print(); }
   } catch { if (!destroyed) status('printFailed'); }
-  finally { printing = false; $('print').disabled = false; cleanupPrint(); if (!destroyed) { viewer.update(); void drawThumbnails(); } }
+  finally { printing = false; cleanupPrint(); if (!destroyed) { $('print').disabled = false; viewer.update(); void drawThumbnails(); } }
 }

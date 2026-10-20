@@ -17,6 +17,7 @@ export function createPdfViewer({ container, locale, sampling, settings, filenam
   // waiting for document bytes. No placeholder toolbar or loading cover.
   iframe.style.visibility = 'hidden';
   iframe.style.background = dark ? '#121416' : '#e8eaed';
+  iframe.style.colorScheme = dark ? 'dark' : 'light';
   const url = new URL('viewer.html', import.meta.url);
   url.hash = new URLSearchParams({ dark: dark ? '1' : '0', locale });
   iframe.src = url.href;
@@ -106,7 +107,13 @@ export function createPdfViewer({ container, locale, sampling, settings, filenam
       if (!closed) channel.port1.postMessage({ type: 'dark-paper', enabled: settings.preserveDarkPaper });
     },
     setSharpening(value) { if (!closed) { sharpening = value === true; channel.port1.postMessage({ type: 'sharpening', enabled: sharpening }); } },
-    setTheme(nextDark, mode) { dark = !!nextDark; if (isAppearanceMode(mode)) themeMode = mode; if (!closed) channel.port1.postMessage({ type: 'theme', dark, themeMode }); },
+    setTheme(nextDark, mode) {
+      if (closed) return;
+      dark = !!nextDark; if (isAppearanceMode(mode)) themeMode = mode;
+      iframe.style.background = dark ? '#121416' : '#e8eaed';
+      iframe.style.colorScheme = dark ? 'dark' : 'light';
+      channel.port1.postMessage({ type: 'theme', dark, themeMode });
+    },
     destroy
   };
 }

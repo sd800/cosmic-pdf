@@ -44,7 +44,7 @@ function download(){
  finally{link.remove();}
 }
 $('native').onclick=native;$('settings').onclick=openSettings;$('open-file').onclick=()=>$('file').click();
-$('file').onchange=()=>{const f=$('file').files[0];if(f)void openFile(f);};
+$('file').onchange=()=>{const f=$('file').files[0];$('file').value='';if(f)void openFile(f);};
 window.addEventListener('dragover',event=>{event.preventDefault();});window.addEventListener('drop',event=>{event.preventDefault();const f=event.dataTransfer?.files[0];if(f)void openFile(f);});
 async function readResponse(response,signal){
  if(!response.ok)throw Error('fetch');if(Number(response.headers.get('content-length'))>PDF_LIMITS.bytes)throw Error('large');

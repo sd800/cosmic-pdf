@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.2.21 — 2026-10-20
+
+- Preserve native text-selection shortcuts in the PDF reader.
+- Improve local-file retries, thumbnail cancellation, print cleanup, theme backdrops, and protection against late updates after closing a reader.
+
 ## 3.2.20 — 2026-10-19
 
 - Simplify the automatic text recognition setting description.

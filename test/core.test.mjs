@@ -1,3 +1,4 @@
+import { createPdfViewer } from '../extension/workspaces/pdf-viewer/host.js';
 import { isAppearanceMode, resolveReaderAppearance, toggleReaderAppearance } from '../extension/core/appearance.js';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';import assert from 'node:assert/strict';
@@ -356,4 +357,24 @@ test('web-accessible sandbox accepts initialization only from its own extension 
  assert.equal(isViewerHost('chrome-extension://owned',module),true);
  for(const origin of ['null','https://example.com','chrome-extension://other','chrome-extension://owned.evil','chrome-extension://owned/path',null])assert.equal(isViewerHost(origin,module),false);
  assert.equal(isViewerHost('https://example.com','https://example.com/viewer.js'),false);
+});
+
+
+test('reader host keeps its backdrop synchronized and retires failed callbacks', () => {
+ const originals={document:globalThis.document,window:globalThis.window,chrome:globalThis.chrome,MessageChannel:globalThis.MessageChannel};
+ const events=[],initialized=[],frame={style:{},addEventListener(type,callback){this.load=callback;},contentWindow:{postMessage:value=>initialized.push(value)},remove(){events.push('removed');}};
+ let channel,reader;
+ globalThis.document={createElement:()=>frame,addEventListener(){},removeEventListener(){}};
+ globalThis.window={addEventListener(){},removeEventListener(){}};
+ globalThis.chrome={runtime:{},storage:{onChanged:{addListener(){},removeListener(){}}}};
+ globalThis.MessageChannel=class{constructor(){channel=this;this.port1={postMessage(){},close(){events.push('closed');}};this.port2={};}};
+ try{
+  reader=createPdfViewer({container:{append(){}},locale:'en-US',dark:false,onError:()=>events.push('error')});
+  reader.setTheme(true,'dark');assert.equal(frame.style.background,'#121416');assert.equal(frame.style.colorScheme,'dark');
+  frame.load();assert.equal(initialized[0].dark,true);assert.equal(initialized[0].themeMode,'dark');
+  reader.setTheme(false,'light');assert.equal(frame.style.background,'#e8eaed');assert.equal(frame.style.colorScheme,'light');
+  channel.port1.onmessage({data:{type:'error'}});reader.setTheme(true,'dark');
+  for(const type of ['error','theme','download','shell-ready'])channel.port1.onmessage({data:{type}});
+  assert.equal(frame.style.background,'#e8eaed');assert.deepEqual(events,['closed','removed','error']);
+ }finally{reader?.destroy();for(const[key,value]of Object.entries(originals)){if(value===undefined)delete globalThis[key];else globalThis[key]=value;}}
 });

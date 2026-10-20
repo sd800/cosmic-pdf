@@ -152,3 +152,9 @@ Feature detection uses tabs.createSplit where exposed (officially Chrome 155+), 
 `python3 scripts/build-downloads.py` builds deterministic installation and full-source ZIPs from the current tracked working-tree files. Stage new source files before building. Fixed timestamps and regular-file permissions keep archives reproducible. The installation archive includes only `extension/`; the source archive includes tracked project sources except generated downloads, local/ignored folders and personal helpers. Neither archive includes Git metadata or `g.sh`. No downloaded package recursively includes generated ZIPs. SHA-256 metadata is written next to the files.
 
 Commit/push `downloads/` with each release. The existing main-root Pages site at `cpdf.songming.org` serves the ZIPs directly. There is no GitHub Actions workflow, token requirement, redirect to a GitHub download host or website-side build step. The marketing site is maintained separately at `pdf.songming.org`.
+
+## Reader lifecycle safeguards
+
+Page navigation handles only unmodified arrow/Home/End keys outside editable controls; modified selection/navigation combinations and IME composition remain native. The host backdrop and color scheme follow every appearance change, including the period before the child shell is ready. Retired private-channel handlers, password prompts/confirmations, parser deadlines, and lazy properties creation ignore delayed callbacks.
+
+Thumbnail generations are invalidated by sidebar/tab closure, document visibility changes, rotation, and printing. Each asynchronous page lookup/render rechecks visibility and ownership before allocating or publishing a canvas; rejected/cancelled scratch canvases are zeroed. Printing revalidates disposal after page retrieval, drawing, blob encoding, and image decoding, and releases scratch surfaces even when drawing rejects. Teardown cannot append late images or re-enable controls.

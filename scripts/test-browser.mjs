@@ -1,6 +1,7 @@
 import {embeddedResponse,runEmbeddedQa} from './qa-embedded.mjs';
 // Isolated integration QA. Requires an external Playwright installation; no runtime dependency.
 import assert from 'node:assert/strict';
+import {auditPdfLifecycle,savePdfAudit} from './qa-pdf-lifecycle.mjs';
 import {mkdtemp,writeFile,readFile,cp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';import {resolve,join} from 'node:path';import {pathToFileURL} from 'node:url';import {createServer} from 'node:http';
 import {viewerPdf,scannedPdf} from '../test/fixtures/pdf-viewer.mjs';
@@ -8,7 +9,7 @@ import {handleAiMock,prepareAiMock,runAiQa,runAiTestQa,handleWebAiMock,prepareWe
 const {chromium}=await import(process.env.PDF_PLAYWRIGHT?pathToFileURL(process.env.PDF_PLAYWRIGHT).href:'playwright');
 const folder=await mkdtemp(join(tmpdir(),'cosmic-pdf-qa-')),ext=join(folder,'extension');await cp(resolve('extension'),ext,{recursive:true});
 // Expose renderer state in the disposable QA copy only.
-const viewerFile=join(ext,'workspaces/pdf-viewer/viewer.js');await writeFile(viewerFile,(await readFile(viewerFile,'utf8')).replace('links.setViewer(viewer);','window.qaViewer=viewer; window.qaSettings=()=>settings; window.qaDarkPaper=darkPaper; window.qaEventBus=eventBus; links.setViewer(viewer);').replace('void workerReady.catch(() => {});', 'void workerReady.then(worker=>{window.qaWorkerReady=worker.port instanceof Worker;}).catch(e=>{window.qaWorkerError=String(e);});'));
+const viewerFile=join(ext,'workspaces/pdf-viewer/viewer.js');await writeFile(viewerFile,(await readFile(viewerFile,'utf8')).replace('links.setViewer(viewer);','window.qaLifecycle={password:()=>task.onPassword(()=>{window.qaAcceptedPasswords=(window.qaAcceptedPasswords||0)+1;},0),destroy,clearThumbnails,drawThumbnails,printDocument,receive:data=>port.onmessage({data}),state:()=>({thumbnailBusy}),onlyThumbnail:number=>{nearThumbnails.clear();nearThumbnails.add($("thumbnails").children[number-1]);}}; window.qaViewer=viewer; window.qaSettings=()=>settings; window.qaDarkPaper=darkPaper; window.qaEventBus=eventBus; links.setViewer(viewer);').replace('void workerReady.catch(() => {});', 'void workerReady.then(worker=>{window.qaWorkerReady=worker.port instanceof Worker;}).catch(e=>{window.qaWorkerError=String(e);});'));
 const qaSettingsPath=join(ext,'settings/settings.js');await writeFile(qaSettingsPath,(await readFile(qaSettingsPath,'utf8')).replace('function report(result){','function report(result){window.qaSettingsIdle=result;'));
 // Count bounded sampling reads in this QA copy, never in shipped code.
 const guardFile=join(ext,'workspaces/pdf-viewer/dark-paper.js');await writeFile(guardFile,(await readFile(guardFile,'utf8')).replace('context.drawImage(source, 0, 0, size, size);', '(globalThis.qaPaperReads ||= []).push(size); context.drawImage(source, 0, 0, size, size);').replace('    try {\n      canvas ||= makeCanvas();', '    const qaStart=performance.now(); try {\n      canvas ||= makeCanvas();').replace('finally { if (canvas)', 'finally { (globalThis.qaPaperTimings ||= []).push(performance.now()-qaStart); if (canvas)'));
@@ -182,6 +183,17 @@ try{
   await runAiTestQa({context,worker,page,settings,open,report});
  }else if(process.env.PDF_QA==='ai'){
   await runAiQa({context,worker,page,settings,open,report,folder});
+ }else if(process.env.PDF_QA==='audit'){
+  await page.goto(reader);await page.waitForSelector('#file',{state:'attached'});
+  await page.locator('#file').setInputFiles({name:'retry.pdf',mimeType:'application/pdf',buffer:Buffer.from('%PDF-1.7\nbroken')});
+  await page.waitForFunction(()=>document.documentElement.dataset.view==='home'&&!!document.querySelector('#message').textContent&&!document.querySelector('iframe'));
+  assert.equal(await page.locator('#file').inputValue(),'','failed local selection must allow selecting the same file again');
+  const chooser=page.waitForEvent('filechooser');await page.locator('#open-file').click();await(await chooser).setFiles({name:'retry.pdf',mimeType:'application/pdf',buffer:Buffer.from(viewerPdf(6))});
+  const local=await(await page.waitForSelector('iframe')).contentFrame();await local.waitForSelector('.page canvas');
+  assert.equal(await page.locator('#file').inputValue(),'');report.checks.push('local file selection resets after success or failure so same-file retries work');
+  const frame=await open('/lifecycle-audit');const screenshot=join(folder,'audit-reader.png');await page.screenshot({path:screenshot});
+  const checks=await auditPdfLifecycle(frame);report.checks.push(...checks);
+  report.artifacts=await savePdfAudit(checks,screenshot,viewerPdf(6),'PDF_QA=audit node scripts/test-browser.mjs');
  }else if(process.env.PDF_QA==='lifecycle'){
 
   const checkFrame = await open('/lifecycle');
@@ -311,7 +323,7 @@ try{
  // Homepage Settings must add history within the same tab, without starting PDF workers.
  await page.goto(reader);await page.waitForSelector('#settings');assert.equal(await page.locator('iframe').count(),0);
  const tabsBefore=context.pages().length;await page.locator('#settings').click();await page.waitForURL(settings);
- assert.equal(context.pages().length,tabsBefore);assert.equal(await page.locator('.wordmark h1').textContent(),'Cosmic PDF');assert.equal(await page.locator('.wordmark>span').textContent(),'Settings');assert.equal(await page.locator('#toolbarHidden label svg').count(),11);assert.equal(await page.locator('#toolbarHidden .default-hint').first().evaluate(n=>getComputedStyle(n).color!==getComputedStyle(n.parentElement).color),true);assert.equal(await page.locator('#preserveDarkPaper').isChecked(),true);assert.equal(await page.locator('#showFilename').isChecked(),true);assert.equal(await page.locator('#showBranding').isChecked(),false);assert.equal(await page.locator('#ocrAction').inputValue(),'page');assert.equal(await page.locator('#useChromeFind').isChecked(),true);assert.deepEqual(await page.locator('#ocrLanguages input:checked').evaluateAll(nodes=>nodes.map(n=>n.value)),['eng','chi_sim']);await page.locator('#ocrAction').selectOption('panel');await page.waitForFunction(async()=>(await chrome.storage.local.get('settings')).settings.ocrAction==='panel');await page.goBack();await page.waitForURL(reader);await page.waitForSelector('#open-file');
+ assert.equal(context.pages().length,tabsBefore);assert.equal(await page.locator('.wordmark h1').textContent(),'Cosmic PDF');assert.equal(await page.locator('.wordmark>span').textContent(),'Settings');assert.equal(await page.locator('#toolbarHidden label svg').count(),11);assert.equal(await page.locator('#toolbarHidden .default-hint').first().evaluate(n=>getComputedStyle(n).color!==getComputedStyle(n.parentElement).color),true);assert.equal(await page.locator('#preserveDarkPaper').isChecked(),true);assert.equal(await page.locator('#showFilename').isChecked(),true);assert.equal(await page.locator('#showBranding').isChecked(),false);assert.equal(await page.locator('#ocrAction').inputValue(),'page');assert.equal(await page.locator('#useChromeFind').isChecked(),true);assert.deepEqual(await page.locator('#ocrLanguages input:checked').evaluateAll(nodes=>nodes.map(n=>n.value)),['eng','chi_sim']);await page.locator('#ocrAction').selectOption('panel');await page.waitForFunction(async()=>(await chrome.storage.local.get('settings')).settings?.ocrAction==='panel');await page.goBack();await page.waitForURL(reader);await page.waitForSelector('#open-file');
  await page.goForward();await page.waitForURL(settings);
  const beforeReturn=context.pages().length;await page.locator('#open-reader').click();await page.waitForURL(reader);assert.equal(context.pages().length,beforeReturn);await page.goBack();await page.waitForURL(settings);
  // Hide the complete dark-paper row only for an explicitly Light appearance,
@@ -394,7 +406,7 @@ try{
  await frame.locator('#scale').selectOption('3');await frame.locator('#viewport').hover();await page.mouse.wheel(350,0);await frame.waitForFunction(()=>document.querySelector('#viewport').scrollLeft>0);
  await frame.locator('#scale').selectOption('1');await frame.waitForFunction(()=>qaViewer.currentScale===1);report.checks.push('single default/opposite theme control, native history shortcuts and horizontal PDF scrolling');
  await page.screenshot({path:join(folder,'reader-dark.png')});report.checks.push('dark appearance and paper boundary');
- assert.deepEqual(await frame.locator('#primary-actions > button').evaluateAll(nodes=>nodes.map(n=>n.id)),['theme','print','properties','settings','native','download']);
+ assert.deepEqual(await frame.locator('#primary-actions > button').evaluateAll(nodes=>nodes.map(n=>n.id)),['ai-toggle','theme','print','properties','settings','native','download']);
  assert.equal(await frame.evaluate(()=>performance.getEntriesByType('resource').some(r=>r.name.endsWith('/properties.js'))),false,'properties module is not part of first-page loading');
  await frame.evaluate(()=>{window.qaMetadataCalls=0;const doc=qaViewer.pdfDocument,read=doc.getMetadata.bind(doc);doc.getMetadata=()=>{qaMetadataCalls++;return read();};});
  await frame.locator('#properties').click();await frame.waitForSelector('#properties-dialog[open]');await frame.waitForFunction(()=>document.querySelector('[data-property=author]').textContent==='Cosmic PDF tests');
@@ -457,7 +469,7 @@ assert.match(await frame.locator('[data-property=pageSize]').textContent(),/215.
  await frame.waitForFunction(()=>document.querySelector('.file').hidden);assert.equal(await frame.locator('.identity').isVisible(),true);
  assert.equal(await frame.evaluate(()=>qaViewer.pdfDocument===window.qaOriginalDocument),true);
  frame=await open('/branding');assert.equal(await frame.locator('.file').isVisible(),false);assert.equal(await frame.locator('.identity').isVisible(),true);
- assert.equal(await frame.locator('#appearance-actions').count(),0);assert.equal(await frame.locator('#primary-actions > button').first().getAttribute('id'),'theme');
+ assert.equal(await frame.locator('#appearance-actions').count(),0);assert.equal(await frame.locator('#primary-actions > button').first().getAttribute('id'),'ai-toggle');
  const compactHeight=await frame.locator('header').evaluate(n=>n.getBoundingClientRect().height);assert.ok(compactHeight<60);
  await checkToolbarLayout(page,frame,1101,false);await checkToolbarLayout(page,frame,720,true);await page.setViewportSize({width:1360,height:960});
  await chooseToolbar(prefs,'filename');
