@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.2.20 — 2026-10-19
+
+- Simplify the automatic text recognition setting description.
+
 ## 3.2.19 — 2026-10-19
 
 - Support PDF opening within webpages and improve automatic takeover of downloaded/local PDFs, with Chrome-reader fallback.
