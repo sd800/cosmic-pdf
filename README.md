@@ -4,6 +4,16 @@
 
 Cosmic PDF is a Chrome extension for reading PDFs in dark mode, with local text recognition, AI explanations, and a customizable reading experience.
 
+## Product statement
+
+Cosmic PDF is built around a simple idea: **reading a PDF should be comfortable, and understanding it should be effortless.** Two common frustrations shaped its design: bright pages during night reading and interruptions when looking up unfamiliar content.
+
+**Dark mode should make PDFs easier to read.** Most PDFs have white backgrounds, while general-purpose dark-mode extensions can distort colors, turn already-dark pages bright, and invert Chrome's PDF viewer background from dark to light. Cosmic PDF uses its own smart dark mode to adjust brightness while preserving color hues and keeping already-dark pages dark. It works as soon as a PDF opens and follows the system appearance by default.
+
+**Getting an explanation should not interrupt reading.** Looking up an unfamiliar term often means switching to ChatGPT or Claude, copying text, providing context, and finding your place again. Cosmic PDF puts Explain with AI right beside the document, supporting follow-up questions without losing your place. On-device text recognition also makes text in scanned PDFs selectable.
+
+**Cosmic PDF keeps the reading experience simple and flexible.** AI is optional, and people can use their own API keys or an existing ChatGPT or Claude account. PDF files remain on the device, with only selected text and optional nearby context shared for AI explanations. The goal is to help people stay focused on what they are reading.
+
 ## PDF dark mode
 
 Read PDFs with dark pages and a dark viewer background, including scanned documents. Switch to light mode whenever you prefer, without changing the original file.

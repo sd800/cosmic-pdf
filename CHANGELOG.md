@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.2.22 — 2026-10-20
+
+- Add a product statement to the English and Simplified Chinese READMEs.
+
 ## 3.2.21 — 2026-10-20
 
 - Preserve native text-selection shortcuts in the PDF reader.
