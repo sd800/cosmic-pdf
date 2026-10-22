@@ -56,7 +56,7 @@ OCR rasterization uses the original light PDF page, independent of display sampl
 
 ## Repository and release standards
 
-English/Simplified Chinese README and changelog have equivalent structure. README introduces capabilities, not a catalog of implementation rules. Technical details live here; repeatable validation lives in QA.md. `sidenote/` is ignored local continuity, not release history or distributable content. System `.DS_Store`/AppleDouble files are ignored by Git and validation. Dependencies are vendored, pinned, licensed and reproducible; no runtime remote code. No release archive is created unless requested. A new remote must be supplied explicitly; this repository must never push into Cosmic Gemini's remote by inference.
+English/Simplified Chinese README and changelog have equivalent structure. README introduces capabilities, not a catalog of implementation rules. Technical details live here; repeatable validation lives in QA.md. System `.DS_Store`/AppleDouble files are ignored by Git and validation. Dependencies are vendored, pinned, licensed and reproducible; no runtime remote code. Release sources and downloads are maintained in the Cosmic PDF repository.
 
 ## Interface design
 
@@ -137,7 +137,7 @@ Feature detection uses tabs.createSplit where exposed (officially Chrome 155+), 
 
 ## Direct download publishing
 
-`python3 scripts/build-downloads.py` builds deterministic installation and full-source ZIPs from the current tracked working-tree files. Stage new source files before building. Fixed timestamps and regular-file permissions keep archives reproducible. The installation archive includes only `extension/`; the source archive includes tracked project sources except generated downloads, local/ignored folders and personal helpers. Neither archive includes Git metadata or `g.sh`. No downloaded package recursively includes generated ZIPs. SHA-256 metadata is written next to the files.
+`python3 scripts/build-downloads.py` builds deterministic installation and full-source ZIPs from the current tracked working-tree files. Stage new source files before building. Fixed timestamps and regular-file permissions keep archives reproducible. The installation archive includes only `extension/`; the source archive includes tracked project sources except generated downloads, local/ignored folders and personal helpers. Git metadata, ignored files, and local configuration are excluded from both archives. No downloaded package recursively includes generated ZIPs. SHA-256 metadata is written next to the files.
 
 Commit/push `downloads/` with each release. The existing main-root Pages site at `cpdf.songming.org` serves the ZIPs directly. There is no GitHub Actions workflow, token requirement, redirect to a GitHub download host or website-side build step. The marketing site is maintained separately at `pdf.songming.org`.
 

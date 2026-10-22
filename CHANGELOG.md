@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.2.25 — 2026-10-21
+
+- Refine public documentation and repository maintenance.
+
 ## 3.2.23 — 2026-10-21
 
 - Improve security documentation and public guidance.

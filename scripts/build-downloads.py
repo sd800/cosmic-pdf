@@ -16,11 +16,16 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / 'downloads'
-EXCLUDED_ROOTS = {'.git', 'dist', 'test-dist', 'sidenote', 'node_modules', 'downloads', 'coverage'}
+EXCLUDED_ROOTS = {'.git', 'dist', 'test-dist', 'node_modules', 'downloads', 'coverage'}
 
 
 def tracked_sources():
     result = subprocess.run(['git', 'ls-files', '-z'], cwd=ROOT, check=True, capture_output=True)
+    ignored = subprocess.run(['git', 'check-ignore', '--no-index', '-z', '--stdin'],
+                             cwd=ROOT, input=result.stdout, capture_output=True)
+    if ignored.returncode not in (0, 1):
+        raise RuntimeError('Could not verify Git exclusions before packaging')
+    ignored_files = set(ignored.stdout.decode().split('\0'))
     files = []
     for raw in result.stdout.decode().split('\0'):
         if not raw:
@@ -28,7 +33,7 @@ def tracked_sources():
         rel = PurePosixPath(raw)
         if rel.is_absolute() or '..' in rel.parts:
             raise ValueError('Unsafe tracked path')
-        if rel.parts[0] in EXCLUDED_ROOTS or raw == 'g.sh':
+        if rel.parts[0] in EXCLUDED_ROOTS or raw in ignored_files:
             continue
         if any(part == '.DS_Store' or part.startswith('._') or part.startswith('.env') for part in rel.parts):
             continue
@@ -52,7 +57,7 @@ def make_archive(name, prefix, files):
                 archive.writestr(info, (ROOT / rel).read_bytes(), compress_type=zipfile.ZIP_DEFLATED, compresslevel=9)
         with zipfile.ZipFile(temporary) as archive:
             assert archive.testzip() is None
-            assert all('/g.sh' not in n and '/downloads/' not in n and '/dist/' not in n for n in archive.namelist())
+            assert all(PurePosixPath(n).parts[1] not in EXCLUDED_ROOTS for n in archive.namelist())
             packaged = json.loads(archive.read(prefix + '/extension/manifest.json'))
             assert packaged['version'] == VERSION
         os.replace(temporary, OUTPUT / name)
