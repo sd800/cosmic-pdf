@@ -457,3 +457,36 @@ test('model retrieval is Settings-only, cancellable, ordered, and cleared when i
  assert.equal(storage.values[AI_MODEL_CATALOG_KEY].gemini.models[0].id,'later');
  await product.handleMessage({type:'AI_SAVE_KEY',provider:'gemini',key:'fixture-new-key-not-real'},sender);assert.equal(storage.values[AI_MODEL_CATALOG_KEY].gemini,undefined);assert.ok(storage.values[AI_MODEL_CATALOG_KEY].openai);
 });
+
+test('dedicated image/video generators are excluded from fetched and cached lists without hiding multimodal text models',async()=>{
+ const {excludedMediaModel}=await import('../extension/core/ai-models.js');
+ const excluded={gemini:['gemini-2.5-flash-image','gemini-3-pro-image-preview','gemini-3.1-flash-lite-image','gemini-nano-banana-2.1','imagen-4.0-generate-001','veo-3.1-fast-generate-preview','gemini-omni-1.1-flash'],openai:['gpt-image-1','gpt-image-1-mini','chatgpt-image-latest','dall-e-3','sora-2','sora-2-pro'],claude:['future-image-generator','future-video-generation']};
+ const retained={gemini:['gemini-3.5-flash-lite','gemini-3-pro','gemini-2.5-flash','gemini-next-image-understanding','gemini-next-image-input'],openai:['gpt-6-luna','gpt-4o','gpt-4.1'],claude:['claude-haiku-5-5','claude-opus-4-1']};
+ for(const provider of Object.keys(AI_PROVIDERS)){
+  for(const id of excluded[provider]){
+   assert.equal(excludedMediaModel(provider,id),true,id);assert.equal(normalizeSettings({aiModels:{[provider]:id}}).aiModels[provider],id);
+   assert.throws(()=>providerRequest(provider,'fixture-key-not-real','',[],id),/modelUnavailable/);
+  }
+  for(const id of retained[provider])assert.equal(excludedMediaModel(provider,id),false,id);
+  const raw=[{id:retained[provider][1]},...excluded[provider].map(id=>({id})),{id:retained[provider][0]}];
+  const cached=normalizeCatalog({[provider]:{fetchedAt:1,models:raw}})[provider];assert.deepEqual(cached.models.map(item=>item.id),[retained[provider][1],retained[provider][0]]);
+  const fetched=await fetchModels(provider,'fixture-key-not-real',{signal:new AbortController().signal,fetcher:async()=>new Response(JSON.stringify(provider==='gemini'?{models:raw.map(item=>({name:'models/'+item.id}))}:{data:raw,has_more:false}))});
+  assert.deepEqual(fetched.models.map(item=>item.id),cached.models.map(item=>item.id));
+ }
+ assert.equal(excludedMediaModel('gemini','alias','Nano Banana Pro'),true);assert.equal(excludedMediaModel('openai','alias','DALL·E 3'),true);
+ assert.equal(excludedMediaModel('claude','alias','Video generation model'),true);
+ assert.equal(normalizeSettings({aiModels:{gemini:''}}).aiModels.gemini,AI_PROVIDERS.gemini.id);assert.throws(()=>providerRequest('gemini','fixture-key-not-real','',[],''),/modelUnavailable/);
+});
+
+test('excluded saved media selections and name-only aliases cannot start explanations or connection tests',async t=>{
+ const previous=globalThis.chrome;globalThis.chrome={extension:{inIncognitoContext:false}};t.after(()=>{globalThis.chrome=previous;});
+ const runtime={id:'test',getURL:path=>'chrome-extension://test/'+path},sender={id:'test',frameId:0,tab:{id:7},url:runtime.getURL('settings/index.html')};
+ for(const id of ['gemini-2.5-flash-image','opaque-media-alias']){
+  const vault=createApiVault(repository());await vault.save('gemini','fixture-key-not-real');
+  const storage=testModeStore({[AI_MODEL_CATALOG_KEY]:{gemini:{fetchedAt:1,models:[{id,label:'Nano Banana Pro'}]}}});
+  const product=createAiExplanationProduct({runtime,vault,testStorage:storage,read:async()=>normalizeSettings({aiEnabled:true,aiMode:'api',aiModels:{gemini:id}}),stream:()=>assert.fail('excluded model must not generate'),test:()=>assert.fail('excluded model must not be tested')});
+  await assert.rejects(product.handleMessage({type:'AI_TEST_KEY',provider:'gemini'},sender),/modelUnavailable/);
+  const owned=port({...sender,url:runtime.getURL('workspaces/pdf-reader/index.html')}),finished=deferred();owned.postMessage=value=>{owned.messages.push(value);if(value.type==='error'||value.type==='done')finished.resolve();};
+  product.connect(owned);owned.onMessage.emit({type:'explain',id:'excluded-model',request:selection});await finished.promise;assert.equal(owned.messages.at(-1).error,'modelUnavailable');owned.disconnect();
+ }
+});

@@ -1,4 +1,4 @@
-import { AI_MODEL_CATALOG_KEY, normalizeCatalog, selectedModel, modelLabel, recommendedModel } from '../core/ai-models.js';
+import { AI_MODEL_CATALOG_KEY, normalizeCatalog, selectedModel, modelLabel, recommendedModel, excludedMediaModel } from '../core/ai-models.js';
 import { AI_PROVIDERS } from '../core/ai.js';
 import { AI_TEST_MODE_KEY, AI_TEST_MODEL, normalizeAiTestMode } from '../core/ai-test-mode.js';
 import { AI_WEBSITES } from '../core/ai-web.js';
@@ -65,7 +65,7 @@ export function createAiSettings({container,locale,state,save,dropdowns,onTestMo
       }
       if($('ai-key-list').children[index]!==row)$('ai-key-list').insertBefore(row,$('ai-key-list').children[index]||null);
       row.querySelector('strong').textContent=AI_PROVIDERS[provider].label;
-      row.querySelector('.ai-key-model').textContent=modelLabel(provider,selectedModel(settings,provider),catalogs[provider]?.models);
+      row.querySelector('.ai-key-model').textContent=modelLabel(provider,selectedModel(settings,provider),[...(catalogs[provider]?.models||[]),...(catalogs[provider]?.excludedModels||[])]);
       const chosen=row.querySelector('.ai-key-selected');chosen.textContent=text.selected;chosen.hidden=settings.aiMode!=='api'||testMode.selected||settings.aiProvider!==provider;
       row.querySelector('.ai-key-state').textContent=text.encrypted;
       const result=row.querySelector('.ai-key-result'),value=checks.get(provider);result.hidden=!value;result.textContent=value?(text[value]||text.error):'';result.dataset.error=String(!!value&&!['connected','sending','cancelled'].includes(value));
@@ -89,7 +89,12 @@ export function createAiSettings({container,locale,state,save,dropdowns,onTestMo
         const label=modelLabel(provider,item.id,models),option=new Option(label+(recommendedModel(provider,item)?' ('+text.recommended+')':''),item.id);
         if(item.id!==label)option.dataset.detail=item.id;return option;
       });
-      if(!hasCurrent)options.push(new Option(modelLabel(provider,current)+(entry?' · '+text.currentModel:''),current));
+      if(!hasCurrent){
+        const excluded=excludedMediaModel(provider,current)||entry?.excludedIds?.includes(current);
+        const label=modelLabel(provider,current,[...models,...(entry?.excludedModels||[])]);
+        const option=new Option(label+(!excluded&&entry?' · '+text.currentModel:''),current);
+        option.hidden=option.disabled=!!excluded;options.push(option);
+      }
       select.replaceChildren(...options);select.dataset.options=fingerprint;
     }
     select.value=current;

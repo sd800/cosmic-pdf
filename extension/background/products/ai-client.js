@@ -1,8 +1,10 @@
-import { modelId } from '../../core/ai-models.js';
+import { modelId, excludedMediaModel } from '../../core/ai-models.js';
 import { AI_PROVIDERS, AI_LIMITS } from '../../core/ai.js';
 export function providerRequest(provider, key, system, messages, model) {
   const config = AI_PROVIDERS[provider]; if (!config) throw Error('invalidRequest');
+  if(model==='')throw Error('modelUnavailable');
   const id=model===undefined?config.id:modelId(model);if(!id)throw Error('invalidRequest');
+  if(excludedMediaModel(provider,id))throw Error('modelUnavailable');
   const original=id===config.id;
   const headers = { 'Content-Type': 'application/json', Accept: 'text/event-stream' };
   let body;

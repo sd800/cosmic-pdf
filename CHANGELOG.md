@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.2.28 — 2026-10-22
+
+- Filter dedicated image and video generation models from AI model choices, including cached lists.
+
 ## 3.2.27 — 2026-10-21
 
 - Add per-service API model selection and manual model-list refresh, retaining provider order and marking recommended families.

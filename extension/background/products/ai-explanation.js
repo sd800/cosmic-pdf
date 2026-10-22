@@ -1,5 +1,5 @@
 import { fetchModels } from './ai-model-catalog.js';
-import { AI_MODEL_CATALOG_KEY, normalizeCatalog, selectedModel, modelLabel } from '../../core/ai-models.js';
+import { AI_MODEL_CATALOG_KEY, normalizeCatalog, selectedModel, modelLabel, excludedMediaModel } from '../../core/ai-models.js';
 import { isReaderSender } from '../reader-sender.js';
 import { readSettings } from '../../core/settings.js';
 import { AI_PROVIDERS, normalizeAiRequest, explanationMessages, aiFailure, apiKey } from '../../core/ai.js';
@@ -44,6 +44,13 @@ export function createAiExplanationProduct({ vault = createApiVault(), read = re
     const [keys,mode]=await Promise.all([vault.status(),testMode()]);
     return {keys,private:false,...(mode.enabled?{testMode:mode}:{})};
   };
+  async function configuredModel(settings,provider){
+    const id=selectedModel(settings,provider);
+    if(!id||excludedMediaModel(provider,id))throw Error('modelUnavailable');
+    const catalog=testStorage?normalizeCatalog((await testStorage.get(AI_MODEL_CATALOG_KEY))[AI_MODEL_CATALOG_KEY])[provider]:null;
+    if(catalog?.excludedIds?.includes(id))throw Error('modelUnavailable');
+    return {id,catalog};
+  }
   async function handleMessage(message, sender) {
     if (message.type === 'AI_STATUS') {
       if (!settingsSender(sender) && !readerSender(sender)) throw Error('invalidRequest');
@@ -83,7 +90,8 @@ export function createAiExplanationProduct({ vault = createApiVault(), read = re
       try {
         const key = await vault.read(message.provider); controller.signal.throwIfAborted();
         const settings=await read();controller.signal.throwIfAborted();
-        await test(message.provider, key, { signal: controller.signal, model:selectedModel(settings,message.provider) });
+        const selected=await configuredModel(settings,message.provider);controller.signal.throwIfAborted();
+        await test(message.provider, key, { signal: controller.signal, model:selected.id });
         controller.signal.throwIfAborted();
       } catch(error){if(job.timedOut)throw Error('timeout');throw error;}
       finally { clearTimeout(timer); tests.delete(job); }
@@ -113,8 +121,7 @@ export function createAiExplanationProduct({ vault = createApiVault(), read = re
         client.provider = testing?'test':settings.aiProvider;
         // Local test selection is checked before any credential or API path.
         const key = testing?null:await vault.read(client.provider); job.controller.signal.throwIfAborted();
-        const configuration = testing?AI_TEST_MODEL:AI_PROVIDERS[client.provider],id=testing?'':selectedModel(settings);
-        const catalog=!testing&&id!==configuration.id&&testStorage?normalizeCatalog((await testStorage.get(AI_MODEL_CATALOG_KEY))[AI_MODEL_CATALOG_KEY])[client.provider]:null;
+        const configuration=testing?AI_TEST_MODEL:AI_PROVIDERS[client.provider],selected=testing?null:await configuredModel(settings,client.provider),id=selected?.id,catalog=selected?.catalog;
         job.controller.signal.throwIfAborted();
         post({ type: 'started', id: job.id, provider: client.provider, model: testing?configuration.model:modelLabel(client.provider,id,catalog?.models) });
         timer = setTimeout(() => { job.timedOut = true; job.controller.abort(); }, 90000);
