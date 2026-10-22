@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.2.23 — 2026-10-21
+
+- Improve security documentation and public guidance.
+
 ## 3.2.22 — 2026-10-20
 
 - Add a product statement to the English and Simplified Chinese READMEs.

@@ -1,0 +1,51 @@
+# Security policy and boundaries
+
+Cosmic PDF protects reading with isolated document processing, controlled external actions, and locally encrypted credentials. PDF bytes, metadata, extracted/OCR text, links, AI responses, and messages pass through dedicated validation and display paths. This document defines the maintained security boundaries. Implementation parameters, rendering budgets, and lifecycle details remain in [TECHNICAL.md](TECHNICAL.md); repeatable checks belong in [QA.md](QA.md).
+
+## Permissions and document isolation
+
+The manifest declares only `storage` and `declarativeNetRequestWithHostAccess`, with HTTP/HTTPS host access for PDF takeover and retrieval. Local URL takeover additionally requires Chrome's existing file-access grant; choosing a file does not. There are no optional permission prompts, webpage content scripts, or permissions for download history, management, scripting, or clipboard reading. Permission changes require an explicit review and an update to the package checker.
+
+Reader source URLs accept only HTTP/HTTPS/file schemes without embedded credentials. The host checks received bytes for PDF magic and enforces fetch limits before parsing; the containing webpage receives no document/OCR data or command channel.
+
+The extension-owned reader host and opaque viewer shell are the only web-accessible entry points. The shell has no extension APIs, settings access, or same-origin access to its host. It accepts initialization once, only from its immediate parent with the exact owning extension origin derived from its packaged module URL. A transferred private MessagePort carries bounded document bytes and a fixed set of presentation commands. Parser startup waits for that authenticated handshake; disposal retires the port and pending work.
+
+The trusted pages load only packaged scripts. The sandbox CSP permits bundled/blob assets but blocks website resource requests, nested frames, embedded objects, form navigation, and evaluated JavaScript. Rendering/OCR workers run packaged code, not scripts supplied by a PDF. PDF JavaScript, XFA, form execution, editing, and active attachment/annotation layers are not enabled. Passive text and validated user-activated links are handled separately from page drawing. Source metadata is bounded plain text, never executable HTML or an automatic navigation target.
+
+PDF input, parser time, page count, image/canvas allocations, OCR, thumbnails, and printing have explicit budgets. Hidden/disposed readers stop unnecessary work and discard stale callbacks. Their current values are maintained in the technical reference and code rather than duplicated here. PDF copy/print restrictions are respected by the reader and OCR. These controls bound parser and rendering work, while sandbox policies isolate display. Downloads retain the original file bytes.
+
+## Privileged commands
+
+Central and the owning products authenticate browser-supplied extension, page, frame, tab, and document identities as required by each action. Settings-only operations cannot be requested by a webpage or opaque renderer. Reader actions come through the extension-owned reader host; commands do not accept caller-selected API endpoints, executable code, arbitrary file paths, or unrestricted tab targets.
+
+Product checks remain necessary after sender authentication. Native-reader exemptions are scoped to the validated source/frame/tab and cleaned up with their ownership records. Website handoff rechecks the live reader document before acting. Ordinary/private contexts remain separate. Fixed commands and explicit lifecycle ownership must be preserved when adding a new feature; authorization uses browser-supplied identities rather than page-visible markers or caller-provided identity fields.
+
+## AI prompt and output injection
+
+AI is optional and requests require an explicit Explain or follow-up action. Only bounded selected text and approved nearby context are supplied, not the PDF file, filename, source URL, or API credentials. The background removes context when the saved preference is off. Local OCR does not itself send content to an AI service.
+
+For API requests, application instructions use separate provider roles/fields. Source text is JSON-quoted `document_data`, explicitly labeled as untrusted reading material. Apparent roles, closing delimiters, links, or instructions inside that data cannot create real provider system/developer/tool messages. Follow-ups use constrained conversation roles and size limits. The prompt asks the model to explain source instructions as content, not obey them.
+
+The enforceable boundary is that the model has no extension tools, credential access, code execution, automatic navigation, or document-fetch capability. Responses pass through a local Markdown lexer and fixed passive DOM builder. Raw HTML/images remain text, links remain inert text, and code is never executed. Invalid or overly complex formatting falls back to literal text. Provider streams, errors, and work durations are bounded; UI receives fixed error categories rather than raw provider bodies.
+
+Website mode builds a bounded question for fixed ChatGPT/Claude destinations using the same quoted-source separation. It does not inspect website credentials, read replies, automate the conversation, or expose extension actions to the website model. Its prompt is an ordinary user message. The AI website manages its model's instructions, tools, and conversation policy; Cosmic PDF supplies the quoted reading material without adding extension tools or actions. Prefilled questions enter website URLs and may appear in browser history, sync, or website retention; the conversation then belongs to that service.
+
+## API credentials and local data
+
+API keys are encrypted locally with AES-256-GCM in extension-owned IndexedDB. A nonextractable 256-bit CryptoKey encrypts versioned records; each save uses a fresh random 96-bit IV, with authenticated additional data binding the record to its provider. Serialized operations acknowledge completed transactions. Only trusted top-level Settings may save, test, replace, or delete keys. Readers receive availability booleans, never key values. Deleting the final saved key clears the encryption root; resetting preferences does not delete keys.
+
+Keys travel only in headers to fixed provider HTTPS endpoints. Requests omit browser cookies/referrers, reject redirects, and disable caching; they do not silently retry through another provider. Keys never enter prompts, source URLs, settings snapshots, renderer messages, or logs. Connection tests are explicit, bounded requests without document text. Built-in API requests and credential operations are unavailable in private browsing. The encryption key stays in the extension-owned browser profile, with profile and operating-system access controls protecting the privileged context.
+
+PDF bytes, OCR results, and built-in AI conversations belong to the open reader and are not written to a persistent document/history cache by the extension. Local file opening retains the selected file reference rather than creating a disk copy. Preferences, encrypted keys, and bounded session ownership metadata have separate purposes. Source URLs remain available in the reader address for reload. Do not record private documents, selections, credentials, or signed session URLs in diagnostics, fixtures, screenshots, or notes.
+
+## External links and original files
+
+External Links Capture treats navigation separately from remote document resources. Targets are bounded and reject credentials, control/NUL characters, executable schemes, local-file/blob/data targets, and browser-internal schemes. When capture is enabled, opening an external webpage requires a separate user action. Disabling web capture permits direct validated webpage links, not remote resource loading or automatic application launch. Application protocols always require a separate confirmation. Mailto/tel/sms are copy-only in either mode. Open actions use a trusted click with `noopener`/`noreferrer`; no arbitrary-URL command is delegated to the privileged host.
+
+The iframe delegates write-only clipboard capability for explicit copy actions, not clipboard reading. Saving uses the host's existing original PDF Blob with a sanitized filename and Chrome's normal download preferences. Native-reader fallback also retains the original file. Display adjustments stay in the reader; saved files retain their original bytes.
+
+## Maintenance and vulnerability reports
+
+Keep dependency code, licenses, provenance, and integrity records pinned and reviewed. Changes to parsing, CSP, sender authentication, prompt construction, output formatting, or external actions need focused rejection/cleanup regression cases. Use small synthetic inputs and disposable browser profiles, not private user content or stress tests by default. Keep reusable test code and concise findings under `test`/ignored `test-dist` with a README; do not retain full logs or continuous recordings.
+
+Report suspected vulnerabilities through [GitHub private vulnerability reporting](https://github.com/sd800/cosmic-pdf/security/advisories/new). Include the affected version and a minimal synthetic reproduction, without private PDFs, API keys, or authenticated links in public issues.
