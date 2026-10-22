@@ -11698,6 +11698,7 @@ class PDFPageView extends BasePDFPageView {
     this.imageResourcesPath = options.imageResourcesPath || "";
     this.enableDetailCanvas = options.enableDetailCanvas ?? true;
     this.getRenderPixelRatio = options.getRenderPixelRatio || (() => OutputScale.pixelRatio);
+    this.getAnnotationMode = options.getAnnotationMode;
     this.maxCanvasPixels = options.maxCanvasPixels ?? AppOptions.get("maxCanvasPixels");
     this.maxDetailCanvasPixels = options.maxDetailCanvasPixels ?? this.maxCanvasPixels;
     this.maxCanvasDim = options.maxCanvasDim || AppOptions.get("maxCanvasDim");
@@ -11768,6 +11769,7 @@ class PDFPageView extends BasePDFPageView {
       enableDetailCanvas: this.enableDetailCanvas,
       getRenderPixelRatio: this.getRenderPixelRatio,
       maxDetailCanvasPixels: this.maxDetailCanvasPixels,
+      getAnnotationMode: this.getAnnotationMode,
       maxCanvasPixels: this.maxCanvasPixels,
       maxCanvasDim: this.maxCanvasDim,
       capCanvasAreaFactor: this.capCanvasAreaFactor,
@@ -12316,7 +12318,7 @@ class PDFPageView extends BasePDFPageView {
       canvas,
       transform,
       viewport: this.viewport,
-      annotationMode: this.#annotationMode,
+      annotationMode: this.getAnnotationMode?.() ?? this.#annotationMode,
       optionalContentConfigPromise: this._optionalContentConfigPromise,
       annotationCanvasMap: this._annotationCanvasMap,
       pageColors: this.pageColors,
@@ -13257,6 +13259,7 @@ class PDFViewer {
     this.enablePrintAutoRotate = options.enablePrintAutoRotate || false;
     this.removePageBorders = options.removePageBorders || false;
     this.getRenderPixelRatio = options.getRenderPixelRatio || (() => OutputScale.pixelRatio);
+    this.getAnnotationMode = options.getAnnotationMode;
     this.maxCanvasPixels = options.maxCanvasPixels;
     this.maxDetailCanvasPixels = options.maxDetailCanvasPixels ?? this.maxCanvasPixels;
     this.maxCanvasDim = options.maxCanvasDim;
@@ -13747,6 +13750,7 @@ class PDFViewer {
           imageResourcesPath: this.imageResourcesPath,
           getRenderPixelRatio: this.getRenderPixelRatio,
           maxDetailCanvasPixels: this.maxDetailCanvasPixels,
+          getAnnotationMode: this.getAnnotationMode,
           maxCanvasPixels: this.maxCanvasPixels,
           maxCanvasDim: this.maxCanvasDim,
           capCanvasAreaFactor: this.capCanvasAreaFactor,

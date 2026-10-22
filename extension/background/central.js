@@ -11,8 +11,8 @@ chrome.runtime.onInstalled.addListener(()=>void start().catch(console.error));
 chrome.runtime.onStartup.addListener(()=>void start().catch(console.error));
 chrome.storage.onChanged.addListener((changes,area)=>{if(area==='local' && changes.settings && changes.settings.oldValue?.enabled!==changes.settings.newValue?.enabled) void start().catch(console.error);});
 chrome.action.onClicked.addListener(()=>void start().then(()=>operations.openReader()).catch(console.error));
-chrome.tabs.onRemoved.addListener(id=>{aiExplanation.disposeTab(id);void aiWebsite.disposeTab(id).catch(()=>{});void standing.forgetNative(id,null,true).catch(()=>{});});
-chrome.tabs.onUpdated.addListener((id,change)=>{if(change.status==='loading'||change.url)aiExplanation.disposeTab(id);if(change.url){void aiWebsite.disposeTab(id,change.url).catch(()=>{});void standing.forgetNative(id,change.url).catch(()=>{});void standing.openLocalPdf(id,change.url).catch(()=>{});}});
+chrome.tabs.onRemoved.addListener(id=>{aiExplanation.disposeTab(id);void aiWebsite.disposeTab(id).catch(()=>{});void standing.forgetNative(id,null,true).catch(()=>{});void standing.forgetPdfRequests(id).catch(()=>{});});
+chrome.tabs.onUpdated.addListener((id,change)=>{if(change.status==='loading'||change.url)aiExplanation.disposeTab(id);if(change.url){void aiWebsite.disposeTab(id,change.url).catch(()=>{});void standing.forgetNative(id,change.url).catch(()=>{});void standing.forgetPdfRequests(id,change.url).catch(()=>{});void standing.openLocalPdf(id,change.url).catch(()=>{});}});
 chrome.runtime.onMessage.addListener((message,sender,respond)=>{
   if(sender.id!==chrome.runtime.id)return;
   if(message?.type==='AI_OPEN_WEBSITE'||message?.type==='AI_CANCEL_WEBSITE'){
@@ -28,12 +28,14 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
     void operations.savePreference({key:message.key,value:message.enabled}).then(result=>respond({ok:true,result}),()=>respond({ok:false}));return true;
   }
   let job;
-  if(message?.type==='NATIVE_READER') job=standing.useNative(sender);
+  if(message?.type==='PDF_REQUEST_START') job=standing.preparePdfRequest(sender);
+  else if(message?.type==='PDF_REQUEST_END') job=standing.finishPdfRequest(sender,message.token);
+  else if(message?.type==='NATIVE_READER') job=standing.useNative(sender);
   else if(message?.type==='OPEN_SETTINGS' && isReaderSender(sender)) job=start().then(()=>operations.openSettings(sender.tab.id));
   else if(message?.type==='SETTINGS_OPENED') job=operations.settingsOpened(sender,message.openedAt);
   else if(message?.type==='SETTINGS_SAVED' && sender.frameId===0 && operations.isSettingsPage(sender.url)) job=start();
   else return;
-  job.then(()=>respond({ok:true}),()=>respond({ok:false}));return true;
+  job.then(result=>respond({ok:true,result}),()=>respond({ok:false}));return true;
 });
 chrome.runtime.onConnect.addListener(port=>{if(!aiExplanation.connect(port))port.disconnect();});
 chrome.storage.onChanged.addListener((changes,area)=>{if(area==='local'&&changes.settings){aiExplanation.settingsChanged(changes.settings.newValue||{});aiWebsite.settingsChanged(changes.settings.newValue||{});}});

@@ -7,7 +7,7 @@ export async function savePdfAudit(checks, screenshot, bytes, command) {
   const folder=resolve('test-dist', 'pdf-audit-'+version);await mkdir(folder,{recursive:true});
   await writeFile(join(folder,'sample.pdf'),bytes);await copyFile(screenshot,join(folder,'reader.png'));
   await writeFile(join(folder,'report.json'),JSON.stringify({version,checks},null,2)+'\n');
-  await writeFile(join(folder,'README.md'),'# PDF lifecycle audit\n\nSynthetic six-page PDF, pre-audit reader screenshot, and passing regression checks. Reproduce with `'+command+'` using the Playwright/Chrome paths from docs/QA.md. The disposable browser instruments only its temporary extension copy, delaying page retrieval and rejecting rasterization to verify selection shortcuts, thumbnail cancellation, print canvas release, teardown, and late-channel isolation. No personal documents, accounts, browser profiles, or AI services are used or saved here.\n');
+  await writeFile(join(folder,'README.md'),'# PDF lifecycle audit\n\nSynthetic six-page PDF, pre-audit reader screenshot, and passing regression checks. Reproduce with `'+command+'` using the Playwright/Chrome paths from docs/QA.md. The disposable browser instruments only its temporary extension copy, delaying page retrieval and rejecting rasterization to verify selection shortcuts, thumbnail cancellation, original-file print handoff, teardown, and late-channel isolation. No personal documents, accounts, browser profiles, or AI services are used or saved here.\n');
   return folder;
 }
 
@@ -79,46 +79,18 @@ export async function auditPdfLifecycle(frame) {
   assert.deepEqual(failedThumbnail,{width:0,height:0},'failed thumbnail rendering releases its scratch canvas');
   results.push('failed optional thumbnail rasterization releases its canvas');
 
-  const failedPrint = await frame.evaluate(async () => {
-    const viewer = window.qaViewer || window.qaPdfViewer, pdf = viewer.pdfDocument;
-    const page = await pdf.getPage(1), original = pdf.getPage.bind(pdf);
-    let canvas;
-    pdf.getPage = async () => new Proxy(page, {get(object, key) {
-      if (key === 'render') return ({canvasContext}) => { canvas = canvasContext.canvas; return {promise:Promise.reject(Error('QA render failure')), cancel(){}}; };
-      const value = Reflect.get(object, key, object); return typeof value === 'function' ? value.bind(object) : value;
-    }});
-    document.querySelector('#print-from').value = document.querySelector('#print-to').value = '1';
-    try { await qaLifecycle.printDocument(); return {width:canvas.width, height:canvas.height, disabled:document.querySelector('#print').disabled}; }
-    finally { pdf.getPage = original; }
-  });
-  assert.deepEqual(failedPrint, {width:0, height:0, disabled:false}, 'failed printing releases its scratch canvas and unlocks the control');
-  results.push('failed print rasterization releases its canvas');
-
-  await frame.evaluate(async () => {
-    const viewer = window.qaViewer || window.qaPdfViewer, pdf = viewer.pdfDocument;
-    const page = await pdf.getPage(1); window.qaLatePrintRenders = 0;
-    pdf.getPage = () => new Promise(resolve => { window.qaReleasePrint = () => resolve(new Proxy(page, {get(object, key) {
-      if (key === 'render') return () => { qaLatePrintRenders++; return {promise:Promise.resolve(), cancel(){}}; };
-      const value = Reflect.get(object, key, object); return typeof value === 'function' ? value.bind(object) : value;
-    }})); });
-    window.qaLatePrint = qaLifecycle.printDocument();
-  });
-  await frame.waitForFunction(() => typeof qaReleasePrint === 'function');
-  const retired = await frame.evaluate(async () => {
+  const retired = await frame.evaluate(() => {
     const dark = document.documentElement.dataset.dark;
     qaLifecycle.password();
     const password=document.querySelector('#password-dialog'),closePassword=password.onclose;
     qaLifecycle.destroy();password.close('open');closePassword();qaLifecycle.password();
-    qaReleasePrint(); await qaLatePrint;
+    qaLifecycle.openPrint();
     qaLifecycle.receive({type:'theme', dark:dark !== 'true'});
-    return {renders:qaLatePrintRenders, dark:document.documentElement.dataset.dark, before:dark, images:document.querySelector('#print-pages').childElementCount,
-      passwordOpen:password.open,accepted:window.qaAcceptedPasswords||0};
+    return {dark:document.documentElement.dataset.dark,before:dark,passwordOpen:password.open,accepted:window.qaAcceptedPasswords||0};
   });
-  assert.equal(retired.renders, 0, 'a disposed reader cannot start printing after delayed page retrieval');
-  assert.equal(retired.images, 0);
   assert.equal(retired.dark, retired.before, 'retired private-channel callbacks cannot repaint the reader');
   assert.equal(retired.passwordOpen,false,'late password requests cannot reopen a retired reader');
   assert.equal(retired.accepted,0,'late password confirmations cannot restart a retired parsing task');
-  results.push('disposal rejects delayed printing and queued channel updates');
+  results.push('disposal rejects print handoff and queued channel updates');
   return results;
 }

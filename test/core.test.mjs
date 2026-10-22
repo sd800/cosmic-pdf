@@ -369,12 +369,13 @@ test('reader host keeps its backdrop synchronized and retires failed callbacks',
  globalThis.chrome={runtime:{},storage:{onChanged:{addListener(){},removeListener(){}}}};
  globalThis.MessageChannel=class{constructor(){channel=this;this.port1={postMessage(){},close(){events.push('closed');}};this.port2={};}};
  try{
-  reader=createPdfViewer({container:{append(){}},locale:'en-US',dark:false,onError:()=>events.push('error')});
+  reader=createPdfViewer({container:{append(){}},locale:'en-US',dark:false,onPrint:()=>events.push('print'),onError:()=>events.push('error')});
   reader.setTheme(true,'dark');assert.equal(frame.style.background,'#121416');assert.equal(frame.style.colorScheme,'dark');
   frame.load();assert.equal(initialized[0].dark,true);assert.equal(initialized[0].themeMode,'dark');
   reader.setTheme(false,'light');assert.equal(frame.style.background,'#e8eaed');assert.equal(frame.style.colorScheme,'light');
+  channel.port1.onmessage({data:{type:'print',url:'https://untrusted.test/'}});
   channel.port1.onmessage({data:{type:'error'}});reader.setTheme(true,'dark');
-  for(const type of ['error','theme','download','shell-ready'])channel.port1.onmessage({data:{type}});
-  assert.equal(frame.style.background,'#e8eaed');assert.deepEqual(events,['closed','removed','error']);
+  for(const type of ['error','theme','download','print','shell-ready'])channel.port1.onmessage({data:{type}});
+  assert.equal(frame.style.background,'#e8eaed');assert.deepEqual(events,['print','closed','removed','error']);
  }finally{reader?.destroy();for(const[key,value]of Object.entries(originals)){if(value===undefined)delete globalThis[key];else globalThis[key]=value;}}
 });

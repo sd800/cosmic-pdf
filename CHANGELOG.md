@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.2.26 — 2026-10-21
+
+- Display existing annotations and filled forms, with a per-reader visibility switch.
+- Hand printing to Chrome using the original PDF.
+- Support page-number links, improve protected and slow PDF loading, and raise the file limit to 128 MB.
+
 ## 3.2.25 — 2026-10-21
 
 - Refine public documentation and repository maintenance.

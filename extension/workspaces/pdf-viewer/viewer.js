@@ -15,7 +15,7 @@ import { labels } from './labels.js';
 import { setReaderIcon, setReaderIcons } from './icons.js';
 import { createToolbarMenu } from './toolbar-menu.js';
 import { normalizePdfSampling } from '../../core/pdf-sampling.js';
-import { pdfPageNumber, PDF_LIMITS, pdfDetailCanvasPixels, pdfOptions, pdfScale, parsePdfZoom, stepPdfScale, printRange, rotateLeft, safePdfLink } from './model.js';
+import { pdfPageNumber, pdfOpenPage, PDF_LIMITS, pdfDetailCanvasPixels, pdfOptions, pdfScale, parsePdfZoom, stepPdfScale, rotateLeft, safePdfLink } from './model.js';
 
 const $ = id => document.getElementById(id);
 let port, task, pdf, viewer, pdfWorker, parseTimer, destroyed = false, text = {...labels['en-US']}, fullscreenActive = false;
@@ -28,9 +28,11 @@ const readingSelection = bindPdfSelection({ pages: $('pages'), signal, onClear: 
 let themeMode = 'auto', appearanceMenu;
 let customZoomScale = null, toolbarMenu, externalLinksCapture, linkRequest = 0;
 let thumbnailObserver, thumbnailTask, thumbnailBusy = false, thumbnailGeneration = 0, outlineLoaded = false;
-const nearThumbnails = new Set(), thumbnailCache = new Map(), printUrls = new Set();
+const nearThumbnails = new Set(), thumbnailCache = new Map();
 let sharpening = false, settings, ocr, documentFilename, documentUrl = '', documentBytes = 0, properties;
-let printing = false, printTask, zoomFrame = 0, wheelFactor = 1, wheelOrigin, passwordCancelled = false;
+let showAnnotations = true;
+const annotationMode = () => showAnnotations ? pdfjs.AnnotationMode.ENABLE : pdfjs.AnnotationMode.DISABLE;
+let zoomFrame = 0, wheelFactor = 1, wheelOrigin, passwordCancelled = false;
 const emit = type => port?.postMessage({ type });
 let taskBusy = false, renderBusy = false, aiBusy = false, renderProgressTimer = 0, visiblePageViews = [];
 function paintProgress() {
@@ -39,7 +41,7 @@ function paintProgress() {
 }
 function status(key, loading = false) { $('status').textContent = key === 'loading' ? '' : text[key] || ''; taskBusy = loading; paintProgress(); }
 function syncRenderProgress() {
-  const pending = () => !destroyed && firstPageReady && !document.hidden && !printing &&
+  const pending = () => !destroyed && firstPageReady && !document.hidden &&
     visiblePageViews.some(view => view.renderingState !== RenderingStates.FINISHED);
   if (!pending()) {
     clearTimeout(renderProgressTimer); renderProgressTimer = 0;
@@ -82,7 +84,7 @@ function localize(locale) {
   document.documentElement.lang = locale === 'zh-CN' ? locale : 'en-US';
   for (const node of document.querySelectorAll('[data-text]')) node.textContent = text[node.dataset.text];
   for (const node of document.querySelectorAll('[data-label]')) { node.title = text[node.dataset.label]; node.setAttribute('aria-label', node.title); }
-  for (const id of ['status','password-message','print-error','matches']) {
+  for (const id of ['status','password-message','matches']) {
     const key = Object.keys(previous).find(key => previous[key] === $(id).textContent);
     if (key) $(id).textContent = text[key];
   }
@@ -128,12 +130,11 @@ function setSharpening(enabled) {
   for (const view of viewer?.getCachedPageViews() || []) updateCanvasSharpening(view);
 }
 function click(id, callback) { $(id).addEventListener('click', callback, { signal }); }
-function cleanupPrint() { for (const url of printUrls) URL.revokeObjectURL(url); printUrls.clear(); $('print-pages').replaceChildren(); }
 function destroy() {
   if (destroyed) return; destroyed = true; lifetime.abort(); cancelAnimationFrame(zoomFrame); clearTimeout(parseTimer); clearTimeout(renderProgressTimer); visiblePageViews = [];
   aiReader?.destroy();
-  ocr?.destroy(); darkPaper?.destroy(); thumbnailGeneration++; thumbnailObserver?.disconnect(); thumbnailTask?.cancel(); printTask?.cancel();
-  viewer?.setDocument(null); void task?.destroy().catch(() => {}); cleanupPrint();
+  ocr?.destroy(); darkPaper?.destroy(); thumbnailGeneration++; thumbnailObserver?.disconnect(); thumbnailTask?.cancel();
+  viewer?.setDocument(null); void task?.destroy().catch(() => {});
   pdfWorker?.destroy(); port?.close();
 }
 window.addEventListener('pagehide', destroy, { once: true });
@@ -254,11 +255,12 @@ async function open(bytes, sampling) {
   darkPaper = createDarkPaperGuard(pdf.numPages, settings.darkStrength);
   emit('parsed'); $('properties').disabled = $('filename').disabled = false;
   const links = new PDFLinkService({ eventBus });
-  // The annotation/form/editor/scripting layers are not instantiated. Only
-  // passive text and our bounded allowlisted links are added above the canvas.
+  let initialPage = pdfOpenPage(documentUrl, pdf.numPages);
+  // Paint existing annotation/widget appearances into the canvas only.
+  // No PDF.js HTML annotation/form/editor/scripting layer is instantiated.
   const find = new PDFFindController({ eventBus, linkService: links });
   viewer = new PDFViewer({ container: viewport, viewer: $('pages'), eventBus, linkService: links, findController: find,
-    annotationMode: pdfjs.AnnotationMode.DISABLE, annotationEditorMode: pdfjs.AnnotationEditorType.DISABLE,
+    annotationMode: pdfjs.AnnotationMode.DISABLE, getAnnotationMode: annotationMode, annotationEditorMode: pdfjs.AnnotationEditorType.DISABLE,
     enableAutoLinking: false, enablePermissions: true, scriptingManager: null, textLayerMode: 1,
     // The fixed pixel/dimension limits already bound memory. A second
     // screen-relative cap makes ordinary Retina pages render as tiny canvases.
@@ -272,7 +274,7 @@ async function open(bytes, sampling) {
   viewer.renderingQueue.renderHighestPriority = (...args) => {
     // Reuse the renderer's existing visible set; do not inspect every page on scroll.
     if (args[0]?.views) visiblePageViews = args[0].views.filter(item=>item.percent>0).map(item=>item.view);
-    if (!destroyed && !document.hidden && !printing) render(...args);
+    if (!destroyed && !document.hidden) render(...args);
     syncRenderProgress();
   };
   document.addEventListener('visibilitychange', () => {
@@ -285,11 +287,11 @@ async function open(bytes, sampling) {
     viewer.currentScaleValue = settings.zoom;
     // Setting the initial scale aligns the first paper edge with the viewport.
     // Restore its top gutter once at initialization, never during later reading.
-    viewport.scrollTop = 0;
+    if (initialPage === 1) viewport.scrollTop = 0;
+    else viewer.scrollPageIntoView({pageNumber:initialPage});
     viewer.update();
     $('count').textContent = String(pdf.numPages); $('page').max = pdf.numPages; $('page').parentElement.style.setProperty('--page-digits', Math.max(2, String(pdf.numPages).length));
-    $('previous').disabled = true; $('next').disabled = pdf.numPages === 1; $('print').disabled = !viewer.printingAllowed;
-    $('print-to').max = $('print-from').max = pdf.numPages; $('print-to').value = Math.min(pdf.numPages, PDF_LIMITS.printPages);
+    $('page').value = initialPage; $('previous').disabled = initialPage === 1; $('next').disabled = initialPage === pdf.numPages; $('print').disabled = !viewer.printingAllowed;
     if (settings.sidebar) $('sidebar').hidden = false; toolbarMenu.refresh();
   }, { signal });
   eventBus.on('pagechanging', ({ pageNumber }) => {
@@ -307,7 +309,7 @@ async function open(bytes, sampling) {
     }
     if (error) status('pageError');
     if (sharpening) updateCanvasSharpening(viewer.getPageView(pageNumber - 1), cssTransform || error);
-    if (settings.links && !cssTransform && !destroyed) void renderLinks(pageNumber, links).catch(() => {});
+    if (!cssTransform && !destroyed) void renderLinks(pageNumber, links).catch(() => {});
     syncRenderProgress();
   }, { signal });
   eventBus.on('scalechanging', ({ scale, presetValue }) => {
@@ -412,9 +414,18 @@ async function open(bytes, sampling) {
     void properties.then(dialog => { if (!destroyed) return dialog.open(); }).catch(() => { if (!destroyed) status('propertiesUnavailable'); });
   };
   click('properties', openProperties); click('filename', openProperties);
+  click('annotations', () => {
+    if (destroyed) return;
+    showAnnotations = !showAnnotations;
+    $('annotations').setAttribute('aria-pressed', String(showAnnotations));
+    // Invalidate only retained page views, not every page or the parsed document.
+    for (const view of viewer.getCachedPageViews()) {
+      view.recordedBBoxes = null;
+      view.reset();
+    }
+    clearThumbnails(); viewer.update(); void drawThumbnails();
+  });
   click('print', openPrint);
-  $('print-dialog').addEventListener('close', () => { if ($('print-dialog').returnValue === 'print') void printDocument(); }, { signal });
-  window.addEventListener('afterprint', cleanupPrint, { signal });
 }
 
 async function captureExternalLink(url,anchor) {
@@ -450,6 +461,8 @@ async function renderLinks(number, linkService) {
   const annotations = await pageView.pdfPage.getAnnotations({ intent: 'display' }).catch(() => []);
   if (destroyed || pageView.viewport !== viewport || !pageView.canvas) return;
   pageView.div.querySelector('.pdf-links')?.remove();
+  if (annotations.some(item => item && !['Link','Popup'].includes(item.subtype))) $('annotations').hidden = false;
+  if (!settings.links) return;
   const layer = document.createElement('div'); layer.className = 'pdf-links';
   for (const item of annotations.slice(0, 1000)) {
     if (item.subtype !== 'Link' || item.actions || !Array.isArray(item.rect) || item.rect.length !== 4 || !item.rect.every(Number.isFinite)) continue;
@@ -480,7 +493,7 @@ function clearThumbnails() {
   thumbnailCache.clear();
 }
 function cancelThumbnails() { thumbnailGeneration++; thumbnailTask?.cancel(); }
-const thumbnailsVisible = () => !destroyed && !document.hidden && !printing && !$('sidebar').hidden && !$('thumbnails').hidden;
+const thumbnailsVisible = () => !destroyed && !document.hidden && !$('sidebar').hidden && !$('thumbnails').hidden;
 async function drawThumbnails() {
   if (thumbnailBusy || !thumbnailsVisible()) return;
   const generation = thumbnailGeneration; thumbnailBusy = true;
@@ -499,7 +512,7 @@ async function drawThumbnails() {
       canvas.style.width = viewport.width + 'px'; canvas.style.height = viewport.height + 'px';
       try {
         thumbnailTask = page.render({ canvasContext: canvas.getContext('2d'), viewport,
-          transform: [pixelRatio, 0, 0, pixelRatio, 0, 0], annotationMode: pdfjs.AnnotationMode.DISABLE });
+          transform: [pixelRatio, 0, 0, pixelRatio, 0, 0], annotationMode: annotationMode() });
         await thumbnailTask.promise;
         if (!current()) break;
         if (!nearThumbnails.has(node)) continue;
@@ -535,37 +548,6 @@ async function showOutline(links) {
   add(items, $('outline'), 0);
 }
 function openPrint() {
-  if (!pdf || !viewer?.printingAllowed || printing || destroyed) return;
-  $('print-error').textContent = ''; showReaderDialog($('print-dialog'), $('print-from'));
-}
-async function printDocument() {
-  if (destroyed || printing || !pdf || !viewer?.printingAllowed) return;
-  const range = printRange($('print-from').value, $('print-to').value, pdf.numPages);
-  if (!range) { $('print-error').textContent = text.invalidRange; showReaderDialog($('print-dialog'), $('print-from')); return; }
-  printing = true; $('print').disabled = true; cancelThumbnails(); status('printing', true); cleanupPrint();
-  let pixels = 0;
-  try {
-    for (let i = range.from; i <= range.to; i++) {
-      if (destroyed) return;
-      const page = await pdf.getPage(i);
-      if (destroyed) return;
-      const base = page.getViewport({ scale: 1.5, rotation: (page.rotate + viewer.pagesRotation) % 360 });
-      pixels += Math.ceil(base.width) * Math.ceil(base.height);
-      if (pixels > PDF_LIMITS.printPixels || base.width > 8192 || base.height > 8192) throw Error('Print budget');
-      const canvas = document.createElement('canvas'); canvas.width = Math.ceil(base.width); canvas.height = Math.ceil(base.height);
-      let blob;
-      try {
-        printTask = page.render({ canvasContext: canvas.getContext('2d'), viewport: base, intent: 'print', annotationMode: pdfjs.AnnotationMode.DISABLE });
-        await printTask.promise;
-        if (destroyed) return;
-        blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
-      } finally { printTask = null; canvas.width = canvas.height = 0; }
-      if (!blob || destroyed) throw Error();
-      const url = URL.createObjectURL(blob); printUrls.add(url); const image = new Image(); image.src = url; await image.decode();
-      if (destroyed) return;
-      $('print-pages').append(image);
-    }
-    if (!destroyed) { status(''); window.print(); }
-  } catch { if (!destroyed) status('printFailed'); }
-  finally { printing = false; cleanupPrint(); if (!destroyed) { $('print').disabled = false; viewer.update(); void drawThumbnails(); } }
+  if (!pdf || !viewer?.printingAllowed || destroyed) return;
+  emit('print');
 }

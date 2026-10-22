@@ -1,6 +1,6 @@
 import { normalizePdfSampling } from '../../core/pdf-sampling.js';
 // Read-only PDF policy shared by the host, viewer and regression tests.
-export const PDF_LIMITS = Object.freeze({ bytes: 64 * 1024 * 1024, pages: 10000, canvasPixels: 4 * 1024 * 1024, detailCanvasPixels: 36 * 1024 * 1024, printPages: 50, printPixels: 64 * 1024 * 1024 });
+export const PDF_LIMITS = Object.freeze({ bytes: 128 * 1024 * 1024, pages: 10000, canvasPixels: 4 * 1024 * 1024, detailCanvasPixels: 36 * 1024 * 1024 });
 // Supersample vectors/text without changing layout, zoom or the browser's DPR.
 // Allocate high resolution only near the viewport, scaled to the user's choice.
 export function pdfDetailCanvasPixels(sampling) {
@@ -16,11 +16,6 @@ export function pdfPageNumber(value, total, current) {
 export function pdfScale(value) { return Math.max(0.25, Math.min(5, Number(value) || 1)); }
 export function stepPdfScale(value, direction) { return pdfScale((Math.round(value * 100) + Math.sign(direction) * 10) / 100); }
 export function rotateLeft(value) { return ((value - 90) % 360 + 360) % 360; }
-export function printRange(from, to, total) {
-  from = Number(from); to = Number(to);
-  if (!Number.isInteger(from) || !Number.isInteger(to) || from < 1 || to < from || to > total || to - from + 1 > PDF_LIMITS.printPages) return null;
-  return { from, to };
-}
 export function pdfOptions(data, assetRoot) {
   return { data, isEvalSupported: false, enableXfa: false, useSystemFonts: true,
     cMapUrl: assetRoot + 'cmaps/', cMapPacked: true, standardFontDataUrl: assetRoot + 'standard_fonts/',
@@ -38,4 +33,13 @@ export function pdfFileSize(bytes, locale = 'en-US') {
 export function parsePdfZoom(value) {
   const match = String(value).trim().match(/^(\d+(?:\.\d*)?|\.\d+)\s*%?$/);
   return match && Number(match[1]) > 0 ? pdfScale(Number(match[1]) / 100) : null;
+}
+
+// URL fragments are navigation data, never script, storage, or a fetch destination.
+export function pdfOpenPage(source, total) {
+  try {
+    const hash = new URL(source).hash.slice(1);
+    const value = new URLSearchParams(hash).get('page');
+    return /^\d{1,8}$/.test(value || '') && Number(value) > 0 ? Math.min(total, Number(value)) : 1;
+  } catch { return 1; }
 }

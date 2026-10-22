@@ -46,7 +46,7 @@ Requires Chrome 128 or later. [Download the installation ZIP](https://cpdf.songm
 
 To open `file://` PDF links automatically, enable **Allow access to file URLs** in Chrome's extension details, then reopen the PDF. Selecting or dropping a file works without that permission.
 
-Automatic opening covers ordinary HTTP(S) PDF responses, including embedded viewers, and permitted local PDF links. POST-generated documents and opaque blob links are not automatically replaced. Downloads marked as attachments retain normal download behavior. Some authenticated or single-use links may need Chrome's reader or a local copy. Files larger than 64 MB remain outside this reader's safety limit.
+Automatic opening covers ordinary HTTP(S) PDF responses, including embedded viewers, and permitted local PDF links. POST-generated documents and opaque blob links are not automatically replaced. Downloads marked as attachments retain normal download behavior. Some authenticated or single-use links may need Chrome's reader or a local copy. Files larger than 128 MB remain outside this reader's safety limit.
 
 ## Privacy and safety
 

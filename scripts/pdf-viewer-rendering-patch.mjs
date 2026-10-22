@@ -5,6 +5,14 @@ export function patchPdfViewer(source) {
     if (source.split(before).length - 1 !== count) throw Error('PDF viewer rendering patch no longer matches: ' + before);
     source = source.replaceAll(before, after);
   }
+  replace('    this.maxCanvasPixels = options.maxCanvasPixels',
+    '    this.getAnnotationMode = options.getAnnotationMode;\n    this.maxCanvasPixels = options.maxCanvasPixels', 2);
+  for (const indent of ['      ', '          ']) {
+    replace('\n' + indent + 'maxCanvasPixels: this.maxCanvasPixels,',
+      '\n' + indent + 'getAnnotationMode: this.getAnnotationMode,\n' + indent + 'maxCanvasPixels: this.maxCanvasPixels,');
+  }
+  replace('      annotationMode: this.#annotationMode,\n      optionalContentConfigPromise:',
+    '      annotationMode: this.getAnnotationMode?.() ?? this.#annotationMode,\n      optionalContentConfigPromise:');
   replace('const DEFAULT_CACHE_SIZE = 10;', 'const DEFAULT_CACHE_SIZE = 4;');
   replace('    this.maxCanvasPixels = options.maxCanvasPixels',
     '    this.getRenderPixelRatio = options.getRenderPixelRatio || (() => OutputScale.pixelRatio);\n    this.maxCanvasPixels = options.maxCanvasPixels', 2);

@@ -1,3 +1,4 @@
+import { fetchPdfSource } from './source-loader.js';
 import { resolveReaderAppearance, toggleReaderAppearance, isAppearanceMode } from '../../core/appearance.js';
 import { readSettings, normalizeSettings, uiLocale, toolbarSignature } from '../../core/settings.js';
 import { sourceFromReader, READER_PATH, isPdf, filenameFrom, cleanFilename } from '../../core/source.js';
@@ -7,7 +8,7 @@ const $=id=>document.getElementById(id);
 // The extension-owned host also supports embedded PDFs. No bytes, OCR text or
 // private channel are ever shared with its containing webpage.
 let settings=await readSettings(), locale=uiLocale(settings,chrome.i18n.getUILanguage());
-function hostText(locale){return locale==='zh-CN'?{intro:'以舒适的外观阅读 PDF，按需识别扫描件中的文字。',open:'打开 PDF 文件',settings:'设置',native:'使用 Chrome 阅读器',hint:'将 PDF 拖到这里，或选择本地文件。PDF 阅读和文字识别均在本机完成。',failed:'无法打开此文件。可尝试 Chrome 阅读器或选择本地副本。',large:'文件超过 64 MB 的安全读取上限，请使用 Chrome 阅读器。',downloadFailed:'下载未能开始，请重试。',nativeFailed:'无法切换。请在设置中暂时关闭自动打开，然后重新访问原文件。'}:{intro:'Read PDFs comfortably and recognize scanned text when you need it.',open:'Open a PDF',settings:'Settings',native:'Use Chrome reader',hint:'Drop a PDF here, or choose a local file. PDF reading and text recognition stay on your device.',failed:'This file could not be opened. Try the Chrome reader or choose a local copy.',large:'This file exceeds the 64 MB safe reading limit. Use the Chrome reader instead.',downloadFailed:'The download could not start. Please try again.',nativeFailed:'Could not switch. Turn off automatic opening in Settings, then revisit the original file.'}}
+function hostText(locale){return locale==='zh-CN'?{intro:'以舒适的外观阅读 PDF，按需识别扫描件中的文字。',open:'打开 PDF 文件',settings:'设置',native:'使用 Chrome 阅读器',hint:'将 PDF 拖到这里，或选择本地文件。PDF 阅读和文字识别均在本机完成。',failed:'无法打开此文件。可尝试 Chrome 阅读器或选择本地副本。',large:'文件超过 128 MB 的安全读取上限，请使用 Chrome 阅读器。',timeout:'连接长时间没有进展，请重试或选择本地副本。',access:'网站未允许读取此文件，请尝试 Chrome 阅读器。',downloadFailed:'下载未能开始，请重试。',nativeFailed:'无法切换。请在设置中暂时关闭自动打开，然后重新访问原文件。'}:{intro:'Read PDFs comfortably and recognize scanned text when you need it.',open:'Open a PDF',settings:'Settings',native:'Use Chrome reader',hint:'Drop a PDF here, or choose a local file. PDF reading and text recognition stay on your device.',failed:'This file could not be opened. Try the Chrome reader or choose a local copy.',large:'This file exceeds the 128 MB safe reading limit. Use the Chrome reader instead.',timeout:'The connection stopped making progress. Try again or choose a local copy.',access:'The website did not allow this file to be read. Try the Chrome reader.',downloadFailed:'The download could not start. Please try again.',nativeFailed:'Could not switch. Turn off automatic opening in Settings, then revisit the original file.'}}
 let text=hostText(locale);
 function localize(nextLocale){
  const old=text, message=$('message').textContent;locale=nextLocale;text=hostText(locale);
@@ -33,6 +34,17 @@ async function native(){
   if(!result?.ok){if(reader)reader.showError(text.nativeFailed);else fail(text.nativeFailed);}
  }else if(blobURL){try{await chrome.tabs.create({url:blobURL});}catch{reader?.showError(text.nativeFailed);}}
 }
+async function printOriginal(){
+ if(!blobURL||!reader)return;
+ // Chrome prints the unchanged original, with its native PDF/OS print pipeline.
+ // The opaque renderer cannot provide a destination or arbitrary bytes here.
+ const url=blobURL,run=generation;
+ try{
+  const current=await chrome.tabs.getCurrent();
+  if(run!==generation||url!==blobURL)return;
+  await chrome.tabs.create({url,...(current?{windowId:current.windowId,index:current.index+1}:{} )});
+ }catch{if(run===generation)reader?.showError(text.nativeFailed);}
+}
 function openSettings(){if(reader)void chrome.runtime.sendMessage({type:'OPEN_SETTINGS'});else location.assign(chrome.runtime.getURL('settings/index.html'));}
 function download(){
  if(!blobURL)return;
@@ -46,20 +58,13 @@ function download(){
 $('native').onclick=native;$('settings').onclick=openSettings;$('open-file').onclick=()=>$('file').click();
 $('file').onchange=()=>{const f=$('file').files[0];$('file').value='';if(f)void openFile(f);};
 window.addEventListener('dragover',event=>{event.preventDefault();});window.addEventListener('drop',event=>{event.preventDefault();const f=event.dataTransfer?.files[0];if(f)void openFile(f);});
-async function readResponse(response,signal){
- if(!response.ok)throw Error('fetch');if(Number(response.headers.get('content-length'))>PDF_LIMITS.bytes)throw Error('large');
- const chunks=[];let size=0;const stream=response.body.getReader();
- try{while(true){if(signal.aborted)throw Error('abort');const {done,value}=await stream.read();if(done)break;size+=value.byteLength;if(size>PDF_LIMITS.bytes)throw Error('large');chunks.push(value);}}finally{await stream.cancel().catch(()=>{});}
- const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}return bytes.buffer;
-}
 async function load(loader, initialFilename='PDF'){
  const run=++generation;controller?.abort();controller=new AbortController(); const current=controller;
  reader?.destroy();reader=null;activeSettings=settings;$('reader').hidden=false;setView('loading');$('message').textContent='';
  if(blobURL)URL.revokeObjectURL(blobURL);blobURL=null;original=null;
- const deadline=setTimeout(()=>current.abort(),60000);
  try{
   // Load the isolated rendering shell and its bundled worker while fetching the PDF.
-  const prepared=createPdfViewer({container:$('reader'),locale,settings,filename:cleanFilename(initialFilename),documentUrl:source||'',canUseNative:!!source,sampling:settings.sampling,sharpening:settings.sharpening,dark:applyTheme(),themeMode:appearance().mode,onNative:native,onSettings:openSettings,onAiPreference:(key,enabled)=>{
+  const prepared=createPdfViewer({container:$('reader'),locale,settings,filename:cleanFilename(initialFilename),documentUrl:source||'',canUseNative:!!source,sampling:settings.sampling,sharpening:settings.sharpening,dark:applyTheme(),themeMode:appearance().mode,onNative:native,onPrint:printOriginal,onSettings:openSettings,onAiPreference:(key,enabled)=>{
     void chrome.runtime.sendMessage({type:'SAVE_AI_PREFERENCE',key,enabled}).then(result=>{
       // Durable storage notifications publish successful edits. A late reply
       // must not repaint an older snapshot over a newer toolbar/context edit.
@@ -70,10 +75,24 @@ async function load(loader, initialFilename='PDF'){
   const result=await loader(current.signal);if(run!==generation)return;if(!isPdf(result.bytes))throw Error('format');
   filename=cleanFilename(result.filename);original=new Blob([result.bytes],{type:'application/pdf'});blobURL=URL.createObjectURL(original);document.title=filename+' — Cosmic PDF';
   prepared.open(result.bytes,filename);
- }catch(error){if(run===generation){reader?.destroy();reader=null;$('reader').hidden=true;fail(error.message==='large'?text.large:text.failed);}}finally{clearTimeout(deadline);}
+ }catch(error){if(run===generation){reader?.destroy();reader=null;$('reader').hidden=true;fail(text[error.message]||text.failed);}}
 }
 async function openFile(file){if(file.size>PDF_LIMITS.bytes){if(reader)reader.showError(text.large);else fail(text.large);return;}source=null;history.replaceState(null,'',chrome.runtime.getURL(READER_PATH));$('native').hidden=true;await load(async()=>({bytes:await file.arrayBuffer(),filename:file.name}),file.name);}
-function loadSource(){return load(async signal=>{const response=await fetch(source,{signal,credentials:'include',cache:'default',referrerPolicy:'no-referrer'});return {bytes:await readResponse(response,signal),filename:filenameFrom(response.url||source,response.headers.get('content-disposition')||'')};},filenameFrom(source));}
+function loadSource(){
+ const requested=source;
+ return load(async signal=>{
+  let token;
+  try {
+   const prepared=await chrome.runtime.sendMessage({type:'PDF_REQUEST_START'}).catch(()=>null);
+   token=prepared?.result;
+   if(signal.aborted)throw Error('abort');
+   const result=await fetchPdfSource(requested,{signal});
+   return {bytes:result.bytes,filename:filenameFrom(result.response.url||requested,result.response.headers.get('content-disposition')||'')};
+  } finally {
+   if(typeof token==='string')void chrome.runtime.sendMessage({type:'PDF_REQUEST_END',token}).catch(()=>{});
+  }
+ },filenameFrom(requested));
+}
 if(source){$('native').hidden=false;void loadSource();}else setView('home');
 chrome.storage.onChanged.addListener((changes,area)=>{
  if(area!=='local'||!changes.settings)return;

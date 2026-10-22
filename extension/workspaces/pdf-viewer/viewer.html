@@ -19,7 +19,7 @@
   <div class="leading-cluster"><div id="leading-actions"><button id="sidebar-toggle" data-label="sidebar">☰</button></div>
   <div class="identity"><img class="brand-icon" src="../../icons/icon.svg?v=d735a2ddd983" width="28" height="28" alt=""><strong>Cosmic PDF</strong></div></div>
   <div class="file"><button id="filename" type="button" aria-haspopup="dialog" aria-controls="properties-dialog" disabled></button></div>
-  <div class="actions"><div id="primary-actions"><button id="ai-toggle" type="button" aria-pressed="false" data-label="aiToggle"></button><button id="theme" data-label="theme">◐</button><button id="print" data-label="print">⌘</button><button id="properties" data-label="properties">ⓘ</button><button id="settings" data-label="settings">⚙</button><button id="native" data-label="native">↗</button><button id="download" data-label="download">↓</button></div></div>
+  <div class="actions"><div id="primary-actions"><button id="annotations" type="button" aria-pressed="true" data-label="annotations" hidden></button><button id="ai-toggle" type="button" aria-pressed="false" data-label="aiToggle"></button><button id="theme" data-label="theme">◐</button><button id="print" data-label="print">⌘</button><button id="properties" data-label="properties">ⓘ</button><button id="settings" data-label="settings">⚙</button><button id="native" data-label="native">↗</button><button id="download" data-label="download">↓</button></div></div>
   <nav aria-label="PDF">
     <span class="group tool-group"><button id="search-toggle" data-label="find">⌕</button></span>
     <span class="group tool-group page-navigation"><button id="previous" data-label="previous">‹</button><span class="page-indicator"><input id="page" type="number" min="1" value="1" inputmode="numeric" data-label="page"><span class="page-separator" aria-hidden="true">/</span><span id="count">—</span></span><button id="next" data-label="next">›</button></span>
@@ -55,12 +55,10 @@
 </div>
 <button id="ai-selection" type="button" hidden></button>
 <dialog id="password-dialog"><form method="dialog"><p id="password-message"></p><input id="password" type="password" autocomplete="off" data-label="password" required><div class="dialog-actions"><button value="cancel" formnovalidate data-text="cancel"></button><button value="open" data-text="open"></button></div></form></dialog>
-<dialog id="print-dialog"><form method="dialog"><p data-text="printRange"></p><label><span data-text="from"></span><input id="print-from" type="number" min="1" value="1" required></label><label><span data-text="to"></span><input id="print-to" type="number" min="1" value="1" required></label><p id="print-error" role="alert"></p><div class="dialog-actions"><button value="cancel" formnovalidate data-text="cancel"></button><button value="print" data-text="print"></button></div></form></dialog>
 <dialog id="properties-dialog" class="notranslate" translate="no" aria-labelledby="properties-title">
   <h2 id="properties-title" tabindex="-1" data-text="properties"></h2>
   <p id="properties-status" role="status"></p><dl id="properties-list"></dl>
   <div class="dialog-actions"><button id="properties-close" data-text="close"></button></div>
 </dialog>
-<div id="print-pages"></div>
 <script type="module" src="viewer.js"></script>
 </body></html>

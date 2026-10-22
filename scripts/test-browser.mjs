@@ -1,3 +1,5 @@
+import {reviewedPdf} from '../test/fixtures/reviewed-pdf.mjs';
+import {runReviewQa} from './qa-review.mjs';
 import {embeddedResponse,runEmbeddedQa} from './qa-embedded.mjs';
 // Isolated integration QA. Requires an external Playwright installation; no runtime dependency.
 import assert from 'node:assert/strict';
@@ -9,7 +11,7 @@ import {handleAiMock,prepareAiMock,runAiQa,runAiTestQa,handleWebAiMock,prepareWe
 const {chromium}=await import(process.env.PDF_PLAYWRIGHT?pathToFileURL(process.env.PDF_PLAYWRIGHT).href:'playwright');
 const folder=await mkdtemp(join(tmpdir(),'cosmic-pdf-qa-')),ext=join(folder,'extension');await cp(resolve('extension'),ext,{recursive:true});
 // Expose renderer state in the disposable QA copy only.
-const viewerFile=join(ext,'workspaces/pdf-viewer/viewer.js');await writeFile(viewerFile,(await readFile(viewerFile,'utf8')).replace('links.setViewer(viewer);','window.qaLifecycle={password:()=>task.onPassword(()=>{window.qaAcceptedPasswords=(window.qaAcceptedPasswords||0)+1;},0),destroy,clearThumbnails,drawThumbnails,printDocument,receive:data=>port.onmessage({data}),state:()=>({thumbnailBusy}),onlyThumbnail:number=>{nearThumbnails.clear();nearThumbnails.add($("thumbnails").children[number-1]);}}; window.qaViewer=viewer; window.qaSettings=()=>settings; window.qaDarkPaper=darkPaper; window.qaEventBus=eventBus; links.setViewer(viewer);').replace('void workerReady.catch(() => {});', 'void workerReady.then(worker=>{window.qaWorkerReady=worker.port instanceof Worker;}).catch(e=>{window.qaWorkerError=String(e);});'));
+const viewerFile=join(ext,'workspaces/pdf-viewer/viewer.js');await writeFile(viewerFile,(await readFile(viewerFile,'utf8')).replace('links.setViewer(viewer);','window.qaLifecycle={password:()=>task.onPassword(()=>{window.qaAcceptedPasswords=(window.qaAcceptedPasswords||0)+1;},0),destroy,clearThumbnails,drawThumbnails,openPrint,receive:data=>port.onmessage({data}),state:()=>({thumbnailBusy}),onlyThumbnail:number=>{nearThumbnails.clear();nearThumbnails.add($("thumbnails").children[number-1]);}}; window.qaViewer=viewer; window.qaSettings=()=>settings; window.qaDarkPaper=darkPaper; window.qaEventBus=eventBus; links.setViewer(viewer);').replace('void workerReady.catch(() => {});', 'void workerReady.then(worker=>{window.qaWorkerReady=worker.port instanceof Worker;}).catch(e=>{window.qaWorkerError=String(e);});'));
 const qaSettingsPath=join(ext,'settings/settings.js');await writeFile(qaSettingsPath,(await readFile(qaSettingsPath,'utf8')).replace('function report(result){','function report(result){window.qaSettingsIdle=result;'));
 // Count bounded sampling reads in this QA copy, never in shipped code.
 const guardFile=join(ext,'workspaces/pdf-viewer/dark-paper.js');await writeFile(guardFile,(await readFile(guardFile,'utf8')).replace('context.drawImage(source, 0, 0, size, size);', '(globalThis.qaPaperReads ||= []).push(size); context.drawImage(source, 0, 0, size, size);').replace('    try {\n      canvas ||= makeCanvas();', '    const qaStart=performance.now(); try {\n      canvas ||= makeCanvas();').replace('finally { if (canvas)', 'finally { (globalThis.qaPaperTimings ||= []).push(performance.now()-qaStart); if (canvas)'));
@@ -23,6 +25,8 @@ const server=createServer((req,res)=>{
  if(['ai-web','selection'].includes(process.env.PDF_QA)&&handleWebAiMock(req,res))return;
  if(process.env.PDF_QA==='embedded'&&embeddedResponse(req,res,englishScan))return;
  const path=req.url.split('?')[0];
+ if(path==='/reviewed'){res.setHeader('Content-Type','application/pdf');res.end(reviewedPdf());return;}
+ if(path==='/referer.pdf'){if(req.headers['sec-fetch-dest']==='empty'&&req.headers.referer!==base+'/'){res.writeHead(403);res.end('Missing source-origin referer');return;}res.setHeader('Content-Type','application/pdf');res.end(reviewedPdf());return;}
  if(path==='/html.pdf'){res.setHeader('Content-Type','text/html');res.end('<h1>Not a PDF</h1>');return;}
  if(path==='/links'){res.setHeader('Content-Type','text/html');res.end('<a href="/history.pdf">Read PDF</a>');return;}
  if(path==='/form'){res.setHeader('Content-Type','text/html');res.end('<form method="post" action="/post"><button>Submit</button></form>');return;}
@@ -31,7 +35,7 @@ const server=createServer((req,res)=>{
  if(path==='/attachment'){res.setHeader('Content-Disposition','attachment; filename="download.pdf"');}
  res.setHeader('Content-Type',path==='/binary.pdf'?'application/octet-stream':'application/pdf');
  if(path==='/slow'&&req.headers['sec-fetch-dest']!=='document'){res.flushHeaders();slowResponses.add(res);res.on('close',()=>slowResponses.delete(res));return;}
- if(path==='/huge'){res.setHeader('Content-Length',String(90*1024*1024));res.end('%PDF-1.7');return;}
+ if(path==='/huge'){res.setHeader('Content-Length',String(129*1024*1024));res.end('%PDF-1.7');return;}
  if(path==='/bad'){res.end('not a PDF');return;}
  if(path==='/designed-paper'){
   const content=Array.from({length:20},(_,i)=>`1 g BT /F1 10 Tf 35 ${785-i*30} Td (A line of small outlined or typeset content, with a colorful heading.) Tj ET\n0 .7 .6 rg 35 ${790-i*30} 150 2 re f`).join('\n');
@@ -113,8 +117,12 @@ try{
  const granted=await worker.evaluate(()=>chrome.permissions.getAll());assert.deepEqual(granted.permissions.sort(),['declarativeNetRequestWithHostAccess','storage']);assert.equal(await worker.evaluate(()=>typeof chrome.downloads),'undefined');report.checks.push('fixed minimal API permissions; no downloads API');
  for(let i=0;i<50;i++){if((await worker.evaluate(()=>chrome.declarativeNetRequest.getDynamicRules())).length>=3)break;await delay(100);}
  async function go(url){await page.goto(url).catch(e=>{if(!/net::ERR_ABORTED|Download is starting/.test(e.message))throw e;});}
- async function open(path='/document?token=a%2Bb&sig=x%3D#page=2'){
-  await page.bringToFront();await go(base+path);await page.waitForURL(url=>url.href.startsWith(reader+'?source='));const element=await page.waitForSelector('iframe');const frame=await element.contentFrame();await frame.waitForFunction(()=>document.querySelector('.page canvas')?.width>0&&document.querySelector('#count').textContent!=='—');await frame.waitForFunction(()=>window.qaViewer?.getPageView(0)?.renderingState===3);assert.equal(await frame.evaluate(()=>window.qaWorkerReady),true,'PDF parsing uses a real background Worker');return frame;
+ async function open(path='/document?token=a%2Bb&sig=x%3D'){
+  await page.bringToFront();await go(base+path);await page.waitForURL(url=>url.href.startsWith(reader+'?source='));const element=await page.waitForSelector('iframe');const frame=await element.contentFrame();await frame.waitForFunction(()=>document.querySelector('.page canvas')?.width>0&&document.querySelector('#count').textContent!=='—');await frame.waitForFunction(()=>{const v=window.qaViewer;return v?.getPageView(v.currentPageNumber-1)?.renderingState===3;});assert.equal(await frame.evaluate(()=>window.qaWorkerReady),true,'PDF parsing uses a real background Worker');return frame;
+ }
+ async function checkPrintHandoff(frame,activate=()=>frame.locator('#print').click()){
+  const pending=context.waitForEvent('page');await activate();const native=await pending;
+  await native.waitForURL(/^blob:chrome-extension:/);await native.close();await page.bringToFront();
  }
  async function checkDownload(frame,name,bytes){
   const before=page.url(),tabs=context.pages().length;
@@ -127,7 +135,9 @@ try{
   await saved.delete();
  }
  // PDF_QA=ocr-priority runs only the text-layer handover regression.
- if(process.env.PDF_QA==='embedded'){
+ if(process.env.PDF_QA==='review'){
+  await runReviewQa({context,worker,page,reader,settings,base,folder,report,open});
+ }else if(process.env.PDF_QA==='embedded'){
   await runEmbeddedQa({context,worker,page,reader,settings,base,folder,report,setScan:bytes=>{englishScan=bytes;},open});
  }else if(process.env.PDF_QA==='appearance'){
   const prefs=await context.newPage();observe(prefs);await prefs.goto(settings);await prefs.waitForSelector('#appearance');
@@ -201,19 +211,12 @@ try{
   assert.equal(await checkFrame.locator('#page').inputValue(),'1');
   await checkFrame.locator('#page').fill('2'); await checkFrame.locator('#page').blur();
   await checkFrame.waitForFunction(()=>document.querySelector('#page').value==='2');
-  await checkFrame.evaluate(()=>{window.qaPrintCalls=0;window.print=()=>{qaPrintCalls++;};document.querySelector('#print').click();});
-  await checkFrame.locator('#print-dialog button[value=cancel]').focus();
-  await page.keyboard.press('PageDown');
+  await checkFrame.evaluate(()=>document.querySelector('#properties').click());
+  await checkFrame.waitForSelector('#properties-dialog[open]');
+  await checkFrame.locator('#properties-close').focus();await page.keyboard.press('PageDown');
   assert.equal(await checkFrame.locator('#page').inputValue(),'2','modal keys cannot navigate the PDF');
-  await checkFrame.locator('#print-dialog button[value=print]').click();
-  await checkFrame.waitForFunction(()=>qaPrintCalls===1&&!document.querySelector('#print').disabled);
-  await checkFrame.evaluate(()=>document.querySelector('#print').click());
-  assert.equal(await checkFrame.locator('#print-dialog').evaluate(d=>d.returnValue),'');
-  await page.keyboard.press('Escape');
-  await checkFrame.waitForFunction(()=>!document.querySelector('#print-dialog').open);
-  await page.waitForTimeout(100);
-  assert.equal(await checkFrame.evaluate(()=>qaPrintCalls),1,'Esc must not repeat a prior Print');
-  assert.equal(await checkFrame.locator('#print').isEnabled(),true);
+  await page.keyboard.press('Escape');await checkFrame.waitForFunction(()=>!document.querySelector('#properties-dialog').open);
+  await checkPrintHandoff(checkFrame);
 
   const prefs=await context.newPage();await prefs.goto(settings);await prefs.waitForSelector('#sampling');
   await prefs.evaluate(()=>{
@@ -436,7 +439,7 @@ try{
  for(const dark of [true,false]){if(await frame.evaluate(()=>document.documentElement.dataset.dark==='true')!==dark){await frame.locator('#theme').click();await frame.waitForFunction(d=>document.documentElement.dataset.dark===String(d),dark);}await frame.waitForSelector('.textLayer .highlight.selected');assert.equal(await frame.locator('.textLayer .highlight.selected').first().evaluate(n=>getComputedStyle(n).backgroundColor),'rgba(255, 152, 0, 0.65)');await page.screenshot({path:join(folder,'find-orange-'+(dark?'dark':'light')+'.png')});}
  await frame.locator('#theme').click();await frame.waitForFunction(()=>document.documentElement.dataset.dark==='true');await frame.locator('#find-close').click();report.checks.push('toolbar Find always searches internally with orange matches in both themes, even when Chrome shortcuts are enabled');
  await frame.locator('#fullscreen').click();await page.waitForFunction(()=>!!document.fullscreenElement);await frame.locator('#fullscreen').click();await page.waitForFunction(()=>!document.fullscreenElement);report.checks.push('fullscreen through trusted host');
- await frame.locator('#print').click();await frame.waitForSelector('#print-dialog[open]');await frame.locator('#print-dialog button[value=cancel]').click();report.checks.push('bounded print-range dialog');
+ await checkPrintHandoff(frame);report.checks.push('native original-PDF print handoff');
 
  await checkDownload(frame,'document.pdf',viewerPdf(6));report.checks.push('remote PDF original-byte download without downloads permission or navigation');
 
@@ -626,7 +629,7 @@ assert.match(await frame.locator('[data-property=pageSize]').textContent(),/215.
  for(const [value,expected]of [['125',1.25],['75%',.75],['bad',.75],['900',5],['1',.25],['100',1]]){await frame.locator('#scale-input').fill(value);await frame.locator('#scale-input').press('Enter');await frame.waitForFunction(n=>Math.abs(qaViewer.currentScale-n)<.001,expected);}
  await frame.locator('#scale-input').fill('150');await frame.locator('#scale-input').press('Escape');assert.equal(await frame.locator('#scale-input').inputValue(),'100%');assert.ok((await frame.locator('#scale-input').boundingBox()).width<100);
  await menuAction('fit-width');await frame.waitForFunction(()=>qaViewer.currentScaleValue==='page-width');await menuAction('fit-page');await frame.waitForFunction(()=>qaViewer.currentScaleValue==='page-fit');await frame.locator('#scale-input').fill('100');await frame.locator('#scale-input').press('Enter');
- await menuAction('search-toggle');await frame.waitForSelector('#findbar:not([hidden])');assert.equal(await frame.locator('#query').isVisible(),true);await frame.locator('#find-close').click();await prefs.locator('#useChromeFind').uncheck();await frame.waitForFunction(()=>!qaSettings().useChromeFind);await menuAction('search-toggle');assert.equal(await frame.locator('#query').isVisible(),true);await prefs.locator('#useChromeFind').check();await frame.waitForFunction(()=>qaSettings().useChromeFind);assert.equal(await frame.locator('#query').isVisible(),true);await frame.locator('#find-close').click();await menuAction('print');await frame.waitForSelector('#print-dialog[open]');await frame.locator('#print-dialog button[value=cancel]').click();await menuAction('properties');await frame.waitForSelector('#properties-dialog[open]');await frame.locator('#properties-close').click();
+ await menuAction('search-toggle');await frame.waitForSelector('#findbar:not([hidden])');assert.equal(await frame.locator('#query').isVisible(),true);await frame.locator('#find-close').click();await prefs.locator('#useChromeFind').uncheck();await frame.waitForFunction(()=>!qaSettings().useChromeFind);await menuAction('search-toggle');assert.equal(await frame.locator('#query').isVisible(),true);await prefs.locator('#useChromeFind').check();await frame.waitForFunction(()=>qaSettings().useChromeFind);assert.equal(await frame.locator('#query').isVisible(),true);await frame.locator('#find-close').click();await checkPrintHandoff(frame,()=>menuAction('print')); await menuAction('properties');await frame.waitForSelector('#properties-dialog[open]');await frame.locator('#properties-close').click();
  const actionKeys=['pages','find','paging','zoom','fit','rotate','fullscreen','ocr','print','properties','native'];
  for(const key of actionKeys)await prefs.locator('#hide-'+key).check();
  await prefs.waitForFunction(async keys=>{const h=(await chrome.storage.local.get('settings')).settings.toolbarHidden;return keys.every(k=>h[k]);},actionKeys);
@@ -812,4 +815,4 @@ assert.match(await frame.locator('[data-property=pageSize]').textContent(),/215.
  }
  assert.deepEqual(report.remoteRequests,[],'OCR/renderer never makes external network requests');assert.deepEqual(report.errors,[],'no application/CSP errors');report.checks.push('no remote document resources or console errors');
  console.log(JSON.stringify(report,null,2));await writeFile(join(folder,'report.json'),JSON.stringify(report,null,2));
-} catch(error){console.error(JSON.stringify(report,null,2));throw error;}finally{releaseSlow();await context.close();await new Promise(r=>server.close(r));if(process.env.PDF_QA==='embedded'){await rm(join(folder,'profile'),{recursive:true,force:true});await rm(ext,{recursive:true,force:true});}}
+} catch(error){console.error(JSON.stringify(report,null,2));throw error;}finally{releaseSlow();await context.close();await new Promise(r=>server.close(r));await rm(join(folder,'profile'),{recursive:true,force:true});await rm(ext,{recursive:true,force:true});}

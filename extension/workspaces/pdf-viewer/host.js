@@ -4,8 +4,8 @@ import { normalizeSettings } from '../../core/settings.js';
 import { PDF_LIMITS } from './model.js';
 // This host is the only connection to a product. The opaque viewer has no
 // extension APIs, storage access, network capability, or arbitrary command channel.
-// The validated source URL is passed only as inert text for Document properties.
-export function createPdfViewer({ container, locale, sampling, settings, filename = 'PDF', documentUrl = '', canUseNative = false, sharpening = false, dark, themeMode, onDownload, onNative, onSettings, onTheme, onReady, onError, onAiPreference }) {
+// The validated source URL supplies inert metadata and a bounded initial page destination.
+export function createPdfViewer({ container, locale, sampling, settings, filename = 'PDF', documentUrl = '', canUseNative = false, sharpening = false, dark, themeMode, onDownload, onPrint, onNative, onSettings, onTheme, onReady, onError, onAiPreference }) {
   themeMode = isAppearanceMode(themeMode) ? themeMode : normalizeSettings(settings).appearance;
   const iframe = document.createElement('iframe');
   iframe.className = 'pdf-viewer-frame'; iframe.title = 'PDF Viewer';
@@ -57,6 +57,7 @@ export function createPdfViewer({ container, locale, sampling, settings, filenam
     }
     else if (data.type === 'parsed') clearTimeout(timeout);
     else if (data.type === 'download') onDownload();
+    else if (data.type === 'print') onPrint?.();
     else if (data.type === 'native') onNative();
     else if (data.type === 'settings') onSettings();
     else if (data.type === 'theme') { if (data.mode === undefined) onTheme(); else if (isAppearanceMode(data.mode)) onTheme(data.mode); }

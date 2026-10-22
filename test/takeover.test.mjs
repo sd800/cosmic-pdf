@@ -84,3 +84,28 @@ test('Settings keeps the newest registered document without reading general tab 
   const retry=add(8,'retry');failRead=true;await assert.rejects(register(retry,700));await register(retry,700);assert.equal(docs.has('replacement'),false,'queue recovers after API failure');
   const count=removed.length;assert.equal(await register({...retry,frameId:1},800),false);assert.equal(await register({...retry,url:'https://example.com'},800),false);assert.equal(await register(retry,NaN),false);assert.equal(removed.length,count);
 });
+
+test('PDF Referer rules derive only source origin and have exact authenticated ownership',async()=>{
+ const original=globalThis.chrome,storage={},rules=new Map();
+ const source='https://files.example.edu/Download?token=secret%2Bvalue#page=12';
+ const sender={id:'test',frameId:0,documentId:'pdf-reader',tab:{id:12},url:'chrome-extension://test/workspaces/pdf-reader/index.html?source='+source};
+ let alive=true,failRemove=false;
+ globalThis.chrome={runtime:{id:'test',getURL:path=>'chrome-extension://test/'+path,getContexts:async()=>alive?[{tabId:12,frameId:0,documentUrl:sender.url}]:[]},
+  storage:{session:{get:async key=>({[key]:storage[key]}),set:async value=>Object.assign(storage,value),remove:async key=>delete storage[key]}},
+  declarativeNetRequest:{isRegexSupported:async()=>({isSupported:true}),getSessionRules:async()=>[...rules.values()],updateSessionRules:async({removeRuleIds=[],addRules=[]})=>{if(failRemove&&removeRuleIds.length)throw Error('busy');for(const id of removeRuleIds)rules.delete(id);for(const rule of addRules)rules.set(rule.id,rule);}}
+ };
+ try{
+  const {preparePdfRequest,finishPdfRequest,forgetPdfRequests}=await import('../extension/background/products/pdf-request.js');
+  await assert.rejects(preparePdfRequest({...sender,url:'https://evil.test/'}));
+  const token=await preparePdfRequest(sender),rule=[...rules.values()][0];
+  assert.equal(rule.action.requestHeaders[0].value,'https://files.example.edu/');
+  assert.deepEqual(rule.condition.tabIds,[12]);assert.deepEqual(rule.condition.initiatorDomains,['test']);assert.deepEqual(rule.condition.resourceTypes,['xmlhttprequest']);assert.deepEqual(rule.condition.requestMethods,['get']);assert.equal(rule.condition.isUrlFilterCaseSensitive,true);
+  const pattern=new RegExp(rule.condition.regexFilter);assert.equal(pattern.test(source.split('#')[0]),true);assert.equal(pattern.test(source.split('#')[0]+'&extra=1'),false);assert.equal(pattern.test('https://elsewhere.example/'),false);
+  await finishPdfRequest({...sender,documentId:'other'},token);assert.equal(rules.size,1);
+  failRemove=true;await assert.rejects(finishPdfRequest(sender,token));assert.ok(storage['pdf-fetch:12']);
+  failRemove=false;await finishPdfRequest(sender,token);assert.equal(rules.size,0);assert.equal(storage['pdf-fetch:12'],undefined);
+  await preparePdfRequest(sender);await forgetPdfRequests(12,sender.url);assert.equal(rules.size,1);
+  await forgetPdfRequests(12,'https://example.edu/');assert.equal(rules.size,0);
+  alive=false;await assert.rejects(preparePdfRequest(sender));assert.equal(rules.size,0);
+ }finally{globalThis.chrome=original;}
+});
