@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.2.27 — 2026-10-21
+
+- Add per-service API model selection and manual model-list refresh, retaining provider order and marking recommended families.
+- Unify Settings dropdown menus and refine API setup interactions.
+
 ## 3.2.26 — 2026-10-21
 
 - Display existing annotations and filled forms, with a per-reader visibility switch.

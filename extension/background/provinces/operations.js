@@ -16,7 +16,7 @@ export function savePreference(edit){
  const job=preferenceQueue.catch(()=>{}).then(async()=>{
   if(!edit||(!edit.reset&&!Object.hasOwn(DEFAULTS,edit.key)))throw Error('invalidRequest');
   const current=await readSettings();
-  const next=edit.reset?normalizeSettings():normalizeSettings({...current,[edit.key]:edit.key==='toolbarHidden'?{...current.toolbarHidden,...edit.value}:edit.value});
+  const next=edit.reset?normalizeSettings():normalizeSettings({...current,[edit.key]:['toolbarHidden','aiModels'].includes(edit.key)?{...current[edit.key],...edit.value}:edit.value});
   await chrome.storage.local.set({settings:next});return next;
  });preferenceQueue=job;return job;
 }

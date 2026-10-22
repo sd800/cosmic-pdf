@@ -6,7 +6,7 @@ export function createSettingsStore(initial, {read, write, changed}) {
   let committed=normalizeSettings(initial), queue=Promise.resolve(), observation=0;
   const pending=[];
   const apply=(base, edit)=>edit.reset ? normalizeSettings() : normalizeSettings({...base,
-    [edit.key]:edit.key==='toolbarHidden' ? {...base.toolbarHidden,...edit.value} : edit.value});
+    [edit.key]:['toolbarHidden','aiModels'].includes(edit.key) ? {...base[edit.key],...edit.value} : edit.value});
   const publish=()=>changed(pending.reduce(apply,committed));
   function enqueue(edit) {
     pending.push(edit); publish();

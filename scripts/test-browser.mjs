@@ -1,3 +1,4 @@
+import {handleModelMock,prepareModelMock,runModelsQa} from './qa-models.mjs';
 import {reviewedPdf} from '../test/fixtures/reviewed-pdf.mjs';
 import {runReviewQa} from './qa-review.mjs';
 import {embeddedResponse,runEmbeddedQa} from './qa-embedded.mjs';
@@ -21,7 +22,8 @@ const ocrProduct=join(ext,'workspaces/pdf-viewer/ocr.js');await writeFile(ocrPro
 const report={checks:[],errors:[],remoteRequests:[],screenshots:folder};let englishScan,chineseScan,batchScan,blackScan;const slowResponses=new Set();
 function releaseSlow(){for(const res of slowResponses)res.end(viewerPdf(6));slowResponses.clear();}
 const server=createServer((req,res)=>{
- if(process.env.PDF_QA==='ai'&&handleAiMock(req,res))return;
+ if(process.env.PDF_QA==='models'&&handleModelMock(req,res))return;
+ if(['ai','models'].includes(process.env.PDF_QA)&&handleAiMock(req,res))return;
  if(['ai-web','selection'].includes(process.env.PDF_QA)&&handleWebAiMock(req,res))return;
  if(process.env.PDF_QA==='embedded'&&embeddedResponse(req,res,englishScan))return;
  const path=req.url.split('?')[0];
@@ -60,6 +62,7 @@ const server=createServer((req,res)=>{
  res.end(path==='/black-scan'?blackScan:path==='/scan-many'?batchScan:path==='/scan'?englishScan:path==='/chinese'?chineseScan:viewerPdf(6));
 });await new Promise(r=>server.listen(0,'127.0.0.1',r));const base='http://127.0.0.1:'+server.address().port;
 if(process.env.PDF_QA==='ai')await prepareAiMock(ext,base);
+if(process.env.PDF_QA==='models')await prepareModelMock(ext,base);
 if(['ai-web','selection'].includes(process.env.PDF_QA))await prepareWebAiMock(ext,base);
 const context=await chromium.launchPersistentContext(join(folder,'profile'),{executablePath:process.env.PDF_CHROME,headless:true,viewport:{width:1360,height:960},deviceScaleFactor:2,args:['--force-device-scale-factor=2',`--disable-extensions-except=${ext}`,`--load-extension=${ext}`]});
 function observe(page){page.on('pageerror',e=>report.errors.push(e.message));page.on('console',m=>{if(m.type()==='error'||/fake worker|autofocusing|permissions policy|Content Security Policy|cross-origin redirects/i.test(m.text()))report.errors.push(m.text());});page.on('request',r=>{if(/^https?:/.test(r.url())&&!r.url().startsWith(base))report.remoteRequests.push(r.url());});}
@@ -135,7 +138,9 @@ try{
   await saved.delete();
  }
  // PDF_QA=ocr-priority runs only the text-layer handover regression.
- if(process.env.PDF_QA==='review'){
+ if(process.env.PDF_QA==='models'){
+  await runModelsQa({context,worker,page,settings,open,report});
+ }else if(process.env.PDF_QA==='review'){
   await runReviewQa({context,worker,page,reader,settings,base,folder,report,open});
  }else if(process.env.PDF_QA==='embedded'){
   await runEmbeddedQa({context,worker,page,reader,settings,base,folder,report,setScan:bytes=>{englishScan=bytes;},open});

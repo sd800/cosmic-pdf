@@ -18,7 +18,7 @@ const tick=()=>new Promise(resolve=>setImmediate(resolve));
 function repository(){
  const values=new Map();return {values,async get(key){return structuredClone(values.get(key));},async set(key,value){values.set(key,structuredClone(value));},async remove(key){values.delete(key);},async clear(){values.clear();}};
 }
-test('AI defaults, fixed models and bounded explicit requests do not include credentials or document URLs',()=>{
+test('AI defaults, initial models and bounded explicit requests do not include credentials or document URLs',()=>{
  assert.equal(DEFAULTS.aiEnabled,false);assert.equal(DEFAULTS.aiIncludeContext,true);
  assert.equal(normalizeSettings({}).aiIncludeContext,true);
  for(const enabled of [false,true])assert.equal(normalizeSettings({aiIncludeContext:enabled}).aiIncludeContext,enabled);
@@ -273,13 +273,13 @@ test('private readers cannot access keys, and trusted context preferences remove
  const runtime={id:'test',getURL:path=>'chrome-extension://test/'+path};
  const sender=path=>({id:'test',frameId:0,tab:{id:7},url:runtime.getURL(path)});
  const vault=createApiVault(repository());await vault.save('gemini','test-key-not-real');
- let prompt;const product=createAiExplanationProduct({runtime,vault,read:async()=>normalizeSettings({aiEnabled:true,aiMode:'api',aiIncludeContext:false}),stream:async(_p,_k,input,{onText})=>{prompt=input;onText('answer');return 'answer';}});
+ const captured=deferred();let prompt;const product=createAiExplanationProduct({runtime,vault,read:async()=>normalizeSettings({aiEnabled:true,aiMode:'api',aiIncludeContext:false}),stream:async(_p,_k,input,{onText})=>{prompt=input;captured.resolve();onText('answer');return 'answer';}});
  const privateSettings={...sender('settings/index.html'),tab:{id:8,incognito:true}};
  assert.deepEqual(await product.handleMessage({type:'AI_STATUS'},privateSettings),{keys:{},private:true});
  await assert.rejects(product.handleMessage({type:'AI_DELETE_ALL_KEYS'},privateSettings),/disabled/);
  const privatePort=port({...sender('workspaces/pdf-reader/index.html'),tab:{id:8,incognito:true}});product.connect(privatePort);privatePort.onMessage.emit({type:'explain',id:'private',request:selection});await tick();assert.equal(privatePort.messages.at(-1).error,'disabled');privatePort.disconnect();
  const owned=port(sender('workspaces/pdf-reader/index.html'));product.connect(owned);owned.onMessage.emit({type:'explain',id:'context',request:{...selection,context:'unapproved nearby text'}});await tick();
- assert.ok(prompt);assert.equal(JSON.stringify(prompt).includes('unapproved nearby text'),false);owned.disconnect();
+ await captured.promise;assert.ok(prompt);assert.equal(JSON.stringify(prompt).includes('unapproved nearby text'),false);owned.disconnect();
 });
 test('deleting all keys or leaving Settings aborts connection tests and never repopulates the vault',async t=>{
  const previous=globalThis.chrome;globalThis.chrome={extension:{inIncognitoContext:false}};t.after(()=>{globalThis.chrome=previous;});
@@ -360,7 +360,7 @@ test('web bridge cancels pending handoffs and ignores late replies without using
  assert.deepEqual(messages.map(m=>m.type),['AI_OPEN_WEBSITE','AI_CANCEL_WEBSITE']);assert.equal(events.length,1);assert.equal(events[0].error,'cancelled');bridge.destroy();
 });
 
-test('connection checks use bounded plain JSON generation with fixed models and no document payload',async()=>{
+test('connection checks use bounded plain JSON generation with default models and no document payload',async()=>{
  for(const provider of Object.keys(AI_PROVIDERS)){
   const payload=provider==='gemini'?{candidates:[{content:{parts:[{text:'OK'}]},finishReason:'STOP'}]}:provider==='openai'?{output:[{type:'message',content:[{type:'output_text',text:'OK'}]}]}:{content:[{type:'text',text:'OK'}]};
   await testConnection(provider,'test-key-not-real',{signal:new AbortController().signal,fetcher:async(url,init)=>{
@@ -386,7 +386,7 @@ test('provider diagnostics distinguish Gemini 400 causes, project restrictions a
 test('connection-test Stop is scoped to the owning Settings tab and provider',async t=>{
  const previous=globalThis.chrome;globalThis.chrome={extension:{inIncognitoContext:false}};t.after(()=>{globalThis.chrome=previous;});
  const runtime={id:'test',getURL:path=>'chrome-extension://test/'+path},sender={id:'test',frameId:0,tab:{id:7},url:runtime.getURL('settings/index.html')},vault=createApiVault(repository());await vault.save('gemini','test-key-not-real');
- let signal;const entered=deferred(),product=createAiExplanationProduct({runtime,vault,test:async(_p,_k,options)=>{signal=options.signal;entered.resolve();await new Promise((_r,reject)=>signal.addEventListener('abort',()=>reject(new DOMException('abort','AbortError')),{once:true}));}});
+ let signal;const entered=deferred(),product=createAiExplanationProduct({runtime,vault,read:async()=>normalizeSettings(),test:async(_p,_k,options)=>{signal=options.signal;entered.resolve();await new Promise((_r,reject)=>signal.addEventListener('abort',()=>reject(new DOMException('abort','AbortError')),{once:true}));}});
  const pending=product.handleMessage({type:'AI_TEST_KEY',provider:'gemini'},sender),rejected=assert.rejects(pending,{name:'AbortError'});await entered.promise;
  await product.handleMessage({type:'AI_CANCEL_TEST_KEY',provider:'gemini'},{...sender,tab:{id:8}});assert.equal(signal.aborted,false);
  await product.handleMessage({type:'AI_CANCEL_TEST_KEY',provider:'openai'},sender);assert.equal(signal.aborted,false);
@@ -400,4 +400,60 @@ test('embedded reader web handoff validates the exact frame and leaves the conta
  assert.equal(h.created.length,1);assert.equal(h.created[0].openerTabId,7);
  assert.equal(h.updated.some(update=>update.id===7),false);
  h.contexts[0].frameId=4;await assert.rejects(h.open('wrong-frame'),/cancelled/);
+});
+
+const {fetchModels}=await import('../extension/background/products/ai-model-catalog.js');
+const {normalizeAiModels,normalizeCatalog,selectedModel,recommendedModel,AI_MODEL_CATALOG_KEY}=await import('../extension/core/ai-models.js');
+test('model preferences keep per-service defaults, safe identifiers, independent edits, and family-only recommendations',()=>{
+ const defaults=normalizeAiModels();for(const [provider,config]of Object.entries(AI_PROVIDERS))assert.equal(defaults[provider],config.id);
+ const next=normalizeSettings({aiModels:{gemini:'gemini-4-flash-lite',openai:'gpt-7-luna',claude:'https://evil.test/'}});
+ assert.equal(selectedModel(next,'gemini'),'gemini-4-flash-lite');assert.equal(selectedModel(next,'openai'),'gpt-7-luna');assert.equal(selectedModel(next,'claude'),AI_PROVIDERS.claude.id);
+ for(const id of ['../key','model?key=x','x#fragment','x\nheader','a'.repeat(161)])assert.equal(normalizeAiModels({gemini:id}).gemini,defaults.gemini);
+ for(const [provider,id]of [['gemini','gemini-4-flash-lite'],['openai','gpt-7-luna'],['claude','claude-haiku-6']])assert.equal(recommendedModel(provider,{id,label:id}),true);
+ assert.equal(recommendedModel('gemini',{id:'gemini-5-pro',label:'New family'}),false);
+ const catalog=normalizeCatalog({gemini:{fetchedAt:1,models:[{id:'b',label:'B'},{id:'a',label:'<img src=x>'},{id:'b'},{id:'https://evil.test'}]}});
+ assert.deepEqual(catalog.gemini.models.map(item=>item.id),['b','a']);assert.equal(catalog.gemini.models[1].label,'<img src=x>');
+});
+test('model lists retain vendor order across pages and send only header credentials to fixed endpoints',async()=>{
+ for(const provider of ['gemini','openai','claude']){
+  const calls=[],controller=new AbortController();let page=0;
+  const result=await fetchModels(provider,'fixture-key-not-real',{signal:controller.signal,fetcher:async(url,init)=>{
+   calls.push({url,init});assert.equal(init.method,'GET');assert.equal(init.body,undefined);assert.equal(init.credentials,'omit');assert.equal(init.redirect,'error');assert.ok(!url.includes('fixture-key'));
+   const body=provider==='gemini'?(page++?{models:[{name:'models/last',displayName:'Last'}]}:{models:[{name:'models/first',displayName:'First'}],nextPageToken:'safe+/token'}):provider==='claude'?(page++?{data:[{id:'last',display_name:'Last'}],has_more:false}:{data:[{id:'first',display_name:'First'}],has_more:true,last_id:'first'}):{data:[{id:'second'},{id:'first'},{id:'text-embedding-3-small'}]};
+   return new Response(JSON.stringify(body));
+  }});
+  assert.deepEqual(result.models.map(item=>item.id),provider==='openai'?['second','first','text-embedding-3-small']:['first','last']);
+  assert.equal(calls.length,provider==='openai'?1:2);
+  if(provider==='gemini')assert.equal(new URL(calls[1].url).searchParams.get('pageToken'),'safe+/token');
+  if(provider==='claude')assert.equal(new URL(calls[1].url).searchParams.get('after_id'),'first');
+ }
+ const signal=new AbortController().signal;
+ await assert.rejects(fetchModels('gemini','fixture-key-not-real',{signal,fetcher:async()=>new Response(JSON.stringify({models:[],nextPageToken:'repeat'}))}),/incomplete/);
+ await assert.rejects(fetchModels('openai','fixture-key-not-real',{signal,fetcher:async()=>new Response(JSON.stringify({error:{message:'private raw error'}}),{status:401})}),/auth/);
+});
+test('custom models change only a validated model ID and keep unsupported fixed-model tuning out of requests',async()=>{
+ for(const [provider,id]of [['gemini','gemini-4-flash-lite'],['openai','gpt-7-luna'],['claude','claude-haiku-6']]){
+  const request=providerRequest(provider,'fixture-key-not-real','Read selected material.',[{role:'user',content:'Word'}],id),body=JSON.parse(request.init.body);
+  if(provider==='gemini'){assert.equal(new URL(request.url).hostname,'generativelanguage.googleapis.com');assert.match(request.url,/models\/gemini-4-flash-lite:streamGenerateContent/);assert.equal(body.generationConfig.thinkingConfig,undefined);}
+  else{assert.equal(body.model,id);assert.equal(body.reasoning,undefined);assert.equal(body.thinking,undefined);}
+  assert.throws(()=>providerRequest(provider,'fixture-key-not-real','',[],id+'/../../evil'),/invalidRequest/);
+ }
+});
+test('model retrieval is Settings-only, cancellable, ordered, and cleared when its encrypted key changes',async t=>{
+ const previous=globalThis.chrome;globalThis.chrome={extension:{inIncognitoContext:false}};t.after(()=>{globalThis.chrome=previous;});
+ const runtime={id:'test',getURL:path=>'chrome-extension://test/'+path},sender={id:'test',frameId:0,tab:{id:7},url:runtime.getURL('settings/index.html')},storage=testModeStore();
+ const vault=createApiVault(repository());await vault.save('gemini','fixture-key-not-real');await vault.save('openai','fixture-key-not-real');
+ let listed=0,hold=false,entered=deferred(),activeSignal;
+ const product=createAiExplanationProduct({runtime,vault,testStorage:storage,read:async()=>normalizeSettings({aiModels:{gemini:'chosen-model'}}),listModels:async(provider,key,{signal})=>{
+  listed++;assert.equal(key,'fixture-key-not-real');if(hold){activeSignal=signal;entered.resolve();await new Promise((_r,reject)=>signal.addEventListener('abort',()=>reject(new DOMException('cancelled','AbortError')),{once:true}));}
+  return {fetchedAt:1,models:[{id:'later'},{id:'earlier'}]};
+ }});
+ await assert.rejects(product.handleMessage({type:'AI_FETCH_MODELS',provider:'gemini'},{...sender,url:runtime.getURL('workspaces/pdf-reader/index.html')}),/invalidRequest/);assert.equal(listed,0);
+ await Promise.all(['gemini','openai'].map(provider=>product.handleMessage({type:'AI_FETCH_MODELS',provider},{...sender,tab:{id:provider==='gemini'?7:8}})));
+ assert.deepEqual(Object.keys(storage.values[AI_MODEL_CATALOG_KEY]).sort(),['gemini','openai']);assert.equal(selectedModel(normalizeSettings({aiModels:{gemini:'chosen-model'}})),'chosen-model');
+ hold=true;const pending=product.handleMessage({type:'AI_FETCH_MODELS',provider:'gemini'},sender),rejected=assert.rejects(pending,{name:'AbortError'});await entered.promise;
+ await product.handleMessage({type:'AI_CANCEL_MODELS',provider:'gemini'},{...sender,tab:{id:8}});assert.equal(activeSignal.aborted,false);
+ await product.handleMessage({type:'AI_CANCEL_MODELS',provider:'gemini'},sender);await rejected;
+ assert.equal(storage.values[AI_MODEL_CATALOG_KEY].gemini.models[0].id,'later');
+ await product.handleMessage({type:'AI_SAVE_KEY',provider:'gemini',key:'fixture-new-key-not-real'},sender);assert.equal(storage.values[AI_MODEL_CATALOG_KEY].gemini,undefined);assert.ok(storage.values[AI_MODEL_CATALOG_KEY].openai);
 });

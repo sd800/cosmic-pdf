@@ -1,12 +1,14 @@
+import { fetchModels } from './ai-model-catalog.js';
+import { AI_MODEL_CATALOG_KEY, normalizeCatalog, selectedModel, modelLabel } from '../../core/ai-models.js';
 import { isReaderSender } from '../reader-sender.js';
 import { readSettings } from '../../core/settings.js';
-import { AI_PROVIDERS, normalizeAiRequest, explanationMessages, aiFailure } from '../../core/ai.js';
+import { AI_PROVIDERS, normalizeAiRequest, explanationMessages, aiFailure, apiKey } from '../../core/ai.js';
 import { AI_TEST_MODE_KEY, AI_TEST_MODEL, normalizeAiTestMode } from '../../core/ai-test-mode.js';
 import { streamSampleExplanation } from './ai-samples.js';
 import { createApiVault } from './ai-vault.js';
 import { streamExplanation, testConnection } from './ai-client.js';
-export function createAiExplanationProduct({ vault = createApiVault(), read = readSettings, stream = streamExplanation, test = testConnection, runtime = chrome.runtime, testStorage = globalThis.chrome?.storage?.local } = {}) {
-  const clients = new Set(), tests = new Set();let modeWrites=Promise.resolve();
+export function createAiExplanationProduct({ vault = createApiVault(), read = readSettings, stream = streamExplanation, test = testConnection, listModels = fetchModels, runtime = chrome.runtime, testStorage = globalThis.chrome?.storage?.local } = {}) {
+  const clients = new Set(), tests = new Set();let modeWrites=Promise.resolve(),catalogWrites=Promise.resolve();
   const testMode=async()=>normalizeAiTestMode(testStorage?(await testStorage.get(AI_TEST_MODE_KEY))[AI_TEST_MODE_KEY]:null);
   function changeTestMode(message){
     const task=modeWrites.then(async()=>{
@@ -18,6 +20,13 @@ export function createAiExplanationProduct({ vault = createApiVault(), read = re
       await testStorage.set({[AI_TEST_MODE_KEY]:next});
     });
     modeWrites=task.catch(()=>{});return task;
+  }
+  function writeCatalog(provider,catalog,signal){
+    const task=catalogWrites.catch(()=>{}).then(async()=>{
+      signal?.throwIfAborted();const old=normalizeCatalog((await testStorage.get(AI_MODEL_CATALOG_KEY))[AI_MODEL_CATALOG_KEY]);signal?.throwIfAborted();
+      if(provider===null)for(const key of Object.keys(old))delete old[key];else if(catalog)old[provider]=catalog;else delete old[provider];
+      await testStorage.set({[AI_MODEL_CATALOG_KEY]:old});
+    });catalogWrites=task;return task;
   }
   function cancelRequests(provider) {
     for (const client of clients) if (!provider || client.provider === provider) client.cancel();
@@ -44,15 +53,28 @@ export function createAiExplanationProduct({ vault = createApiVault(), read = re
     if (privateSender(sender)) throw Error('disabled');
     if(message.type==='AI_TOGGLE_TEST_MODE'||message.type==='AI_SELECT_TEST_MODE'){await changeTestMode(message);return ready(sender);}
     if (message.type === 'AI_DELETE_ALL_KEYS') {
-      cancelRequests(); await vault.clear(); return ready(sender);
+      cancelRequests();if(testStorage)await writeCatalog(null);await vault.clear();return ready(sender);
     }
     if (!Object.hasOwn(AI_PROVIDERS, message.provider)) throw Error('invalidRequest');
-    if (message.type === 'AI_CANCEL_TEST_KEY') {
+    if (message.type === 'AI_CANCEL_MODELS') {
+      for(const job of tests)if(job.kind==='models'&&job.tabId===sender.tab.id&&job.provider===message.provider)job.controller.abort();
+    } else if (message.type === 'AI_FETCH_MODELS') {
+      for(const pending of tests)if(pending.tabId===sender.tab.id&&pending.kind==='models')pending.controller.abort();
+      const controller=new AbortController(),job={kind:'models',provider:message.provider,controller,tabId:sender.tab.id,timedOut:false};
+      const timer=setTimeout(()=>{job.timedOut=true;controller.abort();},30000);tests.add(job);
+      try {
+        const key=await vault.read(message.provider);controller.signal.throwIfAborted();
+        const catalog=await listModels(message.provider,key,{signal:controller.signal});controller.signal.throwIfAborted();
+        await writeCatalog(message.provider,catalog,controller.signal);
+        return catalog;
+      }catch(error){if(job.timedOut)throw Error('timeout');throw error;}
+      finally{clearTimeout(timer);tests.delete(job);}
+    } else if (message.type === 'AI_CANCEL_TEST_KEY') {
       for(const job of tests)if(job.tabId===sender.tab.id&&job.provider===message.provider)job.controller.abort();
-    } else if (message.type === 'AI_SAVE_KEY') {cancelRequests(message.provider);await vault.save(message.provider, message.key);}
+    } else if (message.type === 'AI_SAVE_KEY') {apiKey(message.key);cancelRequests(message.provider);if(testStorage)await writeCatalog(message.provider);await vault.save(message.provider, message.key);}
     else if (message.type === 'AI_DELETE_KEY') {
       cancelRequests(message.provider);
-      await vault.remove(message.provider);
+      if(testStorage)await writeCatalog(message.provider);await vault.remove(message.provider);
     } else if (message.type === 'AI_TEST_KEY') {
       // Repeated Settings requests cannot create overlapping paid checks.
       for(const pending of tests)if(pending.tabId===sender.tab.id)pending.controller.abort();
@@ -60,7 +82,8 @@ export function createAiExplanationProduct({ vault = createApiVault(), read = re
       const timer = setTimeout(() => {job.timedOut=true;controller.abort();},25000); tests.add(job);
       try {
         const key = await vault.read(message.provider); controller.signal.throwIfAborted();
-        await test(message.provider, key, { signal: controller.signal });
+        const settings=await read();controller.signal.throwIfAborted();
+        await test(message.provider, key, { signal: controller.signal, model:selectedModel(settings,message.provider) });
         controller.signal.throwIfAborted();
       } catch(error){if(job.timedOut)throw Error('timeout');throw error;}
       finally { clearTimeout(timer); tests.delete(job); }
@@ -90,12 +113,14 @@ export function createAiExplanationProduct({ vault = createApiVault(), read = re
         client.provider = testing?'test':settings.aiProvider;
         // Local test selection is checked before any credential or API path.
         const key = testing?null:await vault.read(client.provider); job.controller.signal.throwIfAborted();
-        const configuration = testing?AI_TEST_MODEL:AI_PROVIDERS[client.provider];
-        post({ type: 'started', id: job.id, provider: client.provider, model: configuration.model });
+        const configuration = testing?AI_TEST_MODEL:AI_PROVIDERS[client.provider],id=testing?'':selectedModel(settings);
+        const catalog=!testing&&id!==configuration.id&&testStorage?normalizeCatalog((await testStorage.get(AI_MODEL_CATALOG_KEY))[AI_MODEL_CATALOG_KEY])[client.provider]:null;
+        job.controller.signal.throwIfAborted();
+        post({ type: 'started', id: job.id, provider: client.provider, model: testing?configuration.model:modelLabel(client.provider,id,catalog?.models) });
         timer = setTimeout(() => { job.timedOut = true; job.controller.abort(); }, 90000);
         const resetIdle = () => { clearTimeout(idleTimer); idleTimer = setTimeout(() => { job.timedOut = true; job.controller.abort(); }, 25000); };
         resetIdle();
-        const options={ signal: job.controller.signal, onText(delta) {
+        const options={ model:testing?undefined:selectedModel(settings), signal: job.controller.signal, onText(delta) {
           if (closed || job.controller.signal.aborted || active !== job) return;
           resetIdle();
           pendingText += delta; if (!flushTimer) flushTimer = setTimeout(flush, 40);

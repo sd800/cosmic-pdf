@@ -1,26 +1,29 @@
+import { modelId } from '../../core/ai-models.js';
 import { AI_PROVIDERS, AI_LIMITS } from '../../core/ai.js';
-export function providerRequest(provider, key, system, messages) {
+export function providerRequest(provider, key, system, messages, model) {
   const config = AI_PROVIDERS[provider]; if (!config) throw Error('invalidRequest');
+  const id=model===undefined?config.id:modelId(model);if(!id)throw Error('invalidRequest');
+  const original=id===config.id;
   const headers = { 'Content-Type': 'application/json', Accept: 'text/event-stream' };
   let body;
   if (provider === 'openai') {
     headers.Authorization = 'Bearer ' + key;
-    body = { model: config.id, instructions: system, input: messages, stream: true, store: false, max_output_tokens: 2048, reasoning: { effort: 'none' } };
+    body = { model: id, instructions: system, input: messages, stream: true, store: false, max_output_tokens: 2048, ...(original?{reasoning:{effort:'none'}}:{}) };
   } else if (provider === 'gemini') {
     headers['x-goog-api-key'] = key;
     body = { systemInstruction: { parts: [{ text: system }] }, contents: messages.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })),
-      generationConfig: { maxOutputTokens: 2048, thinkingConfig: { thinkingLevel: 'minimal' } } };
+      generationConfig: { maxOutputTokens: 2048, ...(original?{thinkingConfig:{thinkingLevel:'minimal'}}:{}) } };
   } else {
     headers['x-api-key'] = key; headers['anthropic-version'] = '2023-06-01';
     headers['anthropic-dangerous-direct-browser-access'] = 'true';
-    body = { model: config.id, system, messages, stream: true, max_tokens: 2048, thinking: { type: 'disabled' } };
+    body = { model: id, system, messages, stream: true, max_tokens: 2048, ...(original?{thinking:{type:'disabled'}}:{}) };
   }
-  return { url: config.endpoint, init: { method: 'POST', headers, body: JSON.stringify(body), credentials: 'omit',
+  return { url: provider==='gemini'&&!original?`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(id)}:streamGenerateContent?alt=sse`:config.endpoint, init: { method: 'POST', headers, body: JSON.stringify(body), credentials: 'omit',
     redirect: 'error', referrerPolicy: 'no-referrer', cache: 'no-store' } };
 }
 // Consume bounded diagnostics locally. Never publish provider messages, key
 // fragments, request IDs, URLs or arbitrary response fields to the UI/logs.
-async function responseJson(response, maxBytes = 16384) {
+export async function responseJson(response, maxBytes = 16384) {
   if (!response.body) return null;
   const reader=response.body.getReader(),chunks=[];let size=0;
   try {
@@ -43,18 +46,18 @@ function providerFailure(status, data) {
   if(status>=500||codes.has('overloaded_error')||codes.has('api_error'))return 'service';
   return 'unavailable';
 }
-async function fetchResponse(request,signal,fetcher){
+export async function fetchResponse(request,signal,fetcher){
   signal.throwIfAborted();let response;
   try{response=await fetcher(request.url,{...request.init,signal});}catch{signal.throwIfAborted();throw Error('network');}
   if(!response.ok)throw Error(providerFailure(response.status,await responseJson(response)));
   return response;
 }
-export async function testConnection(provider,key,{signal,fetcher=fetch}){
-  const request=providerRequest(provider,key,'Reply with the single word OK.',[{role:'user',content:'Test connection.'}]),body=JSON.parse(request.init.body);
-  request.init.headers.Accept='application/json';
+export async function testConnection(provider,key,{signal,fetcher=fetch,model}){
+  const request=providerRequest(provider,key,'Reply with the single word OK.',[{role:'user',content:'Test connection.'}],model),body=JSON.parse(request.init.body);
+  request.init.headers.Accept='application/json';const outputLimit=!model||model===AI_PROVIDERS[provider].id?32:1024;
   if(provider==='gemini'){
-    request.url=request.url.replace(':streamGenerateContent?alt=sse',':generateContent');body.generationConfig.maxOutputTokens=32;
-  }else{body.stream=false;if(provider==='openai')body.max_output_tokens=32;else body.max_tokens=32;}
+    request.url=request.url.replace(':streamGenerateContent?alt=sse',':generateContent');body.generationConfig.maxOutputTokens=outputLimit;
+  }else{body.stream=false;if(provider==='openai')body.max_output_tokens=outputLimit;else body.max_tokens=outputLimit;}
   request.init.body=JSON.stringify(body);
   const response=await fetchResponse(request,signal,fetcher),data=await responseJson(response,65536);signal.throwIfAborted();
   if(!data)throw Error('incomplete');if(data.error||data.status==='failed')throw Error(providerFailure(0,data));
@@ -66,8 +69,8 @@ export async function testConnection(provider,key,{signal,fetcher=fetch}){
   else text=(data.content||[]).filter(p=>p.type==='text'&&typeof p.text==='string').map(p=>p.text).join('');
   if(!text.trim())throw Error('empty');
 }
-export async function streamExplanation(provider, key, prompt, { signal, onText, fetcher = fetch }) {
-  const request = providerRequest(provider, key, prompt.system, prompt.messages);
+export async function streamExplanation(provider, key, prompt, { signal, onText, fetcher = fetch, model }) {
+  const request = providerRequest(provider, key, prompt.system, prompt.messages, model);
   const response = await fetchResponse(request,signal,fetcher);
   if (!response.body || !/^text\/event-stream(?:\s*;|$)/i.test(response.headers.get('content-type')||'')) { await response.body?.cancel().catch(() => {}); throw Error('incomplete'); }
   const reader = response.body.getReader(), decoder = new TextDecoder();

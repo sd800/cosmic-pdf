@@ -86,3 +86,7 @@ Use `PDF_QA=audit` with the existing browser harness for the targeted race/keybo
 ## Reviewed PDF rendering and retrieval
 
 Run `PDF_QA=review` with the isolated browser harness. Test highlights, notes, stamps, ink, filled form values, and the reader-local visibility switch; confirm active annotation layers and PDF JavaScript remain disabled. Verify printing opens the unchanged original in Chrome, last-page Find matches, initial/reloaded page-number links, source-origin Referer handling, and temporary-rule cleanup. `node --test test/source-loader.test.mjs test/takeover.test.mjs` tests streaming progress beyond one minute, the 128 MiB boundary, timeout/cancellation cleanup, and authenticated rule ownership.
+
+## API models and Settings menus
+
+Run `PDF_QA=models` with the isolated browser harness. Test per-service defaults and saved choices, explicit key setup, automatic expansion after fetching, vendor ordering, parenthetical recommendations, absent families, pagination, cancellation, old-list preservation after failures, and selected-model routing for connection tests and explanations. Test custom Settings menus with mouse/keyboard, repeated clicks, outside/Escape dismissal, theme/language changes, exact control alignment, and key-1 isolation while choosing. Reusable resources are in `scripts/qa-models.mjs` and `test-dist/model-selection/`; `node --test test/ai.test.mjs test/core.test.mjs` checks request boundaries and preference merging.

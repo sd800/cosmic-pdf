@@ -379,3 +379,11 @@ test('reader host keeps its backdrop synchronized and retires failed callbacks',
   assert.equal(frame.style.background,'#e8eaed');assert.deepEqual(events,['print','closed','removed','error']);
  }finally{reader?.destroy();for(const[key,value]of Object.entries(originals)){if(value===undefined)delete globalThis[key];else globalThis[key]=value;}}
 });
+
+test('pending per-service model edits merge without replacing peer selections',async()=>{
+ let saved=normalizeSettings(),published;
+ const store=createSettingsStore(saved,{read:async()=>saved,write:async value=>{saved=value;},changed:value=>{published=value;}});
+ const first=store.save('aiModels',{gemini:'gemini-next-flash-lite'}),second=store.save('aiModels',{openai:'gpt-next-luna'});
+ assert.equal(published.aiModels.gemini,'gemini-next-flash-lite');assert.equal(published.aiModels.openai,'gpt-next-luna');
+ await Promise.all([first,second]);assert.equal(saved.aiModels.gemini,'gemini-next-flash-lite');assert.equal(saved.aiModels.openai,'gpt-next-luna');assert.equal(saved.aiModels.claude,DEFAULTS.aiModels.claude);
+});
