@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.2.29 — 2026-10-25
+
+- Improve internal request validation and security safeguards.
+
 ## 3.2.28 — 2026-10-22
 
 - Filter dedicated image and video generation models from AI model choices, including cached lists.

@@ -1,6 +1,6 @@
 import { fetchModels } from './ai-model-catalog.js';
 import { AI_MODEL_CATALOG_KEY, normalizeCatalog, selectedModel, modelLabel, excludedMediaModel } from '../../core/ai-models.js';
-import { isReaderSender } from '../reader-sender.js';
+import { isReaderSender, isExtensionPageSender } from '../reader-sender.js';
 import { readSettings } from '../../core/settings.js';
 import { AI_PROVIDERS, normalizeAiRequest, explanationMessages, aiFailure, apiKey } from '../../core/ai.js';
 import { AI_TEST_MODE_KEY, AI_TEST_MODEL, normalizeAiTestMode } from '../../core/ai-test-mode.js';
@@ -33,7 +33,7 @@ export function createAiExplanationProduct({ vault = createApiVault(), read = re
     for (const job of tests) if (!provider || job.provider === provider) job.controller.abort();
   }
   function isPage(sender, path) {
-    if (sender?.id !== runtime.id || sender.frameId !== 0 || !Number.isInteger(sender.tab?.id)) return false;
+    if (!isExtensionPageSender(sender, runtime) || sender.frameId !== 0 || !Number.isInteger(sender.tab?.id) || sender.tab.id < 0) return false;
     try { const url = new URL(sender.url), expected = new URL(runtime.getURL(path)); return url.protocol === expected.protocol && url.host === expected.host && url.pathname === expected.pathname; } catch { return false; }
   }
   const settingsSender = sender => isPage(sender, 'settings/index.html');

@@ -219,8 +219,9 @@ test('AI product rejects non-owned settings/reader callers and closes obsolete r
  const product=createAiExplanationProduct({runtime,vault,read:async()=>normalizeSettings({aiEnabled:true,aiMode:'api'}),stream:async(_provider,_key,_prompt,options)=>{
   requests++;signal=options.signal;entered.resolve();await release.promise;options.onText('stale');options.signal.throwIfAborted();return 'stale';
  }});
- for(const invalid of [{id:'other',frameId:0,tab:{id:7},url:runtime.getURL('settings/index.html')},sender('settings/index.html.evil'),sender('workspaces/pdf-viewer/viewer.html'),{...sender('settings/index.html'),frameId:1},{...sender('settings/index.html'),url:'chrome-extension://other/settings/index.html'}]){
+ for(const invalid of [{id:'other',frameId:0,tab:{id:7},url:runtime.getURL('settings/index.html')},sender('settings/index.html.evil'),{...sender('settings/index.html'),origin:'null'},{...sender('settings/index.html'),origin:'https://example.test'},{...sender('settings/index.html'),documentLifecycle:'cached'},sender('workspaces/pdf-viewer/viewer.html'),{...sender('settings/index.html'),frameId:1},{...sender('settings/index.html'),url:'chrome-extension://other/settings/index.html'}]){
   await assert.rejects(product.handleMessage({type:'AI_STATUS'},invalid),/invalidRequest/);
+  await assert.rejects(product.handleMessage({type:'AI_SAVE_KEY',provider:'gemini',key:'test-key-not-real'},invalid),/invalidRequest/);
  }
  await assert.rejects(product.handleMessage({type:'AI_SAVE_KEY',provider:'gemini',key:'test-key-not-real'},sender('workspaces/pdf-reader/index.html')),/invalidRequest/);
  const owned=port(sender('workspaces/pdf-reader/index.html'));assert.equal(product.connect(owned),true);

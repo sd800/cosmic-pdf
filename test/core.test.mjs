@@ -387,3 +387,14 @@ test('pending per-service model edits merge without replacing peer selections',a
  assert.equal(published.aiModels.gemini,'gemini-next-flash-lite');assert.equal(published.aiModels.openai,'gpt-next-luna');
  await Promise.all([first,second]);assert.equal(saved.aiModels.gemini,'gemini-next-flash-lite');assert.equal(saved.aiModels.openai,'gpt-next-luna');assert.equal(saved.aiModels.claude,DEFAULTS.aiModels.claude);
 });
+
+
+test('privileged readers require an active packaged origin even when their URL matches', async()=>{
+ const {isReaderSender,isExtensionPageSender}=await import('../extension/background/reader-sender.js');
+ const runtime={id:'test',getURL:path=>'chrome-extension://test/'+path};
+ const sender={id:'test',frameId:0,documentId:'owned',tab:{id:7},url:runtime.getURL('workspaces/pdf-reader/index.html')+'?source=https://example.test/a.pdf',origin:'chrome-extension://test',documentLifecycle:'active'};
+ assert.equal(isReaderSender(sender,runtime),true);
+ assert.equal(isReaderSender({...sender,frameId:4},runtime),true,'embedded PDF reader hosts remain supported');
+ for(const patch of [{origin:'null'},{origin:'https://example.test'},{id:'foreign'},{documentLifecycle:'pending_deletion'},{documentLifecycle:'cached'},{url:'https://example.test/workspaces/pdf-reader/index.html'},{frameId:-1},{tab:{id:-1}}])assert.equal(isReaderSender({...sender,...patch},runtime),false,JSON.stringify(patch));
+ assert.equal(isExtensionPageSender({...sender,url:runtime.getURL('settings/index.html')},runtime),true);
+});

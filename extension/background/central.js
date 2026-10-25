@@ -1,4 +1,4 @@
-import { isReaderSender } from './reader-sender.js';
+import { isReaderSender, isExtensionPageSender } from './reader-sender.js';
 import * as standing from './provinces/standing.js';
 import * as operations from './provinces/operations.js';
 import { aiExplanation, aiWebsite } from './provinces/customs.js';
@@ -14,7 +14,7 @@ chrome.action.onClicked.addListener(()=>void start().then(()=>operations.openRea
 chrome.tabs.onRemoved.addListener(id=>{aiExplanation.disposeTab(id);void aiWebsite.disposeTab(id).catch(()=>{});void standing.forgetNative(id,null,true).catch(()=>{});void standing.forgetPdfRequests(id).catch(()=>{});});
 chrome.tabs.onUpdated.addListener((id,change)=>{if(change.status==='loading'||change.url)aiExplanation.disposeTab(id);if(change.url){void aiWebsite.disposeTab(id,change.url).catch(()=>{});void standing.forgetNative(id,change.url).catch(()=>{});void standing.forgetPdfRequests(id,change.url).catch(()=>{});void standing.openLocalPdf(id,change.url).catch(()=>{});}});
 chrome.runtime.onMessage.addListener((message,sender,respond)=>{
-  if(sender.id!==chrome.runtime.id)return;
+  if(!isExtensionPageSender(sender))return;
   if(message?.type==='AI_OPEN_WEBSITE'||message?.type==='AI_CANCEL_WEBSITE'){
     void Promise.resolve().then(()=>message.type==='AI_OPEN_WEBSITE'?aiWebsite.open(message,sender):aiWebsite.cancel(message,sender)).then(result=>respond({ok:true,result}),error=>respond({ok:false,error:aiFailure(error)}));return true;
   }
