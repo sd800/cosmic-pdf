@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.2.30 — 2026-10-25
+
+- Improve dark-paper recognition and scrolling with bounded directional pre-rendering.
+
 ## 3.2.29 — 2026-10-25
 
 - Improve internal request validation and security safeguards.

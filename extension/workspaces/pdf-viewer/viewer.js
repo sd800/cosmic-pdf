@@ -7,7 +7,8 @@ import { showReaderDialog } from './dialog.js';
 import { createPdfWorker } from './worker.js';
 import { createOcr } from './ocr.js';
 import { createDarkPaperGuard } from './dark-paper.js';
-import { renderedPaperShade } from './paper-background.js';
+import { renderedPaperBackground } from './paper-background.js';
+import { installPagePrefetch } from './prefetch.js';
 import { normalizeSettings, toolbarMode as getToolbarMode } from '../../core/settings.js';
 import * as pdfjs from '../../vendor/pdfjs/pdf.min.mjs';
 import { PDFViewer, EventBus, PDFLinkService, PDFFindController, RenderingStates } from '../../vendor/pdfjs/pdf_viewer.mjs';
@@ -106,7 +107,7 @@ function updateDarkPaper(view, failed = false) {
   if (!darkPaper || !view || ((!themeDark || !settings.preserveDarkPaper) && !failed)) return;
   // A detail canvas is only a crop; a partial base render can miss white areas.
   if (!failed && view.renderingState !== RenderingStates.FINISHED) return;
-  const result = failed ? darkPaper.reject(view.id) : darkPaper.decide(view.id, view.canvas, context => renderedPaperShade(view.pdfPage, pdfjs.OPS, context));
+  const result = failed ? darkPaper.reject(view.id) : darkPaper.decide(view.id, view.canvas, context => renderedPaperBackground(view.pdfPage, pdfjs.OPS, context, view.viewport.rotation));
   view.div.toggleAttribute('data-original-dark', result === 2);
   view.div.setAttribute('data-dark-checked', '');
   $('thumbnails').children[view.id - 1]?.toggleAttribute('data-original-dark', result === 2);
@@ -270,6 +271,7 @@ async function open(bytes, sampling) {
     enableDetailCanvas: true, enableOptimizedPartialRendering: true, minDurationToUpdateCanvas: 160,
     imagesRightClickMinSize: -1, abortSignal: signal });
   links.setViewer(viewer); links.setDocument(pdf);
+  installPagePrefetch(viewer);
   const render = viewer.renderingQueue.renderHighestPriority.bind(viewer.renderingQueue);
   viewer.renderingQueue.renderHighestPriority = (...args) => {
     // Reuse the renderer's existing visible set; do not inspect every page on scroll.
