@@ -1,7 +1,8 @@
 {
   "name": "cosmic-pdf",
-  "version": "3.2.30",
+  "version": "3.2.31",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "engines": {
     "node": ">=22"

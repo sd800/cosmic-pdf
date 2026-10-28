@@ -74,7 +74,8 @@ if __name__ == '__main__':
     VERSION = manifest['version']
     assert json.loads((ROOT / 'package.json').read_text())['version'] == VERSION
     sources = tracked_sources()
-    extension = [name for name in sources if name.startswith('extension/')]
+    assert 'LICENSE' in sources
+    extension = ['LICENSE', *[name for name in sources if name.startswith('extension/')]]
     assert 'extension/manifest.json' in extension and 'scripts/build-downloads.py' in sources
     OUTPUT.mkdir(exist_ok=True)
     packages = {

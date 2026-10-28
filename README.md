@@ -57,3 +57,9 @@ See the [security policy and boundaries](docs/SECURITY.md) for injection defense
 ## Development
 
 Run `npm test` and `npm run check`. Before publishing an update, run `python3 scripts/build-downloads.py` and commit the regenerated `downloads/` files with the release. See [technical documentation](docs/TECHNICAL.md), [browser QA](docs/QA.md) and licenses and notices bundled under [`extension/vendor/`](extension/vendor/).
+
+## License
+
+Cosmic PDF is licensed under the [MIT License](LICENSE).
+
+Third-party components retain their licenses and notices in [`extension/vendor/`](extension/vendor/).

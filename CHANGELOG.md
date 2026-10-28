@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.2.31 — 2026-10-28
+
+- License the project under MIT.
+
 ## 3.2.30 — 2026-10-25
 
 - Improve dark-paper recognition and scrolling with bounded directional pre-rendering.

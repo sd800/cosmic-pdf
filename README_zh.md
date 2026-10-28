@@ -63,3 +63,9 @@ PDF 阅读和 OCR 均在本机进行。文档、识别结果和内置 AI 对话�
 [安装包下载](https://cpdf.songming.org/downloads/cosmic-pdf.zip) · [完整源码下载](https://cpdf.songming.org/downloads/cosmic-pdf-source.zip)。解压后，在 Chrome「加载已解压的扩展程序」中选择 `extension` 文件夹。
 
 发布更新前运行 `python3 scripts/build-downloads.py`，将重新生成的 `downloads/` 文件随版本一并提交。
+
+## 许可证
+
+Cosmic PDF 采用 [MIT 许可证](LICENSE)。
+
+第三方组件保留 [`extension/vendor/`](extension/vendor/) 中各自的许可证和声明。
