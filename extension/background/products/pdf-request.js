@@ -1,5 +1,5 @@
 import { isReaderSender } from '../reader-sender.js';
-import { READER_PATH, sourceFromReader, withoutHash } from '../../core/source.js';
+import { readerPageURL, sourceFromReader, withoutHash } from '../../core/source.js';
 
 // Source-origin Referer only, scoped to this authenticated reader's exact GET.
 // No page-history observer, caller-selected header, cross-site path, or query is exposed.
@@ -20,7 +20,7 @@ async function current(sender) {
 }
 export function preparePdfRequest(sender) { return enqueue(async()=>{
   await current(sender);
-  const source=sourceFromReader(sender.url,chrome.runtime.getURL(READER_PATH));
+  const source=sourceFromReader(sender.url,readerPageURL());
   if(!source||!/^https?:/.test(source))return null;
   const url=new URL(source), regex='^'+withoutHash(source).replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'$';
   if(!(await chrome.declarativeNetRequest.isRegexSupported({regex})).isSupported)return null;

@@ -1,12 +1,14 @@
 import { readSettings } from '../../core/settings.js';
 import { isReaderSender } from '../reader-sender.js';
-import { READER_PATH, safeSource, sourceFromReader, withoutHash } from '../../core/source.js';
-const readerURL=chrome.runtime.getURL(READER_PATH);
+import { READER_PATH, readerPageURL, safeSource, sourceFromReader, withoutHash } from '../../core/source.js';
+const readerURL=readerPageURL();
 let serial=Promise.resolve();
 const enqueue=fn=>{ const result=serial.catch(()=>{}).then(fn); serial=result; return result; };
 export function takeoverRules(enabled) {
   if(!enabled) return [];
-  const action={type:'redirect',redirect:{regexSubstitution:readerURL+'?source=\\0'}};
+  // A session entry lets Chrome validate response redirects even when its
+  // native Go to… command supplies no referring origin.
+  const action={type:'redirect',redirect:{regexSubstitution:chrome.runtime.getURL(READER_PATH)+'?source=\\0'}};
   const base={resourceTypes:['main_frame','sub_frame','object'],requestMethods:['get'],regexFilter:'^https?://.*'};
   // Attachments remain normal downloads. Never retry/replay a POST response.
   const rules=[{id:1,priority:20,action:{type:'allow'},condition:{...base,responseHeaders:[{header:'content-disposition',values:['attachment*']}] }},
@@ -15,7 +17,10 @@ export function takeoverRules(enabled) {
   return rules;
 }
 export function configureTakeover(enabled) {return enqueue(async()=>{
-  await chrome.declarativeNetRequest.updateDynamicRules({removeRuleIds:[1,2,3,4],addRules:takeoverRules(enabled)});
+  // Session IDs must not survive browser exit or extension reload. Retire
+  // legacy persistent rules without disturbing native/Referer session rules.
+  await chrome.declarativeNetRequest.updateDynamicRules({removeRuleIds:[1,2,3,4]});
+  await chrome.declarativeNetRequest.updateSessionRules({removeRuleIds:[1,2,3,4],addRules:takeoverRules(enabled)});
 });}
 async function assertCurrentReader(sender) {
   if (!sender.documentId) throw Error('Reader document unavailable');

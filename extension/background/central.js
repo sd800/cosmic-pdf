@@ -7,6 +7,7 @@ void chrome.storage.local.setAccessLevel({accessLevel:'TRUSTED_CONTEXTS'}).catch
 void chrome.storage.session.setAccessLevel({accessLevel:'TRUSTED_CONTEXTS'}).catch(()=>{});
 let startup=Promise.resolve();
 const start=()=>startup=startup.catch(()=>{}).then(()=>operations.readSettings()).then(s=>standing.configureTakeover(s.enabled));
+void start().catch(console.error);
 chrome.runtime.onInstalled.addListener(()=>void start().catch(console.error));
 chrome.runtime.onStartup.addListener(()=>void start().catch(console.error));
 chrome.storage.onChanged.addListener((changes,area)=>{if(area==='local' && changes.settings && changes.settings.oldValue?.enabled!==changes.settings.newValue?.enabled) void start().catch(console.error);});

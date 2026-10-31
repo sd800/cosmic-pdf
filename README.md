@@ -38,7 +38,7 @@ Settings cover appearance, toolbar layout, 1×–6× rendering quality, optional
 
 ## Install
 
-Requires Chrome 128 or later. [Download the installation ZIP](https://cpdf.songming.org/downloads/cosmic-pdf.zip), then unzip it. The [complete source package](https://cpdf.songming.org/downloads/cosmic-pdf-source.zip) is available separately.
+Requires Chrome 130 or later. [Download the installation ZIP](https://cpdf.songming.org/downloads/cosmic-pdf.zip), then unzip it. The [complete source package](https://cpdf.songming.org/downloads/cosmic-pdf-source.zip) is available separately.
 
 1. Open `chrome://extensions` and enable **Developer mode**.
 2. Choose **Load unpacked** and select the `extension` directory inside the unzipped package (or this repository).

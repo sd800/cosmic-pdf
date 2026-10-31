@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.2.32 — 2026-10-31
+
+- Improve PDF opening and navigation reliability across browser sessions.
+- Require Chrome 130 or later for the updated reader entry.
+
 ## 3.2.31 — 2026-10-28
 
 - License the project under MIT.

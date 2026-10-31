@@ -398,3 +398,16 @@ test('privileged readers require an active packaged origin even when their URL m
  for(const patch of [{origin:'null'},{origin:'https://example.test'},{id:'foreign'},{documentLifecycle:'pending_deletion'},{documentLifecycle:'cached'},{url:'https://example.test/workspaces/pdf-reader/index.html'},{frameId:-1},{tab:{id:-1}}])assert.equal(isReaderSender({...sender,...patch},runtime),false,JSON.stringify(patch));
  assert.equal(isExtensionPageSender({...sender,url:runtime.getURL('settings/index.html')},runtime),true);
 });
+
+test('session-specific public URLs do not become privileged sender identities',async()=>{
+ const {readerPageURL,READER_PATH,sourceFromReader}=await import('../extension/core/source.js');
+ const {isReaderSender}=await import('../extension/background/reader-sender.js');
+ const runtime={id:'test',getURL:path=>'chrome-extension://'+(path===READER_PATH?'session-guid':'test')+'/'+path};
+ const canonical=readerPageURL(runtime),source='https://example.test/a.pdf?signature=a%2Bb&k=1#page=12';
+ const sender={id:'test',frameId:0,tab:{id:7},url:canonical+'?source='+source,origin:'chrome-extension://test'};
+ assert.equal(canonical,'chrome-extension://test/'+READER_PATH);
+ assert.equal(sourceFromReader(sender.url,canonical),source);
+ assert.equal(isReaderSender(sender,runtime),true);
+ assert.equal(isReaderSender({...sender,url:runtime.getURL(READER_PATH)+'?source='+source,origin:'chrome-extension://session-guid'},runtime),false);
+ assert.equal(isReaderSender({...sender,origin:'null'},runtime),false);
+});

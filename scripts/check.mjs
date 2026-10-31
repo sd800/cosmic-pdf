@@ -30,5 +30,8 @@ if(manifest.content_scripts||manifest.optional_permissions?.length||manifest.opt
 if(!manifest.content_security_policy.sandbox.includes("connect-src 'self' blob:"))throw Error('Sandbox must not reach remote resources');
 const publicPages=manifest.web_accessible_resources.flatMap(group=>group.resources).sort();
 if(JSON.stringify(publicPages)!==JSON.stringify(['workspaces/pdf-reader/index.html','workspaces/pdf-viewer/viewer.html']))throw Error('Only the trusted reader entry and opaque viewer shell may be web-accessible');
+const readerEntry=manifest.web_accessible_resources.find(group=>group.resources.includes('workspaces/pdf-reader/index.html'));
+if(readerEntry.resources.length!==1||readerEntry.use_dynamic_url!==true||Number(manifest.minimum_chrome_version)<130)throw Error('PDF takeover requires a session-specific reader entry with Chrome 130+ support');
+if(manifest.web_accessible_resources.some(group=>group.resources.includes('workspaces/pdf-viewer/viewer.html')&&group.use_dynamic_url))throw Error('The opaque viewer must retain its owning extension origin');
 for(const file of ['CHANGELOG.md','CHANGELOG_zh.md'])if(!(await readFile(file,'utf8')).includes('## '+pkg.version))throw Error('Missing release entry');
 const files=await walk('extension');let size=0;for(const f of files)size+=(await stat(f)).size;console.log(`Checks passed. ${files.length} runtime files; ${(size/1000000).toFixed(1)} MB unpacked.`);

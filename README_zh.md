@@ -38,7 +38,7 @@ Cosmic PDF 源于一个简单的想法：阅读 PDF 应当舒适，理解内容�
 
 ## 安装
 
-需要 Chrome 128 或更高版本。
+需要 Chrome 130 或更高版本。
 
 1. 打开 `chrome://extensions`，开启“开发者模式”。
 2. 点击“加载已解压的扩展程序”，选择本仓库的 `extension` 目录。

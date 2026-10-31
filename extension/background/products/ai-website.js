@@ -2,6 +2,7 @@ import { isReaderSender } from '../reader-sender.js';
 import { normalizeAiRequest } from '../../core/ai.js';
 import { webExplanation, isAiWebsite } from '../../core/ai-web.js';
 import { readSettings } from '../../core/settings.js';
+import { readerPageURL } from '../../core/source.js';
 // Only paired tab IDs survive worker suspension. No question, URL, file name,
 // account information or conversation is stored or read by this capability.
 export function createAiWebsiteProduct({runtime=chrome.runtime,tabs=chrome.tabs,session=chrome.storage.session,read=readSettings}={}) {
@@ -9,7 +10,7 @@ export function createAiWebsiteProduct({runtime=chrome.runtime,tabs=chrome.tabs,
   const preferenceKeys=['aiEnabled','aiMode','aiWebsite','aiLanguage','aiIncludeContext'];
   const signature=settings=>JSON.stringify(preferenceKeys.map(key=>settings[key]));
   const serialize=task=>{const job=queue.catch(()=>{}).then(task);queue=job;return job;};
-  const readerURL=runtime.getURL('workspaces/pdf-reader/index.html');
+  const readerURL=readerPageURL(runtime);
   function isReader(url){return typeof url==='string'&&(url===readerURL||url.startsWith(readerURL+'?')||url.startsWith(readerURL+'#'));}
   function authorize(sender){
     if(!isReaderSender(sender,runtime)||!sender.documentId)throw Error('invalidRequest');

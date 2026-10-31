@@ -96,3 +96,7 @@ Sender regressions cover owning-extension origins, opaque/foreign origins, inact
 ### Dark backgrounds and directional preparation
 
 Run `node --test test/pdf-paper-prefetch.test.mjs` and the dark-paper cases in `test/core.test.mjs`. Verify colored/gradient background images, shared-image reuse, clip/transform coverage, opacity, blend state, white margins, and predominantly light pages. In an isolated Chrome profile, open a dark slide template through Open a PDF, with default sampling and AI/automatic OCR off; check successive pages, inset light content, original dark colors, and quick page navigation. Confirm bounded neighbor preparation and full visible detail after scrolling stops. Reuse local fixtures and concise records in `test-dist`; private samples do not belong in the repository.
+
+## Browser-originated PDF navigation
+
+Run `PDF_PLAYWRIGHT=/path/to/playwright/index.mjs PDF_CHROME=/path/to/chrome node scripts/test-takeover-browser.mjs` in an isolated profile. Test a browser link transition with no referring origin, normal links, server redirects, signed query parameters, initial page fragments, reloads, iframe/embed/object takeover, native return, file-picker/file-URL opening, attachment/HTML exceptions, disable/re-enable, and browser restart. Verify only the current session entry remains in takeover rules and privileged messages retain the canonical owning origin. Manually select a complete plain-text PDF URL in the fixture page, right-click, and choose Chrome’s Go to action; the reader must open without an error page.

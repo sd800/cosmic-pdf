@@ -1,7 +1,7 @@
 import { fetchPdfSource } from './source-loader.js';
 import { resolveReaderAppearance, toggleReaderAppearance, isAppearanceMode } from '../../core/appearance.js';
 import { readSettings, normalizeSettings, uiLocale, toolbarSignature } from '../../core/settings.js';
-import { sourceFromReader, READER_PATH, isPdf, filenameFrom, cleanFilename } from '../../core/source.js';
+import { sourceFromReader, readerPageURL, isPdf, filenameFrom, cleanFilename } from '../../core/source.js';
 import { createPdfViewer } from '../pdf-viewer/host.js';
 import { PDF_LIMITS } from '../pdf-viewer/model.js';
 const $=id=>document.getElementById(id);
@@ -17,7 +17,7 @@ function localize(nextLocale){
  const errorKey=Object.keys(old).find(key=>old[key]===message);if(errorKey)$('message').textContent=text[errorKey];
 }
 localize(locale);document.documentElement.dataset.motion=String(settings.motion);
-let source=sourceFromReader(location.href,chrome.runtime.getURL(READER_PATH)), reader, original, blobURL, filename, controller, generation=0;
+let source=sourceFromReader(location.href,readerPageURL()), reader, original, blobURL, filename, controller, generation=0;
 let activeSettings=settings,appearanceOverride=null; const media=matchMedia('(prefers-color-scheme:dark)');
 function appearance(){return resolveReaderAppearance(activeSettings.appearance,appearanceOverride,media.matches);}
 function currentDark(){return appearance().dark;}
@@ -77,7 +77,7 @@ async function load(loader, initialFilename='PDF'){
   prepared.open(result.bytes,filename);
  }catch(error){if(run===generation){reader?.destroy();reader=null;$('reader').hidden=true;fail(text[error.message]||text.failed);}}
 }
-async function openFile(file){if(file.size>PDF_LIMITS.bytes){if(reader)reader.showError(text.large);else fail(text.large);return;}source=null;history.replaceState(null,'',chrome.runtime.getURL(READER_PATH));$('native').hidden=true;await load(async()=>({bytes:await file.arrayBuffer(),filename:file.name}),file.name);}
+async function openFile(file){if(file.size>PDF_LIMITS.bytes){if(reader)reader.showError(text.large);else fail(text.large);return;}source=null;history.replaceState(null,'',readerPageURL());$('native').hidden=true;await load(async()=>({bytes:await file.arrayBuffer(),filename:file.name}),file.name);}
 function loadSource(){
  const requested=source;
  return load(async signal=>{
