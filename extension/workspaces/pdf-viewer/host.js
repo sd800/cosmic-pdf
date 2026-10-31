@@ -84,6 +84,7 @@ export function createPdfViewer({ container, locale, sampling, settings, filenam
       sendDocument();
     },
     showError(message) { if (!closed) channel.port1.postMessage({ type: 'host-error', message: String(message).slice(0,1000) }); },
+    goToPage(page) { if (!closed && Number.isSafeInteger(page) && page > 0 && page <= 99_999_999) channel.port1.postMessage({type:'page-destination',page}); },
     setToolbar({ showFilename, showBranding, toolbarHidden }) {
       const next = normalizeSettings({ showFilename, showBranding, toolbarHidden });
       const toolbar = { showFilename: next.showFilename, showBranding: next.showBranding, toolbarHidden: next.toolbarHidden };

@@ -1,5 +1,5 @@
 import { isReaderSender } from '../reader-sender.js';
-import { readerPageURL, sourceFromReader, withoutHash } from '../../core/source.js';
+import { PDF_SOURCE_PORT, readerPageURL, sourceFromReader, withoutHash } from '../../core/source.js';
 
 // Source-origin Referer only, scoped to this authenticated reader's exact GET.
 // No page-history observer, caller-selected header, cross-site path, or query is exposed.
@@ -16,7 +16,7 @@ async function remove(tabId, selected) {
 async function current(sender) {
   if(!isReaderSender(sender)||!sender.documentId)throw Error('Invalid PDF request');
   const contexts=await chrome.runtime.getContexts({contextTypes:['TAB'],documentIds:[sender.documentId]});
-  if(!contexts.some(v=>v.tabId===sender.tab.id&&v.frameId===sender.frameId&&v.documentUrl===sender.url))throw Error('Reader departed');
+  if(!contexts.some(v=>v.tabId===sender.tab.id&&v.frameId===sender.frameId&&withoutHash(v.documentUrl)===withoutHash(sender.url)))throw Error('Reader departed');
 }
 export function preparePdfRequest(sender) { return enqueue(async()=>{
   await current(sender);
@@ -58,6 +58,26 @@ export function finishPdfRequest(sender,token) { return enqueue(async()=>{
 }); }
 export function forgetPdfRequests(tabId,url=null) { return enqueue(async()=>{
   const key=keyFor(tabId),all=entries((await chrome.storage.session.get(key))[key]);
-  if(url&&all.some(v=>v.reader===url))return;
-  await remove(tabId,all);await chrome.storage.session.remove(key);
+  if(url&&all.some(v=>typeof v.reader==='string'&&withoutHash(v.reader)===withoutHash(url)))return;
+  const selected=url?all:(await chrome.declarativeNetRequest.getSessionRules()).filter(rule=>rule.id>=2_000_000&&rule.id<2_001_024&&rule.action.type==='modifyHeaders'&&rule.condition.tabIds?.length===1&&rule.condition.tabIds[0]===tabId);
+  await remove(tabId,selected);await chrome.storage.session.remove(key);
 }); }
+
+export function connectPdfRequest(port) {
+  if(port.name!==PDF_SOURCE_PORT)return false;
+  const sender=port.sender;
+  if(!isReaderSender(sender)||!sender.documentId){port.disconnect();return true;}
+  let closed=false,token;
+  const close=()=>{
+    closed=true;
+    if(token){const owned=token;token=null;void finishPdfRequest(sender,owned).catch(()=>{});}
+  };
+  port.onDisconnect.addListener(close);
+  port.onMessage.addListener(message=>{if(message?.type!=='heartbeat'){close();port.disconnect();}});
+  void preparePdfRequest(sender).then(value=>{
+    token=value;
+    if(closed){close();return;}
+    try{port.postMessage({type:'ready',token});}catch{close();try{port.disconnect();}catch{}}
+  },()=>{close();try{port.disconnect();}catch{}});
+  return true;
+}

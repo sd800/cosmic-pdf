@@ -491,3 +491,12 @@ test('excluded saved media selections and name-only aliases cannot start explana
   product.connect(owned);owned.onMessage.emit({type:'explain',id:'excluded-model',request:selection});await finished.promise;assert.equal(owned.messages.at(-1).error,'modelUnavailable');owned.disconnect();
  }
 });
+
+test('AI website handoff tolerates page fragments but yields to a pending departure',async()=>{
+ const h=websiteHarness();h.contexts[0].documentUrl=h.sender.url+'#page=2';
+ await h.open('page-fragment');assert.equal(h.created.length,1);
+ h.entries.get(7).pendingUrl='https://example.edu/next';
+ await assert.rejects(h.open('departing'),/cancelled/);assert.equal(h.created.length,1);assert.equal(h.updated.length,0);
+ h.entries.get(7).pendingUrl=h.sender.url+'?source=https://example.edu/another.pdf';
+ await assert.rejects(h.open('new-pdf'),/cancelled/);
+});

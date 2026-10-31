@@ -23,6 +23,7 @@ let port, task, pdf, viewer, pdfWorker, parseTimer, destroyed = false, text = {.
 const lifetime = new AbortController(), signal = lifetime.signal;
 const eventBus = new EventBus(), viewport = $('viewport');
 let workerReady;
+let requestedPage = 1, pagesReady = false;
 let firstPageReady = false, themeDark = false, darkPaper;
 let aiReader;
 const readingSelection = bindPdfSelection({ pages: $('pages'), signal, onClear: () => aiReader?.dismissSelection() });
@@ -147,6 +148,7 @@ window.addEventListener('message', event => {
   void workerReady.catch(() => {});
   const input = event.data;
   documentUrl = typeof input.documentUrl === 'string' ? input.documentUrl : '';
+  requestedPage = pdfOpenPage(documentUrl, 99_999_999);
   settings = normalizeSettings(input.settings);
   setDarkPaper(settings.preserveDarkPaper);
   toolbarPreferences(getToolbarMode(settings));
@@ -174,6 +176,12 @@ window.addEventListener('message', event => {
     }
     else if (data?.type === 'ai-status') { aiReader?.status(data.state); ocr?.refreshAutomatic(); }
     else if (data?.type === 'clear-selection') readingSelection.clear();
+    else if (data?.type === 'page-destination') {
+      if (Number.isSafeInteger(data.page) && data.page > 0 && data.page <= 99_999_999) {
+        requestedPage = data.page;
+        if (pagesReady) viewer.scrollPageIntoView({pageNumber:Math.min(pdf.numPages,requestedPage)});
+      }
+    }
     else if (data?.type === 'ai-event') aiReader?.event(data.event);
     else if (data?.type === 'theme') theme(data.dark, data.themeMode);
     else if (data?.type === 'toolbar') {
@@ -256,7 +264,6 @@ async function open(bytes, sampling) {
   darkPaper = createDarkPaperGuard(pdf.numPages, settings.darkStrength);
   emit('parsed'); $('properties').disabled = $('filename').disabled = false;
   const links = new PDFLinkService({ eventBus });
-  let initialPage = pdfOpenPage(documentUrl, pdf.numPages);
   // Paint existing annotation/widget appearances into the canvas only.
   // No PDF.js HTML annotation/form/editor/scripting layer is instantiated.
   const find = new PDFFindController({ eventBus, linkService: links });
@@ -285,6 +292,7 @@ async function open(bytes, sampling) {
     syncRenderProgress();
   }, { signal });
   eventBus.on('pagesinit', () => {
+    const initialPage = Math.min(pdf.numPages, requestedPage); pagesReady = true;
     for (const control of document.querySelectorAll('header nav button, header nav input, header nav select, #sidebar-toggle')) control.disabled = false;
     viewer.currentScaleValue = settings.zoom;
     // Setting the initial scale aligns the first paper edge with the viewport.

@@ -1,6 +1,6 @@
 import { readSettings } from '../../core/settings.js';
 import { isReaderSender } from '../reader-sender.js';
-import { READER_PATH, readerPageURL, safeSource, sourceFromReader, withoutHash } from '../../core/source.js';
+import { READER_ENTRY_PATH, readerPageURL, safeSource, sourceFromReader, withoutHash } from '../../core/source.js';
 const readerURL=readerPageURL();
 let serial=Promise.resolve();
 const enqueue=fn=>{ const result=serial.catch(()=>{}).then(fn); serial=result; return result; };
@@ -8,7 +8,7 @@ export function takeoverRules(enabled) {
   if(!enabled) return [];
   // A session entry lets Chrome validate response redirects even when its
   // native Go to… command supplies no referring origin.
-  const action={type:'redirect',redirect:{regexSubstitution:chrome.runtime.getURL(READER_PATH)+'?source=\\0'}};
+  const action={type:'redirect',redirect:{regexSubstitution:chrome.runtime.getURL(READER_ENTRY_PATH)+'?source=\\0'}};
   const base={resourceTypes:['main_frame','sub_frame','object'],requestMethods:['get'],regexFilter:'^https?://.*'};
   // Attachments remain normal downloads. Never retry/replay a POST response.
   const rules=[{id:1,priority:20,action:{type:'allow'},condition:{...base,responseHeaders:[{header:'content-disposition',values:['attachment*']}] }},
@@ -26,12 +26,13 @@ async function assertCurrentReader(sender) {
   if (!sender.documentId) throw Error('Reader document unavailable');
   const contexts = await chrome.runtime.getContexts({ contextTypes:['TAB'], documentIds:[sender.documentId] });
   if (!contexts.some(context => context.tabId === sender.tab.id && context.frameId === sender.frameId && context.documentUrl === sender.url)) throw Error('Reader has navigated');
+  if(sender.frameId===0){const tab=await chrome.tabs.get(sender.tab.id);if(tab.pendingUrl&&tab.pendingUrl!==sender.url)throw Error('Reader is navigating');}
 }
 // One tab may contain several independent PDF frames. Keep each fallback
 // scoped to its exact source and resource kind; never navigate the parent page.
 function nativeEntries(state) {
   const entries=Array.isArray(state?.entries)?state.entries:state?.url?[{...state,frameId:0}]:[];
-  return entries.filter(entry=>Number.isInteger(entry.id)&&entry.id>0&&Number.isInteger(entry.frameId)&&entry.frameId>=0&&safeSource(entry.url));
+  return entries.filter(entry=>Number.isInteger(entry.id)&&entry.id>=1000&&entry.id<2_000_000&&Number.isInteger(entry.frameId)&&entry.frameId>=0&&safeSource(entry.url));
 }
 export function useNative(sender) {return enqueue(async()=>{
   if(!isReaderSender(sender)) throw Error('Invalid reader');
@@ -48,7 +49,7 @@ export function useNative(sender) {return enqueue(async()=>{
   // A prior failed cleanup can outlive its rule. Never overwrite an ID that
   // has since been allocated to another tab.
   const priorRule=rules.find(rule=>rule.id===id);
-  if(priorRule&&!priorRule.condition.tabIds?.includes(tabId))id=undefined;
+  if(priorRule&&(priorRule.action.type!=='allow'||priorRule.condition.tabIds?.length!==1||priorRule.condition.tabIds[0]!==tabId))id=undefined;
   if(!id){id=1000;const used=new Set(rules.map(rule=>rule.id));while(used.has(id))id++;}
   const previousRule=rules.find(rule=>rule.id===id);
   const next=entries.filter(entry=>entry.frameId!==sender.frameId).concat({url,id,frameId:sender.frameId});
@@ -58,7 +59,7 @@ export function useNative(sender) {return enqueue(async()=>{
   await chrome.storage.session.set({[key]:{entries:next}});
   let installed=false;
   try {
-    await chrome.declarativeNetRequest.updateSessionRules({removeRuleIds:[id],addRules:[{id,priority:100,action:{type:'allow'},condition:{tabIds:[tabId],resourceTypes:sender.frameId===0?['main_frame']:['sub_frame','object'],...(sender.frameId===0?{}:{initiatorDomains:[chrome.runtime.id]}),regexFilter:regex}}]});
+    await chrome.declarativeNetRequest.updateSessionRules({removeRuleIds:[id],addRules:[{id,priority:100,action:{type:'allow'},condition:{tabIds:[tabId],resourceTypes:sender.frameId===0?['main_frame']:['sub_frame','object'],...(sender.frameId===0?{}:{initiatorDomains:[chrome.runtime.id]}),regexFilter:regex,isUrlFilterCaseSensitive:true}}]});
     installed=true;
     await assertCurrentReader(sender);
     // Embedded hosts perform their own same-frame navigation after the reply.
@@ -73,12 +74,12 @@ export function useNative(sender) {return enqueue(async()=>{
 });}
 export function forgetNative(tabId,url,closed=false){return enqueue(async()=>{
   const key='native:'+tabId, state=(await chrome.storage.session.get(key))[key];
-  if(!state)return;
+  if(!state&&!closed)return;
   const entries=nativeEntries(state);
   if(!closed && (!url || (safeSource(url) && entries.some(entry=>entry.frameId===0&&withoutHash(url)===entry.url))))return;
-  if(entries.length){
+  if(entries.length||closed){
     const ids=new Set(entries.map(entry=>entry.id)),rules=await chrome.declarativeNetRequest.getSessionRules();
-    const owned=rules.filter(rule=>ids.has(rule.id)&&rule.condition.tabIds?.length===1&&rule.condition.tabIds[0]===tabId).map(rule=>rule.id);
+    const owned=rules.filter(rule=>(closed?rule.id>=1000&&rule.id<2_000_000:ids.has(rule.id))&&rule.action.type==='allow'&&rule.condition.tabIds?.length===1&&rule.condition.tabIds[0]===tabId).map(rule=>rule.id);
     if(owned.length)await chrome.declarativeNetRequest.updateSessionRules({removeRuleIds:owned});
   }
   await chrome.storage.session.remove(key);

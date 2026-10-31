@@ -1,7 +1,13 @@
 export const READER_PATH = 'workspaces/pdf-reader/index.html';
-// Public getURL(READER_PATH) may use a session ID. Chrome commits that entry
-// under the owning extension origin; internal identity must stay canonical.
+export const READER_ENTRY_PATH = 'workspaces/pdf-reader/entry.html';
+export const PDF_SOURCE_PORT = 'pdf-source-request';
+// History, local-file state, and privileged identities use the stable reader.
+// Only the external navigation entry has a session-specific public URL.
 export function readerPageURL(runtime = chrome.runtime) { return runtime.getURL('') + READER_PATH; }
+export function readerEntryTarget(url, runtime = chrome.runtime) {
+  const source = sourceFromReader(url, runtime.getURL('') + READER_ENTRY_PATH);
+  return readerPageURL(runtime) + (source && /^https?:/.test(source) ? '?source=' + source : '');
+}
 // DNR substitutions cannot percent-encode captures. Keep the complete raw URL,
 // including signed query parameters, in the final parameter; never split on &.
 export function sourceFromReader(url, readerURL) {

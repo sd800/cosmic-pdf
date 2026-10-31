@@ -38,5 +38,5 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
   else return;
   job.then(result=>respond({ok:true,result}),()=>respond({ok:false}));return true;
 });
-chrome.runtime.onConnect.addListener(port=>{if(!aiExplanation.connect(port))port.disconnect();});
+chrome.runtime.onConnect.addListener(port=>{if(!standing.connectPdfRequest(port)&&!aiExplanation.connect(port))port.disconnect();});
 chrome.storage.onChanged.addListener((changes,area)=>{if(area==='local'&&changes.settings){aiExplanation.settingsChanged(changes.settings.newValue||{});aiWebsite.settingsChanged(changes.settings.newValue||{});}});

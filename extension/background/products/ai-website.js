@@ -2,7 +2,7 @@ import { isReaderSender } from '../reader-sender.js';
 import { normalizeAiRequest } from '../../core/ai.js';
 import { webExplanation, isAiWebsite } from '../../core/ai-web.js';
 import { readSettings } from '../../core/settings.js';
-import { readerPageURL } from '../../core/source.js';
+import { readerPageURL, withoutHash } from '../../core/source.js';
 // Only paired tab IDs survive worker suspension. No question, URL, file name,
 // account information or conversation is stored or read by this capability.
 export function createAiWebsiteProduct({runtime=chrome.runtime,tabs=chrome.tabs,session=chrome.storage.session,read=readSettings}={}) {
@@ -18,7 +18,8 @@ export function createAiWebsiteProduct({runtime=chrome.runtime,tabs=chrome.tabs,
   async function owner(sender,job){
     if(job.cancelled)throw Error('cancelled');
     const [source,contexts]=await Promise.all([tabs.get(sender.tab.id),runtime.getContexts({documentIds:[sender.documentId],contextTypes:['TAB']})]);
-    if(job.cancelled||!contexts.some(c=>c.documentId===sender.documentId&&c.tabId===source.id&&c.frameId===sender.frameId&&c.documentUrl===sender.url))throw Error('cancelled');
+    if(job.cancelled||!contexts.some(c=>c.documentId===sender.documentId&&c.tabId===source.id&&c.frameId===sender.frameId&&withoutHash(c.documentUrl)===withoutHash(sender.url)))throw Error('cancelled');
+    if(sender.frameId===0&&source.pendingUrl&&withoutHash(source.pendingUrl)!==withoutHash(sender.url))throw Error('cancelled');
     const settings=await read();
     if(!settings.aiEnabled||settings.aiMode!=='subscription')throw Error('disabled');
     const current=signature(settings);if(job.preferences&&job.preferences!==current)throw Error('cancelled');job.preferences=current;

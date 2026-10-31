@@ -1,9 +1,10 @@
 import { fetchPdfSource } from './source-loader.js';
+import { createSourceRequest } from './source-request.js';
 import { resolveReaderAppearance, toggleReaderAppearance, isAppearanceMode } from '../../core/appearance.js';
 import { readSettings, normalizeSettings, uiLocale, toolbarSignature } from '../../core/settings.js';
-import { sourceFromReader, readerPageURL, isPdf, filenameFrom, cleanFilename } from '../../core/source.js';
+import { sourceFromReader, readerPageURL, withoutHash, isPdf, filenameFrom, cleanFilename } from '../../core/source.js';
 import { createPdfViewer } from '../pdf-viewer/host.js';
-import { PDF_LIMITS } from '../pdf-viewer/model.js';
+import { PDF_LIMITS, pdfPageDestination } from '../pdf-viewer/model.js';
 const $=id=>document.getElementById(id);
 // The extension-owned host also supports embedded PDFs. No bytes, OCR text or
 // private channel are ever shared with its containing webpage.
@@ -81,19 +82,23 @@ async function openFile(file){if(file.size>PDF_LIMITS.bytes){if(reader)reader.sh
 function loadSource(){
  const requested=source;
  return load(async signal=>{
-  let token;
+  const request=createSourceRequest({signal});
   try {
-   const prepared=await chrome.runtime.sendMessage({type:'PDF_REQUEST_START'}).catch(()=>null);
-   token=prepared?.result;
+   await request.ready;
    if(signal.aborted)throw Error('abort');
    const result=await fetchPdfSource(requested,{signal});
    return {bytes:result.bytes,filename:filenameFrom(result.response.url||requested,result.response.headers.get('content-disposition')||'')};
   } finally {
-   if(typeof token==='string')void chrome.runtime.sendMessage({type:'PDF_REQUEST_END',token}).catch(()=>{});
+   request.release();
   }
  },filenameFrom(requested));
 }
 if(source){$('native').hidden=false;void loadSource();}else setView('home');
+window.addEventListener('hashchange',()=>{
+ const next=sourceFromReader(location.href,readerPageURL());
+ if(source&&next&&withoutHash(source)===withoutHash(next))source=next;
+ const page=pdfPageDestination(location.href)||(location.hash?null:1);if(page)reader?.goToPage(page);
+});
 chrome.storage.onChanged.addListener((changes,area)=>{
  if(area!=='local'||!changes.settings)return;
  { const next=normalizeSettings(changes.settings.newValue);

@@ -1,5 +1,9 @@
 # Changelog
 
+## 26.10.31.1 — 2026-10-31
+
+- Improve PDF navigation, browser compatibility, and loading lifecycle reliability.
+
 ## 3.2.32 — 2026-10-31
 
 - Improve PDF opening and navigation reliability across browser sessions.

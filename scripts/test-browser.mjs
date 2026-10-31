@@ -124,7 +124,7 @@ try{
   await page.bringToFront();await go(base+path);await page.waitForURL(url=>url.href.startsWith(reader+'?source='));const element=await page.waitForSelector('iframe');const frame=await element.contentFrame();await frame.waitForFunction(()=>document.querySelector('.page canvas')?.width>0&&document.querySelector('#count').textContent!=='—');await frame.waitForFunction(()=>{const v=window.qaViewer;return v?.getPageView(v.currentPageNumber-1)?.renderingState===3;});assert.equal(await frame.evaluate(()=>window.qaWorkerReady),true,'PDF parsing uses a real background Worker');return frame;
  }
  async function checkPrintHandoff(frame,activate=()=>frame.locator('#print').click()){
-  const pending=context.waitForEvent('page');await activate();const native=await pending;
+  const [native]=await Promise.all([context.waitForEvent('page'),activate()]);
   await native.waitForURL(/^blob:chrome-extension:/);await native.close();await page.bringToFront();
  }
  async function checkDownload(frame,name,bytes){
@@ -221,7 +221,7 @@ try{
   await checkFrame.locator('#properties-close').focus();await page.keyboard.press('PageDown');
   assert.equal(await checkFrame.locator('#page').inputValue(),'2','modal keys cannot navigate the PDF');
   await page.keyboard.press('Escape');await checkFrame.waitForFunction(()=>!document.querySelector('#properties-dialog').open);
-  await checkPrintHandoff(checkFrame);
+  await checkPrintHandoff(checkFrame,async()=>{await checkFrame.locator('#settings').click();await checkFrame.locator('[data-action="print"]').click();});
 
   const prefs=await context.newPage();await prefs.goto(settings);await prefs.waitForSelector('#sampling');
   await prefs.evaluate(()=>{

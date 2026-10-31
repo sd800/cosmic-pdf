@@ -36,10 +36,11 @@ export function parsePdfZoom(value) {
 }
 
 // URL fragments are navigation data, never script, storage, or a fetch destination.
-export function pdfOpenPage(source, total) {
+export function pdfPageDestination(source) {
   try {
     const hash = new URL(source).hash.slice(1);
     const value = new URLSearchParams(hash).get('page');
-    return /^\d{1,8}$/.test(value || '') && Number(value) > 0 ? Math.min(total, Number(value)) : 1;
-  } catch { return 1; }
+    return /^\d{1,8}$/.test(value || '') && Number(value) > 0 ? Number(value) : null;
+  } catch { return null; }
 }
+export function pdfOpenPage(source, total) { return Math.min(total, pdfPageDestination(source) || 1); }

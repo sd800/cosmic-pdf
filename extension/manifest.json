@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Cosmic PDF",
-  "version": "3.2.32",
+  "version": "26.10.31.1",
   "description": "__MSG_extensionDescription__",
   "minimum_chrome_version": "130",
   "permissions": [
@@ -39,7 +39,7 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "workspaces/pdf-reader/index.html"
+        "workspaces/pdf-reader/entry.html"
       ],
       "matches": [
         "<all_urls>"
@@ -48,6 +48,7 @@
     },
     {
       "resources": [
+        "workspaces/pdf-reader/index.html",
         "workspaces/pdf-viewer/viewer.html"
       ],
       "matches": [
