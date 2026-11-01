@@ -1,5 +1,12 @@
 # Changelog
 
+## 26.11.1.1 — 2026-11-01
+
+- Remove the Cosmic PDF branding option and its toolbar layouts, retaining the optional filename display.
+- Hide Full screen in embedded readers and other unavailable contexts, including its More actions entry.
+- Keep embedded toolbars on one row by moving controls into More actions only when needed. AI remains visible when it fits; on overflow it moves first, followed by Rotate left, text recognition, zoom buttons, Pages and outline, appearance, and the filename.
+- Preserve the zoom percentage until the final compact tiers, then prioritize page counts, More actions, and Download. Move Download into the menu only when those three cannot fit, and restore controls as space returns without changing saved preferences.
+
 ## 26.10.31.1 — 2026-10-31
 
 - Keep the reader's address stable when reopening, duplicating, or restoring PDF tabs across browser sessions, while using a separate temporary entry for automatic opening.

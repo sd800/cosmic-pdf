@@ -205,6 +205,7 @@ export function createAiReader({settings,post,getPdf,getLocale,signal,onBusy=()=
   signal.addEventListener('abort',destroy,{once:true});
   render();
   return {
+    toggle(){post({type:'ai-toggle',enabled:!enabled()});},
     dismissSelection(){selecting=false;hideEntry();},
     canExplain(){return enabled()&&(subscription()||status.private!==true&&(testing()||status.keys?.[prefs.aiProvider]===true));},
     preferences(next){const was=enabled(),methodChanged=prefs.aiMode!==next.aiMode;prefs=next;if(was&&!enabled()||methodChanged){sequence++;hideEntry();cancel();closePanel();}if(methodChanged){source=null;history=[];copyRequired=false;$('ai-messages').replaceChildren();$('ai-model').textContent='';notice='';}if(!was&&enabled()&&source&&!subscription())openPanel();render();if((!was&&enabled())||methodChanged){post({type:'ai-refresh'});scheduleSelection();}},

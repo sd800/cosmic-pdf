@@ -4,7 +4,7 @@ export const TOOLBAR_ACTIONS = Object.freeze(['pages','find','paging','zoom','fi
 const DEFAULT_HIDDEN = new Set(['find','paging','fit','print','properties','native']);
 export const DEFAULTS = Object.freeze({ enabled:true, locale:'auto', appearance:'auto', preserveDarkPaper:true, sampling:4, sharpening:false,
   aiEnabled:false, aiMode:'subscription', aiWebsite:'chatgpt', aiProvider:'gemini', aiModels:Object.freeze(normalizeAiModels()), aiLanguage:'auto', aiIncludeContext:true,
-  zoom:'1', gap:16, showFilename:true, showBranding:false, toolbarHidden:Object.freeze({}), sidebar:false, links:true, captureLinks:true, motion:true, darkStrength:.96,
+  zoom:'1', gap:16, showFilename:true, toolbarHidden:Object.freeze({}), sidebar:false, links:true, captureLinks:true, motion:true, darkStrength:.96,
   propertyDateFormat:'auto', useChromeFind:true, automaticOcr:false, ocrAction:'page', ocrLanguages:DEFAULT_OCR_LANGUAGES, ocrQuality:2, ocrLayout:'3' });
 const choices = { locale:['auto','en-US','zh-CN'], appearance:['auto','light','dark'], sampling:[1,2,3,4,5,6],
   aiMode:['api','subscription'], aiWebsite:['chatgpt','claude'], aiProvider:['gemini','openai','claude'], aiLanguage:['auto','en-US','zh-CN'],
@@ -25,7 +25,7 @@ export function normalizeSettings(input={}) {
 export async function readSettings(){return normalizeSettings((await chrome.storage.local.get('settings')).settings);}
 export function uiLocale(settings, browserLocale='en-US'){return settings.locale==='auto' ? (/^zh/i.test(browserLocale)?'zh-CN':'en-US') : settings.locale;}
 
-export function toolbarMode(settings){return settings.showFilename ? (settings.showBranding ? 'both' : 'filename') : (settings.showBranding ? 'branding' : 'none');}
+export function toolbarMode(settings){return settings.showFilename ? 'filename' : 'none';}
 
 export function hiddenToolbarActions(settings){
   return TOOLBAR_ACTIONS.filter(key=>settings.toolbarHidden?.[key]??DEFAULT_HIDDEN.has(key));

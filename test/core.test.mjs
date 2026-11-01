@@ -9,7 +9,7 @@ import { ocrScale,ocrRange,ocrWords,OCR_LIMITS,quickOcrRange } from '../extensio
 import { pdfDetailCanvasPixels,stepPdfScale,rotateLeft,safePdfLink,pdfOptions,pdfFileSize,parsePdfZoom } from '../extension/workspaces/pdf-viewer/model.js';
 import { clearPdfSelection } from '../extension/workspaces/pdf-viewer/selection.js';
 import { createAutomaticOcr } from '../extension/workspaces/pdf-viewer/automatic-ocr.js';
-test('settings whitelist, defaults and all six sampling levels',()=>{assert.deepEqual(normalizeSettings(null),DEFAULTS);assert.equal(DEFAULTS.captureLinks,true);for(const captureLinks of [true,false])assert.equal(normalizeSettings({captureLinks}).captureLinks,captureLinks);assert.equal(normalizeSettings({captureLinks:'false'}).captureLinks,true);assert.equal(DEFAULTS.useChromeFind,true);for(const useChromeFind of [true,false])assert.equal(normalizeSettings({useChromeFind}).useChromeFind,useChromeFind);assert.equal(normalizeSettings({useChromeFind:'false'}).useChromeFind,true);for(let n=1;n<=6;n++)assert.equal(normalizeSettings({sampling:n}).sampling,n);assert.equal(normalizeSettings({sampling:Infinity}).sampling,4);assert.equal(normalizeSettings({sharpening:'true'}).sharpening,false);assert.equal(normalizeSettings({ocrQuality:99}).ocrQuality,2);assert.equal(normalizeSettings({locale:'zh-TW'}).locale,'auto');assert.equal(normalizeSettings({obsolete:true}).obsolete,undefined);for(const [showFilename,showBranding,mode]of [[true,true,'both'],[false,true,'branding'],[true,false,'filename'],[false,false,'none']])assert.equal(toolbarMode(normalizeSettings({showFilename,showBranding})),mode);assert.equal(toolbarMode(normalizeSettings({showFilename:'false',showBranding:null})),'filename');});
+test('settings whitelist, defaults and all six sampling levels',()=>{assert.deepEqual(normalizeSettings(null),DEFAULTS);assert.equal(DEFAULTS.captureLinks,true);for(const captureLinks of [true,false])assert.equal(normalizeSettings({captureLinks}).captureLinks,captureLinks);assert.equal(normalizeSettings({captureLinks:'false'}).captureLinks,true);assert.equal(DEFAULTS.useChromeFind,true);for(const useChromeFind of [true,false])assert.equal(normalizeSettings({useChromeFind}).useChromeFind,useChromeFind);assert.equal(normalizeSettings({useChromeFind:'false'}).useChromeFind,true);for(let n=1;n<=6;n++)assert.equal(normalizeSettings({sampling:n}).sampling,n);assert.equal(normalizeSettings({sampling:Infinity}).sampling,4);assert.equal(normalizeSettings({sharpening:'true'}).sharpening,false);assert.equal(normalizeSettings({ocrQuality:99}).ocrQuality,2);assert.equal(normalizeSettings({locale:'zh-TW'}).locale,'auto');assert.equal(normalizeSettings({obsolete:true}).obsolete,undefined);for(const [showFilename,mode]of [[true,'filename'],[false,'none']])assert.equal(toolbarMode(normalizeSettings({showFilename,showBranding:true})),mode);assert.equal('showBranding' in normalizeSettings({showBranding:true}),false);assert.equal(toolbarMode(normalizeSettings({showFilename:'false'})),'filename');});
 test('automatic current-page recognition is an independent explicit opt-in',()=>{
  assert.equal(DEFAULTS.automaticOcr,false);
  assert.equal(normalizeSettings({aiEnabled:false,automaticOcr:true}).automaticOcr,true);
@@ -40,7 +40,7 @@ test('document properties use decimal sizes and bounded valid byte counts',()=>{
 
 test('toolbar defaults stay consistent across layouts while explicit choices win',()=>{
  assert.deepEqual(hiddenToolbarActions(normalizeSettings()),['find','paging','fit','print','properties','native']);
- for(const flags of [{showFilename:true},{showBranding:true},{showFilename:true,showBranding:true}])assert.deepEqual(hiddenToolbarActions(normalizeSettings(flags)),['find','paging','fit','print','properties','native']);
+ for(const flags of [{showFilename:true},{showFilename:false}])assert.deepEqual(hiddenToolbarActions(normalizeSettings(flags)),['find','paging','fit','print','properties','native']);
  const settings=normalizeSettings({toolbarHidden:{find:false,rotate:true,script:true,fit:'true'}});
  assert.deepEqual(settings.toolbarHidden,{find:false,rotate:true});
  assert.deepEqual(hiddenToolbarActions(settings),['paging','fit','rotate','print','properties','native']);
@@ -295,10 +295,10 @@ test('queued settings edits survive locale updates, external changes, failures a
  store.receive({...stored,gap:24});
  assert.equal(view.locale,'zh-CN');assert.equal(view.sharpening,true);assert.equal(view.gap,24);
  release();await Promise.all([locale,toggle]);assert.equal(view.sharpening,true);assert.equal(stored.sharpening,true);
- fail=true;const failure=store.save('sampling',6);const after=store.save('showBranding',true);
- await assert.rejects(failure);await after;assert.equal(view.sampling,4);assert.equal(view.showBranding,true);
+ fail=true;const failure=store.save('sampling',6);const after=store.save('showFilename',false);
+ await assert.rejects(failure);await after;assert.equal(view.sampling,4);assert.equal(view.showFilename,false);
  const beforeReset=store.save('toolbarHidden',{print:false}),reset=store.reset(),afterReset=store.save('sampling',2);
- await Promise.all([beforeReset,reset,afterReset]);assert.equal(view.sampling,2);assert.equal(view.showBranding,false);assert.deepEqual(view.toolbarHidden,{});
+ await Promise.all([beforeReset,reset,afterReset]);assert.equal(view.sampling,2);assert.equal(view.showFilename,true);assert.deepEqual(view.toolbarHidden,{});
  store.receive({...stored,useChromeFind:false});assert.equal(view.useChromeFind,false);
 });
 

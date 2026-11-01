@@ -22,12 +22,16 @@ export function createPdfViewer({ container, locale, sampling, settings, filenam
   url.hash = new URLSearchParams({ dark: dark ? '1' : '0', locale });
   iframe.src = url.href;
   const channel = new MessageChannel(); let closed = false, loaded = false, frameLoaded = false, opened = false, pending, timeout;
+  const embedded = window !== window.top;
+  let fullscreenFailed = false;
+  const canFullscreen = () => !embedded && !fullscreenFailed && document.fullscreenEnabled === true
+    && typeof container.requestFullscreen === 'function' && typeof document.exitFullscreen === 'function';
   const aiBridge=createAiBridge({
     onEvent:event=>{if(!closed)channel.port1.postMessage({type:'ai-event',event});},
     onStatus:state=>{if(!closed)channel.port1.postMessage({type:'ai-status',state});}
   });
   const fullscreenChanged = () => {
-    if (!closed) channel.port1.postMessage({ type: 'fullscreen', active: document.fullscreenElement === container });
+    if (!closed) channel.port1.postMessage({ type: 'fullscreen', active: document.fullscreenElement === container, available: canFullscreen() });
   };
   document.addEventListener('fullscreenchange', fullscreenChanged);
   const focusLost = () => { if (!closed && !document.hasFocus()) channel.port1.postMessage({ type: 'clear-selection' }); };
@@ -64,14 +68,15 @@ export function createPdfViewer({ container, locale, sampling, settings, filenam
     else if (data.type === 'fullscreen') {
       // User activation from the reader reaches its ancestor. Fullscreen belongs
       // to the trusted host; the opaque sandbox never receives extra privileges.
+      if (!canFullscreen()) { fullscreenChanged(); return; }
       const operation = document.fullscreenElement === container ? document.exitFullscreen() : container.requestFullscreen();
-      void operation.catch(() => { if (!closed) channel.port1.postMessage({ type: 'fullscreen-error' }); });
+      void operation.catch(() => { fullscreenFailed = true; fullscreenChanged(); });
     }
     else if (data.type === 'error') { clearTimeout(timeout); if (!loaded) destroy(); onError(); }
   };
   iframe.addEventListener('load', () => {
     if (closed) return;
-    iframe.contentWindow.postMessage({ type: 'CP_PDF_INIT', filename, documentUrl, canUseNative, locale, settings, sampling, sharpening: sharpening === true, dark, themeMode }, '*', [channel.port2]);
+    iframe.contentWindow.postMessage({ type: 'CP_PDF_INIT', filename, documentUrl, canUseNative, embedded, canFullscreen: canFullscreen(), locale, settings, sampling, sharpening: sharpening === true, dark, themeMode }, '*', [channel.port2]);
     frameLoaded = true; sendDocument();
   }, { once: true });
   container.append(iframe);
@@ -85,9 +90,9 @@ export function createPdfViewer({ container, locale, sampling, settings, filenam
     },
     showError(message) { if (!closed) channel.port1.postMessage({ type: 'host-error', message: String(message).slice(0,1000) }); },
     goToPage(page) { if (!closed && Number.isSafeInteger(page) && page > 0 && page <= 99_999_999) channel.port1.postMessage({type:'page-destination',page}); },
-    setToolbar({ showFilename, showBranding, toolbarHidden }) {
-      const next = normalizeSettings({ showFilename, showBranding, toolbarHidden });
-      const toolbar = { showFilename: next.showFilename, showBranding: next.showBranding, toolbarHidden: next.toolbarHidden };
+    setToolbar({ showFilename, toolbarHidden }) {
+      const next = normalizeSettings({ showFilename, toolbarHidden });
+      const toolbar = { showFilename: next.showFilename, toolbarHidden: next.toolbarHidden };
       settings = { ...settings, ...toolbar };
       if (!closed) channel.port1.postMessage({ type: 'toolbar', toolbar });
     },

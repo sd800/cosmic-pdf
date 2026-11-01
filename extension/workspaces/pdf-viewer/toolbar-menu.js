@@ -7,15 +7,21 @@ const groups = {
   pages:['sidebar-toggle'], find:['search-toggle'], paging:['previous','next'],
   zoom:['zoom-out','zoom-in'], fit:['fit-width','fit-page'], rotate:['rotate'],
   fullscreen:['fullscreen'], ocr:['ocr-toggle'], print:['print'],
-  properties:['properties'], native:['native']
+  properties:['properties'], native:['native'], ai:['ai-toggle'], theme:['theme'], download:['download'],
+  filename:['filename'], annotations:['annotations']
 };
+const collapseOrder = ['ai','rotate','ocr','zoom','pages','theme','filename',
+  'find','paging','print','properties','native','annotations','fit','download'];
 
 // Presentation only: original controls keep their handlers, permissions and
 // disabled state. The menu never adds commands to the privileged host bridge.
-export function createToolbarMenu({ text, signal, onSettings, onFit, onOcrPanel, canHoldOcr }) {
+export function createToolbarMenu({ text, signal, embedded = false, canFullscreen = false, onAiToggle, onSettings, onFit, onOcrPanel, canHoldOcr }) {
+  canFullscreen = !embedded && canFullscreen === true;
   const $ = id => document.getElementById(id), trigger = $('settings'), menu = $('more-actions');
-  const layout = createToolbarLayout(signal);
+  document.documentElement.dataset.embedded = String(embedded);
+  const layout = createToolbarLayout(signal, { embedded, onResize: reflow });
   let actions = [], entries = [], built = false, menuLifetime = new AbortController();
+  let saved;
   signal.addEventListener('abort',()=>menuLifetime.abort(),{once:true});
   const isOpen = () => menu.matches(':popover-open');
   function close(focus = false) {
@@ -29,16 +35,20 @@ export function createToolbarMenu({ text, signal, onSettings, onFit, onOcrPanel,
     for (const entry of entries) {
       const source = $(entry.action), fit = entry.action.startsWith('fit-');
       entry.button.disabled = fit ? $('scale').disabled : entry.action === 'open-settings' ? false : source.disabled;
-      const label = fit ? text[entry.action === 'fit-width' ? 'fitWidth' : 'fitPage'] : entry.action === 'open-settings' ? text.settings : entry.action === 'properties' ? text.menuProperties : entry.action === 'native' ? text.menuNative : source.title;
+      const label = fit ? text[entry.action === 'fit-width' ? 'fitWidth' : 'fitPage'] : entry.action === 'open-settings' ? text.settings : entry.action === 'properties' ? text.menuProperties : entry.action === 'native' ? text.menuNative : entry.action === 'filename' ? source.textContent : source.title;
       const svg = source?.querySelector('svg'), iconKey = svg?.outerHTML || entry.action;
       if (entry.icon !== iconKey) {
         if (svg) entry.button.replaceChildren(svg.cloneNode(true));
-        else setReaderIcon(entry.button, entry.action === 'open-settings' ? 'settings' : entry.action);
+        else setReaderIcon(entry.button, entry.action === 'open-settings' ? 'settings' : entry.action === 'filename' ? 'properties' : entry.action);
         const caption = document.createElement('span'); caption.textContent = label; entry.button.append(caption);
         entry.icon = iconKey;
       }
       entry.button.lastElementChild.textContent = label;
       entry.button.setAttribute('aria-label', label);
+      if (['ai-toggle','annotations'].includes(entry.action)) {
+        entry.button.role = 'menuitemcheckbox';
+        entry.button.setAttribute('aria-checked', source.getAttribute('aria-pressed'));
+      }
     }
   }
   function build() {
@@ -47,10 +57,11 @@ export function createToolbarMenu({ text, signal, onSettings, onFit, onOcrPanel,
     for (const action of [...actions.flatMap(key => groups[key]), 'open-settings']) {
       const button = document.createElement('button'); button.type = 'button'; button.role = 'menuitem'; button.tabIndex = -1; button.dataset.action = action; button.className = 'menu-action';
       if (action === 'open-settings') button.classList.add('menu-settings');
-      const activate = () => {
+      const activate = event => {
         if (button.disabled) return;
         close(true);
         if (action === 'open-settings') onSettings();
+        else if (action === 'ai-toggle') { if (event?.isTrusted) onAiToggle(); }
         else if (action.startsWith('fit-')) onFit(action === 'fit-width' ? 'page-width' : 'page-fit');
         else $(action).click();
       };
@@ -100,26 +111,52 @@ export function createToolbarMenu({ text, signal, onSettings, onFit, onOcrPanel,
   }, { signal });
   menu.addEventListener('toggle', () => trigger.setAttribute('aria-expanded', String(isOpen())), { signal });
   window.addEventListener('resize', () => close(), { signal });
+  function present(hidden) {
+    for (const [key, ids] of Object.entries(groups)) if (!['fit','annotations'].includes(key)) {
+      for (const id of ids) $(id).hidden = hidden.has(key) || key === 'fullscreen' && !canFullscreen;
+    }
+    $('annotations').hidden = hidden.has('annotations') || !annotationsAvailable;
+    $('scale').hidden = hidden.has('fit'); $('scale-input').hidden = !hidden.has('fit');
+    // At the final compact tier, move fit/percentage into the menu as well.
+    if (embedded && hidden.has('fit') && automatic.has('fit')) $('scale-input').hidden = true;
+    const filenameHidden = !saved.showFilename || hidden.has('filename');
+    $('filename').hidden = filenameHidden; document.querySelector('header .file').hidden = filenameHidden;
+    $('leading-actions').hidden = hidden.has('pages');
+    let first = true;
+    for (const group of document.querySelectorAll('header nav .tool-group')) {
+      group.hidden = ![...group.children].some(node => !node.hidden);
+      group.dataset.first = String(first && !group.hidden); if (!group.hidden) first = false;
+    }
+  }
+  let automatic = new Set(), annotationsAvailable = !$('annotations').hidden;
+  function reflow() {
+    if (!saved || signal.aborted) return;
+    const base = hiddenToolbarActions(saved).filter(key => key !== 'fullscreen' || canFullscreen);
+    const hidden = new Set(base);
+    automatic = new Set();
+    present(hidden);
+    let overflow = layout.update();
+    if (embedded) for (const key of collapseOrder) {
+      if (!overflow) break;
+      if (hidden.has(key) && key !== 'fit' || key === 'filename' && !saved.showFilename
+        || key === 'annotations' && !annotationsAvailable) continue;
+      hidden.add(key); automatic.add(key); present(hidden); overflow = layout.update();
+    }
+    const next = [...hidden].filter(key => key !== 'fullscreen' || canFullscreen);
+    if (JSON.stringify(next) !== JSON.stringify(actions)) { close(); actions = next; built = false; }
+    setReaderIcon(trigger, actions.length ? 'more' : 'settings');
+    trigger.title = actions.length ? text.moreActions : text.settings;
+    trigger.setAttribute('aria-label', trigger.title);
+    if (actions.length) { trigger.setAttribute('aria-haspopup', 'menu'); trigger.setAttribute('aria-controls', menu.id); trigger.setAttribute('aria-expanded', String(isOpen())); }
+    else { trigger.removeAttribute('aria-haspopup'); trigger.removeAttribute('aria-controls'); trigger.removeAttribute('aria-expanded'); }
+  }
   return {
     refresh,
+    setFullscreenAvailable(value) { const next = !embedded && value === true; if (canFullscreen !== next) { canFullscreen = next; reflow(); } },
+    setAnnotationsAvailable(value) { if (annotationsAvailable !== value) { annotationsAvailable = value; reflow(); } },
     refreshLabels() { trigger.title = actions.length ? text.moreActions : text.settings; trigger.setAttribute('aria-label',trigger.title); refresh(); },
     update(settings) {
-      close(true); actions = hiddenToolbarActions(settings); built = false;
-      const hidden = new Set(actions);
-      for (const [key, ids] of Object.entries(groups)) if (key !== 'fit') for (const id of ids) $(id).hidden = hidden.has(key);
-      $('scale').hidden = hidden.has('fit'); $('scale-input').hidden = !hidden.has('fit');
-      $('leading-actions').hidden = hidden.has('pages');
-      let first = true;
-      for (const group of document.querySelectorAll('header nav .tool-group')) {
-        group.hidden = ![...group.children].some(node => !node.hidden);
-        group.dataset.first = String(first && !group.hidden); if (!group.hidden) first = false;
-      }
-      setReaderIcon(trigger, actions.length ? 'more' : 'settings');
-      trigger.title = actions.length ? text.moreActions : text.settings;
-      trigger.setAttribute('aria-label', trigger.title);
-      if (actions.length) { trigger.setAttribute('aria-haspopup', 'menu'); trigger.setAttribute('aria-controls', menu.id); trigger.setAttribute('aria-expanded', 'false'); }
-      else { trigger.removeAttribute('aria-haspopup'); trigger.removeAttribute('aria-controls'); trigger.removeAttribute('aria-expanded'); }
-      layout.update();
+      close(true); saved = settings; built = false; reflow();
     }
   };
 }

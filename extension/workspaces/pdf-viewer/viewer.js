@@ -67,13 +67,7 @@ function theme(dark, mode = themeMode) {
 }
 function toolbarPreferences(toolbar) {
   document.documentElement.dataset.toolbar = toolbar;
-  const header = document.querySelector('header'), file = header.querySelector('.file'), leading = $('leading-actions');
-  if (toolbar === 'both') header.insertBefore(leading, header.querySelector('nav'));
-  else header.querySelector('.leading-cluster').prepend(leading);
-  if (toolbar === 'filename') header.querySelector('.leading-cluster').append(file);
-  else header.insertBefore(file, header.querySelector('.actions'));
-  file.hidden = toolbar === 'branding' || toolbar === 'none';
-  header.querySelector('.identity').hidden = toolbar === 'filename' || toolbar === 'none';
+  document.querySelector('header .file').hidden = toolbar === 'none';
 }
 function setFilename(value = $('filename').textContent) {
   $('filename').textContent = String(value || 'PDF').slice(0, 1024);
@@ -172,7 +166,7 @@ window.addEventListener('message', event => {
       });
     }
     else if (data?.type === 'ai-preferences') {
-      const next=normalizeSettings(data.preferences);settings={...settings,aiEnabled:next.aiEnabled,aiMode:next.aiMode,aiWebsite:next.aiWebsite,aiProvider:next.aiProvider,aiLanguage:next.aiLanguage,aiIncludeContext:next.aiIncludeContext};aiReader?.preferences(settings);ocr?.refreshAutomatic();
+      const next=normalizeSettings(data.preferences);settings={...settings,aiEnabled:next.aiEnabled,aiMode:next.aiMode,aiWebsite:next.aiWebsite,aiProvider:next.aiProvider,aiLanguage:next.aiLanguage,aiIncludeContext:next.aiIncludeContext};aiReader?.preferences(settings);toolbarMenu?.refresh();ocr?.refreshAutomatic();
     }
     else if (data?.type === 'ai-status') { aiReader?.status(data.state); ocr?.refreshAutomatic(); }
     else if (data?.type === 'clear-selection') readingSelection.clear();
@@ -186,7 +180,7 @@ window.addEventListener('message', event => {
     else if (data?.type === 'theme') theme(data.dark, data.themeMode);
     else if (data?.type === 'toolbar') {
       const next = normalizeSettings(data.toolbar);
-      settings = { ...settings, showFilename: next.showFilename, showBranding: next.showBranding, toolbarHidden: next.toolbarHidden };
+      settings = { ...settings, showFilename: next.showFilename, toolbarHidden: next.toolbarHidden };
       toolbarPreferences(getToolbarMode(settings)); toolbarMenu?.update(settings);
     }
     else if (data?.type === 'dark-paper') setDarkPaper(data.enabled);
@@ -199,8 +193,9 @@ window.addEventListener('message', event => {
       localize(data.locale);
       ocr?.refreshAutomatic();
     }
-    else if (data?.type === 'fullscreen-error') status('fullScreenFailed');
+    else if (data?.type === 'fullscreen-error') toolbarMenu?.setFullscreenAvailable(false);
     else if (data?.type === 'fullscreen') {
+      toolbarMenu?.setFullscreenAvailable(data.available === true);
       fullscreenActive = !!data.active;
       setReaderIcon($('fullscreen'), data.active ? 'fullscreen-exit' : 'fullscreen');
       $('fullscreen').title = text[data.active ? 'exitFullscreen' : 'fullscreen'];
@@ -216,7 +211,7 @@ window.addEventListener('message', event => {
   port.postMessage({type:'ai-refresh'});
   $('scale').value = settings.zoom.startsWith('page-') ? settings.zoom : String(Number(settings.zoom));
   $('scale-input').value = (Number(settings.zoom) > 0 ? Math.round(Number(settings.zoom) * 100) : 100) + '%';
-  toolbarMenu = createToolbarMenu({ text, signal, onSettings: () => emit('settings'), onOcrPanel: () => ocr?.openPanel(), canHoldOcr: () => settings.ocrAction !== 'panel', onFit: value => { if (viewer) viewer.currentScaleValue = value; } });
+  toolbarMenu = createToolbarMenu({ text, signal, embedded: input.embedded === true, canFullscreen: input.canFullscreen === true, onAiToggle: () => aiReader?.toggle(), onSettings: () => emit('settings'), onOcrPanel: () => ocr?.openPanel(), canHoldOcr: () => settings.ocrAction !== 'panel', onFit: value => { if (viewer) viewer.currentScaleValue = value; } });
   toolbarMenu.update(settings);
   appearanceMenu = createAppearanceMenu({text,signal,getMode:()=>themeMode,onChoose:mode=>port?.postMessage({type:'theme',mode})});
   // Keep form navigation forbidden by the sandbox, including method=dialog.
@@ -471,7 +466,7 @@ async function renderLinks(number, linkService) {
   const annotations = await pageView.pdfPage.getAnnotations({ intent: 'display' }).catch(() => []);
   if (destroyed || pageView.viewport !== viewport || !pageView.canvas) return;
   pageView.div.querySelector('.pdf-links')?.remove();
-  if (annotations.some(item => item && !['Link','Popup'].includes(item.subtype))) $('annotations').hidden = false;
+  if (annotations.some(item => item && !['Link','Popup'].includes(item.subtype))) toolbarMenu?.setAnnotationsAvailable(true);
   if (!settings.links) return;
   const layer = document.createElement('div'); layer.className = 'pdf-links';
   for (const item of annotations.slice(0, 1000)) {

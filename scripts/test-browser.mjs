@@ -2,6 +2,7 @@ import {handleModelMock,prepareModelMock,runModelsQa} from './qa-models.mjs';
 import {reviewedPdf} from '../test/fixtures/reviewed-pdf.mjs';
 import {runReviewQa} from './qa-review.mjs';
 import {embeddedResponse,runEmbeddedQa} from './qa-embedded.mjs';
+import {runToolbarQa} from './qa-toolbar.mjs';
 // Isolated integration QA. Requires an external Playwright installation; no runtime dependency.
 import assert from 'node:assert/strict';
 import {auditPdfLifecycle,savePdfAudit} from './qa-pdf-lifecycle.mjs';
@@ -25,7 +26,7 @@ const server=createServer((req,res)=>{
  if(process.env.PDF_QA==='models'&&handleModelMock(req,res))return;
  if(['ai','models'].includes(process.env.PDF_QA)&&handleAiMock(req,res))return;
  if(['ai-web','selection'].includes(process.env.PDF_QA)&&handleWebAiMock(req,res))return;
- if(process.env.PDF_QA==='embedded'&&embeddedResponse(req,res,englishScan))return;
+ if(['embedded','toolbar'].includes(process.env.PDF_QA)&&embeddedResponse(req,res,englishScan))return;
  const path=req.url.split('?')[0];
  if(path==='/reviewed'){res.setHeader('Content-Type','application/pdf');res.end(reviewedPdf());return;}
  if(path==='/referer.pdf'){if(req.headers['sec-fetch-dest']==='empty'&&req.headers.referer!==base+'/'){res.writeHead(403);res.end('Missing source-origin referer');return;}res.setHeader('Content-Type','application/pdf');res.end(reviewedPdf());return;}
@@ -86,9 +87,9 @@ const delay=ms=>new Promise(r=>setTimeout(r,ms));
     await frame.evaluate(()=>{qaRestoreCopy();getSelection().removeAllRanges();});
   }
 async function chooseToolbar(root,mode){
- const showFilename=mode==='both'||mode==='filename',showBranding=mode==='both'||mode==='branding';
- await root.locator('#showFilename').setChecked(showFilename);await root.locator('#showBranding').setChecked(showBranding);
- await root.waitForFunction(async({showFilename,showBranding})=>{const s=(await chrome.storage.local.get('settings')).settings;return s.showFilename===showFilename&&s.showBranding===showBranding;},{showFilename,showBranding});
+ const showFilename=mode==='filename';
+ await root.locator('#showFilename').setChecked(showFilename);
+ await root.waitForFunction(async showFilename=>(await chrome.storage.local.get('settings')).settings.showFilename===showFilename,showFilename);
 }
 async function checkToolbarLayout(page,frame,width,wrap){
  await page.setViewportSize({width,height:960});
@@ -96,7 +97,7 @@ async function checkToolbarLayout(page,frame,width,wrap){
  const layout=await frame.evaluate(async()=>{
   await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
   const header=document.querySelector('header'),nav=header.querySelector('nav').getBoundingClientRect(),actions=header.querySelector('.actions').getBoundingClientRect();
-  const controls=[...header.querySelectorAll('button:not(#filename),#page,#count,#scale,#scale-input,.identity,.file')].map(n=>({id:n.id||n.className,b:n.getBoundingClientRect()})).filter(n=>n.b.width&&n.b.height);
+  const controls=[...header.querySelectorAll('button:not(#filename),#page,#count,#scale,#scale-input,.file')].map(n=>({id:n.id||n.className,b:n.getBoundingClientRect()})).filter(n=>n.b.width&&n.b.height);
   const collisions=[];
   for(let i=0;i<controls.length;i++)for(let j=i+1;j<controls.length;j++){
    const a=controls[i],b=controls[j];if(Math.min(a.b.right,b.b.right)-Math.max(a.b.left,b.b.left)>1&&Math.min(a.b.bottom,b.b.bottom)-Math.max(a.b.top,b.b.top)>1)collisions.push(a.id+' / '+b.id);
@@ -142,6 +143,8 @@ try{
   await runModelsQa({context,worker,page,settings,open,report});
  }else if(process.env.PDF_QA==='review'){
   await runReviewQa({context,worker,page,reader,settings,base,folder,report,open});
+ }else if(process.env.PDF_QA==='toolbar'){
+  await runToolbarQa({context,worker,page,reader,settings,base,folder,report,open});
  }else if(process.env.PDF_QA==='embedded'){
   await runEmbeddedQa({context,worker,page,reader,settings,base,folder,report,setScan:bytes=>{englishScan=bytes;},open});
  }else if(process.env.PDF_QA==='appearance'){
@@ -226,14 +229,14 @@ try{
   const prefs=await context.newPage();await prefs.goto(settings);await prefs.waitForSelector('#sampling');
   await prefs.evaluate(()=>{
     const edit=(id,value)=>{const e=document.getElementById(id);if(e.type==='checkbox')e.checked=value;else e.value=value;e.dispatchEvent(new Event('change',{bubbles:true}));};
-    edit('sampling','3');edit('locale','zh-CN');edit('showBranding',true);edit('hide-print',false);
+    edit('sampling','3');edit('locale','zh-CN');edit('showFilename',false);edit('hide-print',false);
   });
-  await prefs.waitForFunction(async()=>{const s=(await chrome.storage.local.get('settings')).settings;return s?.sampling===3&&s.locale==='zh-CN'&&s.showBranding&&s.toolbarHidden.print===false;});
-  assert.equal(await prefs.locator('#sampling').inputValue(),'3');assert.equal(await prefs.locator('#showBranding').isChecked(),true);assert.equal(await prefs.locator('#hide-print').isChecked(),false);
+  await prefs.waitForFunction(async()=>{const s=(await chrome.storage.local.get('settings')).settings;return s?.sampling===3&&s.locale==='zh-CN'&&s.showFilename===false&&s.toolbarHidden.print===false;});
+  assert.equal(await prefs.locator('#sampling').inputValue(),'3');assert.equal(await prefs.locator('#showFilename').isChecked(),false);assert.equal(await prefs.locator('#hide-print').isChecked(),false);
   await prefs.evaluate(()=>window.qaSettingsIdle);
-  await prefs.evaluate(()=>chrome.storage.local.set({settings:{locale:'en-US',sampling:5,showBranding:false}}));
+  await prefs.evaluate(()=>chrome.storage.local.set({settings:{locale:'en-US',sampling:5,showFilename:true}}));
   await prefs.waitForFunction(()=>document.documentElement.lang==='en-US'&&document.getElementById('sampling').value==='5');
-  assert.equal(await prefs.locator('#showBranding').isChecked(),false);
+  assert.equal(await prefs.locator('#showBranding').count(),0);
   await checkFrame.evaluate(()=>document.querySelector('#native').click());await page.waitForURL(base+'/lifecycle');
   assert.ok((await worker.evaluate(()=>chrome.declarativeNetRequest.getSessionRules())).some(r=>r.action.type==='allow'&&r.condition.tabIds?.length===1));
   report.checks.push('native reader handover retains a tab-scoped exception');
@@ -331,7 +334,7 @@ try{
  // Homepage Settings must add history within the same tab, without starting PDF workers.
  await page.goto(reader);await page.waitForSelector('#settings');assert.equal(await page.locator('iframe').count(),0);
  const tabsBefore=context.pages().length;await page.locator('#settings').click();await page.waitForURL(settings);
- assert.equal(context.pages().length,tabsBefore);assert.equal(await page.locator('.wordmark h1').textContent(),'Cosmic PDF');assert.equal(await page.locator('.wordmark>span').textContent(),'Settings');assert.equal(await page.locator('#toolbarHidden label svg').count(),11);assert.equal(await page.locator('#toolbarHidden .default-hint').first().evaluate(n=>getComputedStyle(n).color!==getComputedStyle(n.parentElement).color),true);assert.equal(await page.locator('#preserveDarkPaper').isChecked(),true);assert.equal(await page.locator('#showFilename').isChecked(),true);assert.equal(await page.locator('#showBranding').isChecked(),false);assert.equal(await page.locator('#ocrAction').inputValue(),'page');assert.equal(await page.locator('#useChromeFind').isChecked(),true);assert.deepEqual(await page.locator('#ocrLanguages input:checked').evaluateAll(nodes=>nodes.map(n=>n.value)),['eng','chi_sim']);await page.locator('#ocrAction').selectOption('panel');await page.waitForFunction(async()=>(await chrome.storage.local.get('settings')).settings?.ocrAction==='panel');await page.goBack();await page.waitForURL(reader);await page.waitForSelector('#open-file');
+ assert.equal(context.pages().length,tabsBefore);assert.equal(await page.locator('.wordmark h1').textContent(),'Cosmic PDF');assert.equal(await page.locator('.wordmark>span').textContent(),'Settings');assert.equal(await page.locator('#toolbarHidden label svg').count(),11);assert.equal(await page.locator('#toolbarHidden .default-hint').first().evaluate(n=>getComputedStyle(n).color!==getComputedStyle(n.parentElement).color),true);assert.equal(await page.locator('#preserveDarkPaper').isChecked(),true);assert.equal(await page.locator('#showFilename').isChecked(),true);assert.equal(await page.locator('#showBranding').count(),0);assert.equal(await page.locator('#ocrAction').inputValue(),'page');assert.equal(await page.locator('#useChromeFind').isChecked(),true);assert.deepEqual(await page.locator('#ocrLanguages input:checked').evaluateAll(nodes=>nodes.map(n=>n.value)),['eng','chi_sim']);await page.locator('#ocrAction').selectOption('panel');await page.waitForFunction(async()=>(await chrome.storage.local.get('settings')).settings?.ocrAction==='panel');await page.goBack();await page.waitForURL(reader);await page.waitForSelector('#open-file');
  await page.goForward();await page.waitForURL(settings);
  const beforeReturn=context.pages().length;await page.locator('#open-reader').click();await page.waitForURL(reader);assert.equal(context.pages().length,beforeReturn);await page.goBack();await page.waitForURL(settings);
  // Hide the complete dark-paper row only for an explicitly Light appearance,
@@ -381,7 +384,7 @@ try{
  }
  await page.emulateMedia({colorScheme:'light'});report.checks.push('toolbar visible and interactive during slow loading in both themes; parser worker prewarmed; divider progress causes no layout shift; factory toolbar items hidden');
  // Preserve coverage of the optional original two-row layout as well.
- await worker.evaluate(async()=>{const {settings={}}=await chrome.storage.local.get('settings');await chrome.storage.local.set({settings:{...settings,showFilename:true,showBranding:true,toolbarHidden:Object.fromEntries(['pages','find','paging','zoom','fit','rotate','fullscreen','ocr','print','properties','native'].map(k=>[k,false]))}});});
+ await worker.evaluate(async()=>{const {settings={}}=await chrome.storage.local.get('settings');await chrome.storage.local.set({settings:{...settings,showFilename:true,toolbarHidden:Object.fromEntries(['pages','find','paging','zoom','fit','rotate','fullscreen','ocr','print','properties','native'].map(k=>[k,false]))}});});
  await go(base+'/links');await page.locator('a').click();await page.waitForURL(url=>url.href.startsWith(reader+'?source='));await page.waitForFunction(()=>document.documentElement.dataset.view==='reader');
  await page.goBack();await page.waitForURL(base+'/links');await page.goForward();await page.waitForURL(url=>url.href.startsWith(reader+'?source='));await page.waitForFunction(()=>document.documentElement.dataset.view==='reader');
  report.checks.push('website PDF link preserves Back/Forward history and restores the reader');
@@ -469,29 +472,26 @@ try{
  await frame.locator('#properties-list').click();assert.equal(await frame.locator('#properties-dialog').evaluate(n=>n.open),true);await page.mouse.click(8,8);await frame.waitForFunction(()=>!document.querySelector('#properties-dialog').open);await frame.locator('#properties').click();await frame.waitForFunction(()=>!document.querySelector('#properties-status').textContent);
  report.checks.push('live date formats, explicit time zones, spaced Chinese dates, properties dialog outside dismissal; live reader localization without reparse');
 assert.match(await frame.locator('[data-property=pageSize]').textContent(),/215.9 × 297.04 mm/);
- await page.setViewportSize({width:360,height:850});await frame.waitForFunction(()=>document.documentElement.dataset.toolbarWrap==='true');assert.equal(await frame.evaluate(()=>document.querySelector('header .file').getBoundingClientRect().top>=document.querySelector('header .actions').getBoundingClientRect().bottom),true);assert.equal(await frame.locator('#properties-dialog').evaluate(n=>n.getBoundingClientRect().width<=innerWidth&&n.scrollWidth<=n.clientWidth),true);await page.screenshot({path:join(folder,'properties-dark-zh-narrow.png')});await frame.locator('#properties-close').click();await page.setViewportSize({width:1360,height:960});
+ await page.setViewportSize({width:360,height:850});await frame.waitForFunction(()=>document.documentElement.dataset.toolbarWrap==='true');assert.equal(await frame.evaluate(()=>document.querySelector('header .file').getBoundingClientRect().right<=document.querySelector('header .actions').getBoundingClientRect().left),true);assert.equal(await frame.locator('#properties-dialog').evaluate(n=>n.getBoundingClientRect().width<=innerWidth&&n.scrollWidth<=n.clientWidth),true);await page.screenshot({path:join(folder,'properties-dark-zh-narrow.png')});await frame.locator('#properties-close').click();await page.setViewportSize({width:1360,height:960});
  report.checks.push('localized document properties reflow within a narrow viewport');
  // Toolbar preferences update the existing reader without reparsing the PDF.
  await frame.evaluate(()=>window.qaOriginalDocument=qaViewer.pdfDocument);
- await chooseToolbar(prefs,'branding');
- await frame.waitForFunction(()=>document.querySelector('.file').hidden);assert.equal(await frame.locator('.identity').isVisible(),true);
+ await chooseToolbar(prefs,'none');
+ await frame.waitForFunction(()=>document.querySelector('.file').hidden);
  assert.equal(await frame.evaluate(()=>qaViewer.pdfDocument===window.qaOriginalDocument),true);
- frame=await open('/branding');assert.equal(await frame.locator('.file').isVisible(),false);assert.equal(await frame.locator('.identity').isVisible(),true);
- assert.equal(await frame.locator('#appearance-actions').count(),0);assert.equal(await frame.locator('#primary-actions > button').first().getAttribute('id'),'ai-toggle');
- const compactHeight=await frame.locator('header').evaluate(n=>n.getBoundingClientRect().height);assert.ok(compactHeight<60);
- await checkToolbarLayout(page,frame,1101,false);await checkToolbarLayout(page,frame,720,true);await page.setViewportSize({width:1360,height:960});
+ assert.equal(await frame.locator('.identity').count(),0);
  await chooseToolbar(prefs,'filename');
- await frame.waitForFunction(()=>document.querySelector('.identity').hidden);
+ await frame.waitForFunction(()=>!document.querySelector('.file').hidden);
  frame=await open('/An exceptionally long PDF filename that must fit without overlapping other toolbar controls.pdf');
- assert.equal(await frame.locator('.identity').isVisible(),false);assert.equal(await frame.locator('#filename').isVisible(),true);
+ assert.equal(await frame.locator('.identity').count(),0);assert.equal(await frame.locator('#filename').isVisible(),true);
  const filenameBox=await frame.locator('.file').boundingBox();assert.ok(filenameBox.width<=320);assert.ok(filenameBox.x>50);assert.ok(filenameBox.x-(await frame.locator('#sidebar-toggle').boundingBox()).x>=46);
  assert.deepEqual(await frame.locator('#filename').evaluate(n=>{const s=getComputedStyle(n);return [s.textOverflow,s.fontWeight,s.fontSize];}),['ellipsis','400','15px']);
  const filenameInset=await frame.locator('#filename').evaluate(n=>n.parentElement.getBoundingClientRect().width-n.getBoundingClientRect().width);assert.ok(filenameInset>=12&&filenameInset<=24,`filename display inset: ${filenameInset}px`);
  await page.screenshot({path:join(folder,'toolbar-filename.png')});await page.setViewportSize({width:360,height:850});await page.screenshot({path:join(folder,'toolbar-filename-narrow.png')});
  const narrowFilename=await frame.evaluate(()=>{const file=document.querySelector('.file'),a=file.getBoundingClientRect(),b=document.querySelector('.actions').getBoundingClientRect();return {file:a.toJSON(),actions:b.toJSON(),overflow:document.documentElement.scrollWidth,viewport:innerWidth,style:getComputedStyle(file).cssText,text:document.querySelector('#filename').textContent};});assert.ok(narrowFilename.file.right<=narrowFilename.actions.left&&narrowFilename.overflow<=narrowFilename.viewport,JSON.stringify(narrowFilename));
- await page.setViewportSize({width:1360,height:960});await prefs.reload();await prefs.waitForSelector('#showFilename');assert.equal(await prefs.locator('#showFilename').isChecked(),true);assert.equal(await prefs.locator('#showBranding').isChecked(),false);
+ await page.setViewportSize({width:1360,height:960});await prefs.reload();await prefs.waitForSelector('#showFilename');assert.equal(await prefs.locator('#showFilename').isChecked(),true);assert.equal(await prefs.locator('#showBranding').count(),0);
  await frame.evaluate(()=>window.qaBeforeHideBoth=qaViewer.pdfDocument);
- await chooseToolbar(prefs,'none');await frame.waitForFunction(()=>document.querySelector('.identity').hidden&&document.querySelector('.file').hidden);
+ await chooseToolbar(prefs,'none');await frame.waitForFunction(()=>document.querySelector('.file').hidden);
  assert.equal(await frame.locator('#appearance-actions').count(),0);assert.equal(await frame.evaluate(()=>qaViewer.pdfDocument===window.qaBeforeHideBoth),true);
  for(const width of [1101,1180,1201,1360]){
   await page.setViewportSize({width,height:960});
@@ -509,11 +509,11 @@ assert.match(await frame.locator('[data-property=pageSize]').textContent(),/215.
  await page.emulateMedia({colorScheme:'dark'});await frame.waitForFunction(()=>document.documentElement.dataset.dark==='false');
  await frame.locator('#theme').click();await frame.waitForFunction(()=>document.documentElement.dataset.dark==='true');await page.emulateMedia({colorScheme:'light'});await frame.waitForFunction(()=>document.documentElement.dataset.dark==='false');
  await prefs.locator('#appearance').selectOption('dark');await prefs.waitForFunction(async()=>(await chrome.storage.local.get('settings')).settings.appearance==='dark');
- await chooseToolbar(prefs,'both');
- frame=await open('/both');assert.equal(await frame.locator('.identity').isVisible(),true);assert.equal(await frame.locator('.file').isVisible(),true);
+ await chooseToolbar(prefs,'filename');
+ frame=await open('/filename');assert.equal(await frame.locator('.identity').count(),0);assert.equal(await frame.locator('.file').isVisible(),true);
  assert.equal(await frame.locator('header').evaluate(n=>getComputedStyle(n).paddingTop),'6px');assert.equal(await frame.locator('#appearance-actions').count(),0);
  await frame.locator('#theme').click();await frame.waitForFunction(()=>document.documentElement.dataset.dark==='false');await frame.locator('#theme').click();await frame.waitForFunction(()=>document.documentElement.dataset.dark==='true');
- report.checks.push('persisted toolbar checkboxes, all four combinations, live preference updates, compact layouts, long filenames and explicit theme defaults');
+ report.checks.push('persisted toolbar checkboxes, filename visibility, live preference updates, compact layouts, long filenames and explicit theme defaults');
  assert.deepEqual(await frame.locator('#ocr-languages input:checked').evaluateAll(nodes=>nodes.map(n=>n.value)),['eng','chi_tra']);
  const defaultChecks=await prefs.locator('#ocrLanguages input:checked').evaluateAll(nodes=>nodes.map(n=>n.value));await prefs.reload();await prefs.waitForSelector('#ocrLanguages input');assert.deepEqual(await prefs.locator('#ocrLanguages input:checked').evaluateAll(nodes=>nodes.map(n=>n.value)),defaultChecks);
  await chooseLanguages(prefs,'#ocrLanguages',['chi_sim','chi_tra']);await prefs.waitForFunction(async()=>(await chrome.storage.local.get('settings')).settings.ocrLanguages.join('+')==='chi_sim+chi_tra');
@@ -599,7 +599,7 @@ assert.match(await frame.locator('[data-property=pageSize]').textContent(),/215.
  await prefs.setViewportSize({width:1100,height:900});await page.setViewportSize({width:1360,height:960});await chooseToolbar(prefs,'none');
  frame=await open('/overflow');await frame.evaluate(()=>window.qaOverflowDoc=qaViewer.pdfDocument);
  assert.equal(await frame.locator('#settings').getAttribute('aria-haspopup'),'menu');assert.equal(await frame.locator('#sidebar-toggle').evaluate(n=>n.getBoundingClientRect().left<25),true);
- for(const mode of ['both','filename','branding','none']){
+ for(const mode of ['filename','none']){
   await chooseToolbar(prefs,mode);await frame.waitForFunction(mode=>document.documentElement.dataset.toolbar===mode,mode);
   assert.deepEqual(await prefs.locator('#toolbarHidden input:checked').evaluateAll(nodes=>nodes.map(n=>n.id)),['hide-find','hide-paging','hide-fit','hide-print','hide-properties','hide-native']);
   assert.equal(await frame.locator('#native').isVisible(),false);
@@ -608,9 +608,9 @@ assert.match(await frame.locator('[data-property=pageSize]').textContent(),/215.
   assert.equal(await frame.locator('#theme').getAttribute('title'),'切换浅色／深色模式');
   assert.equal(await frame.locator('#sidebar-toggle').evaluate(n=>n.getBoundingClientRect().left<25),true);
   assert.equal(await frame.locator('#theme-auto').count(),0);
-  if(mode==='filename'||mode==='both'){await frame.locator('#filename').click();await frame.waitForSelector('#properties-dialog[open]');await frame.locator('#properties-close').click();}
-  if(mode==='filename'||mode==='branding'){
-   const layout=await frame.evaluate(mode=>{const page=document.querySelector('#sidebar-toggle').getBoundingClientRect(),content=document.querySelector(mode==='filename'?'.file':'.identity').getBoundingClientRect(),nav=document.querySelector('nav').getBoundingClientRect();return {gap:content.left-page.right,end:content.right,nav:nav.left};},mode);
+  if(mode==='filename'){await frame.locator('#filename').click();await frame.waitForSelector('#properties-dialog[open]');await frame.locator('#properties-close').click();}
+  if(mode==='filename'){
+   const layout=await frame.evaluate(mode=>{const page=document.querySelector('#sidebar-toggle').getBoundingClientRect(),content=document.querySelector('.file').getBoundingClientRect(),nav=document.querySelector('nav').getBoundingClientRect();return {gap:content.left-page.right,end:content.right,nav:nav.left};},mode);
    assert.ok(layout.gap>=11&&layout.end<=layout.nav,JSON.stringify(layout));
   }
   await page.screenshot({path:join(folder,'default-hidden-'+mode+'.png')});
@@ -652,7 +652,7 @@ assert.match(await frame.locator('[data-property=pageSize]').textContent(),/215.
  for(const key of actionKeys)await prefs.locator('#hide-'+key).uncheck();await prefs.waitForFunction(async keys=>{const h=(await chrome.storage.local.get('settings')).settings.toolbarHidden;return keys.every(k=>h[k]===false);},actionKeys);
  frame=await open('/all-visible');assert.equal(await frame.locator('#settings').getAttribute('aria-haspopup'),null);assert.equal(await frame.locator('#scale').isVisible(),true);assert.equal(await frame.locator('#scale-input').isVisible(),false);
  await checkToolbarLayout(page,frame,1101,false);await checkToolbarLayout(page,frame,760,true);await checkToolbarLayout(page,frame,1101,false);
- for(const mode of ['filename','branding']){await chooseToolbar(prefs,mode);await frame.waitForFunction(mode=>document.documentElement.dataset.toolbar===mode,mode);await checkToolbarLayout(page,frame,1101,false);await checkToolbarLayout(page,frame,760,true);await checkToolbarLayout(page,frame,1101,false);}
+ for(const mode of ['filename']){await chooseToolbar(prefs,mode);await frame.waitForFunction(mode=>document.documentElement.dataset.toolbar===mode,mode);await checkToolbarLayout(page,frame,1101,false);await checkToolbarLayout(page,frame,760,true);await checkToolbarLayout(page,frame,1101,false);}
  report.checks.push('content-measured single-row toolbar for each compact mode, hidden/visible groups, narrow fallback, and resize recovery without overlaps');
  const priorSettingsClosed=prefs.waitForEvent('close');const directPopup=context.waitForEvent('page');await frame.locator('#settings').click();const direct=await directPopup;await direct.waitForURL(settings);assert.equal((await direct.evaluate(()=>chrome.tabs.getCurrent())).index,(await page.evaluate(()=>chrome.tabs.getCurrent())).index+1);await priorSettingsClosed;prefs=direct;observe(prefs);await spacer.close();await prefs.reload();await prefs.waitForSelector('#toolbarHidden');assert.equal(await prefs.locator('#toolbarHidden input:checked').count(),0);
  report.checks.push('explicit all-visible settings persist and restore direct adjacent Settings navigation');
