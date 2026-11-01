@@ -2,11 +2,16 @@
 
 ## 26.10.31.1 — 2026-10-31
 
-- Improve PDF navigation, browser compatibility, and loading lifecycle reliability.
+- Keep the reader's address stable when reopening, duplicating, or restoring PDF tabs across browser sessions, while using a separate temporary entry for automatic opening.
+- Apply page-number link changes to the document already open, including changes received during loading and browser Back/Forward navigation, without downloading or parsing it again.
+- Clean up loading state and temporary request headers when an embedded PDF frame is removed or the reader closes, and cancel outdated Chrome-reader or AI-website handoffs when the source page changes.
+- Adopt calendar versioning in the form YY.M.D.NUM, with a sequential revision number for each day.
 
 ## 3.2.32 — 2026-10-31
 
-- Improve PDF opening and navigation reliability across browser sessions.
+- Allow PDF addresses selected as plain text to open through Chrome's Go to command instead of being blocked during automatic reader takeover.
+- Refresh PDF-opening rules after Chrome restarts or the extension reloads, preserving full document query parameters and page fragments.
+- Keep reader identity consistent when returning to Chrome's viewer or opening the AI companion page.
 - Require Chrome 130 or later for the updated reader entry.
 
 ## 3.2.31 — 2026-10-28
@@ -15,7 +20,8 @@
 
 ## 3.2.30 — 2026-10-25
 
-- Improve dark-paper recognition and scrolling with bounded directional pre-rendering.
+- Preserve verified dark-paper PDFs with colored or gradient image backgrounds instead of turning them bright in dark mode.
+- Prepare nearby pages in the scrolling direction and retain more lightweight page previews, reducing loading gaps during fast scrolling while keeping detailed rendering focused on the visible area.
 
 ## 3.2.29 — 2026-10-25
 
@@ -23,18 +29,22 @@
 
 ## 3.2.28 — 2026-10-22
 
-- Filter dedicated image and video generation models from AI model choices, including cached lists.
+- Remove dedicated image- and video-generation models from both freshly fetched and previously saved model lists, keeping explanation choices focused on text-capable models.
 
 ## 3.2.27 — 2026-10-21
 
-- Add per-service API model selection and manual model-list refresh, retaining provider order and marking recommended families.
-- Unify Settings dropdown menus and refine API setup interactions.
+- Choose and save a separate API model for Google Gemini, OpenAI, and Anthropic Claude, with the existing models retained as initial choices.
+- Fetch the latest model list manually and open all eligible returned choices in the provider's own order. Mark Flash-Lite, Luna, and Haiku families as recommended without automatically changing the selection.
+- Keep the previous successful list and selected model when a refresh fails or is cancelled, and identify a saved model that is no longer in the returned list.
+- Use consistent custom dropdown menus throughout Settings, with aligned panels, keyboard navigation, and clearer service/key/model setup.
 
 ## 3.2.26 — 2026-10-21
 
-- Display existing annotations and filled forms, with a per-reader visibility switch.
-- Hand printing to Chrome using the original PDF.
-- Support page-number links, improve protected and slow PDF loading, and raise the file limit to 128 MB.
+- Display existing annotations, markup, and filled form appearances in pages and thumbnails. Show a toolbar switch when these are detected, allowing them to be hidden for the current reader without changing the PDF.
+- Print the original PDF through Chrome and the operating system, preserving original detail and removing the reader's raster-print page limit. The annotation visibility switch does not alter printed or downloaded originals.
+- Open page-number links at their requested destination, with out-of-range values clamped to the document.
+- Raise the file limit to 128 MB and replace the fixed download deadline with a timeout renewed while bytes continue arriving, improving slow transfers.
+- Improve protected PDF loading with a temporary, narrowly scoped source-origin Referer for the reader's document request.
 
 ## 3.2.25 — 2026-10-21
 
@@ -50,8 +60,9 @@
 
 ## 3.2.21 — 2026-10-20
 
-- Preserve native text-selection shortcuts in the PDF reader.
-- Improve local-file retries, thumbnail cancellation, print cleanup, theme backdrops, and protection against late updates after closing a reader.
+- Preserve native modified-arrow and Home/End text-selection shortcuts, and leave typing and IME composition unaffected by page navigation.
+- Allow a local-file retry after selecting the same file again, and stop obsolete thumbnail and print work when the reader is hidden, rotated, or closed.
+- Keep the host background synchronized with the selected appearance and prevent delayed dialogs, rendering results, or channel replies from updating a closed reader.
 
 ## 3.2.20 — 2026-10-19
 
@@ -59,12 +70,13 @@
 
 ## 3.2.19 — 2026-10-19
 
-- Support PDF opening within webpages and improve automatic takeover of downloaded/local PDFs, with Chrome-reader fallback.
-- Add independent automatic current-page text recognition, including when Explain with AI is off.
+- Open supported PDFs inside webpage frames, embedded viewers, and object elements in Cosmic PDF, retaining the original embedded position and Chrome-reader fallback.
+- Improve opening downloaded and local PDFs through Chrome when the extension has file access.
+- Add an independent automatic-recognition option for a current page without a text layer. It works with Explain with AI off and does not require an AI account or API key.
 
 ## 3.2.18 — 2026-10-17
 
-- Add a right-click appearance menu with Auto, Light and Dark choices, while keeping one-click switching.
+- Add a right-click appearance menu with Auto, Light, and Dark choices, while keeping one-click switching.
 
 ## 3.2.17 — 2026-10-17
 
@@ -83,7 +95,8 @@
 
 ## 3.2.13 — 2026-10-17
 
-- Format API explanations with common Markdown, including emphasis, headings, unindented lists, quotes, code and tables, without running HTML or loading external content.
+- Render common Markdown in API explanations, including emphasis, headings, lists, quotes, code, and tables, while keeping HTML inert and external content unloaded.
+- Keep lists and nested formatting compact in the narrow AI panel, avoiding unnecessary indentation and allowing wide code and tables to scroll locally.
 - Tighten the space above Include nearby paragraphs.
 
 ## 3.2.12 — 2026-10-17
@@ -121,15 +134,15 @@
 
 ## 3.2.4 — 2026-10-13
 
-- Redesign saved API keys as per-service rows with separate add/replace inputs, connection testing, Stop and individual deletion.
+- Redesign saved API keys as per-service rows with separate add/replace inputs, connection testing, Stop, and individual deletion.
 - Remove the bulk-delete button and clear the encryption root when the final saved key is deleted.
-- Use compact non-streaming connection checks and distinguish key, project, model, quota, network and service errors without exposing provider details.
+- Use compact non-streaming connection checks and distinguish key, project, model, quota, network, and service errors without exposing provider details.
 
 ## 3.2.3 — 2026-10-13
 
-- Clear PDF text selections when clicking elsewhere or changing focus, while preserving AI handoff and native copy gestures.
-- Use recognized text for AI selections and nearby context without mixing in superseded native layers.
-- Recognize textless current pages automatically when AI explanations are enabled, with bounded work and manual-recognition priority.
+- Clear PDF text selection when clicking elsewhere or changing focus, including split-view reading, while preserving the selected text needed for an AI handoff and native copy gestures.
+- Use explicitly recognized text for both the AI selection and nearby paragraphs, excluding the superseded original text layer from context.
+- When AI explanations are usable, automatically recognize the stable current page if it has no text layer. Keep this work bounded, cancellable, and subordinate to manual recognition.
 
 ## 3.2.2 — 2026-10-13
 
@@ -138,9 +151,9 @@
 
 ## 3.2.1 — 2026-10-13
 
-- Add Bring Your Own AI via Subscription for ChatGPT and Claude, alongside Built-in AI via API, with radio choices and website mode selected by default.
-- Open prefilled questions beside the PDF where Chrome supports automatic split view, with an adjacent-tab fallback and companion-tab reuse.
-- Keep complete longer questions available for copying, and preserve existing API keys and preferences.
+- Add Bring Your Own AI via Subscription for existing ChatGPT and Claude accounts alongside Built-in AI via API, with radio choices and ChatGPT website mode initially selected.
+- Open a prefilled question beside the PDF when Chrome supports split view, otherwise use an adjacent tab. Reuse the PDF's companion tab for later questions.
+- Keep complete longer questions available for copying when they exceed the handoff link limit, and preserve existing API keys and preferences.
 
 ## 3.1.1 — 2026-10-13
 
@@ -163,9 +176,9 @@
 
 ## 2.3.1 — 2026-09-25
 
-- Keep settings consistent during rapid edits, language changes, and delayed storage updates.
-- Strengthen recovery and cleanup when returning to Chrome's PDF reader.
-- Improve PDF dialog cancellation, keyboard handling, and page-number validation.
+- Keep pending Settings edits consistent through language changes, rapid input, and delayed storage replies, so an older save does not overwrite a newer choice.
+- Recover cleanly when returning to Chrome's PDF reader and release temporary reader resources after cancellation or departure.
+- Validate page numbers and handle cancelled dialogs and keyboard input without applying delayed actions to a closed reader.
 
 ## 2.2.2 — 2026-09-24
 
@@ -209,7 +222,7 @@
 
 ## 1.2.13 — 2026-09-23
 
-- Slightly narrow the toolbar filename while preserving its size, ellipsis and document properties shortcut.
+- Slightly narrow the toolbar filename while preserving its size, ellipsis, and document properties shortcut.
 
 ## 1.2.12 — 2026-09-23
 
@@ -292,12 +305,12 @@
 
 ## 1.1.2
 
-- Align Settings, the opening screen and reader controls with Cosmic Gemini’s visual style, with a new document icon and clearer UI typography.
-- Replace OCR language presets with independent English, Simplified Chinese and Traditional Chinese checkboxes.
+- Align Settings, the opening screen, and reader controls with Cosmic Gemini’s visual style, with a new document icon and clearer UI typography.
+- Replace OCR language presets with independent English, Simplified Chinese, and Traditional Chinese checkboxes.
 
 ## 1.1.1
 
 - Introduce Cosmic PDF, an independent Chrome PDF reader derived from Cosmic Gemini's PDF Viewer feature.
-- Add automatic opening of supported PDFs, light/dark themes and a return-to-Chrome-reader control.
-- Add offline English, Simplified Chinese and Traditional Chinese OCR with selectable and copyable results.
-- Provide reading, rendering and OCR preferences in English and Simplified Chinese.
+- Add automatic opening of supported PDFs, light/dark themes, and a return-to-Chrome-reader control.
+- Add offline English, Simplified Chinese, and Traditional Chinese OCR with selectable and copyable results.
+- Provide reading, rendering, and OCR preferences in English and Simplified Chinese.
