@@ -3,6 +3,7 @@ import { normalizeAiRequest } from '../../core/ai.js';
 import { webExplanation, isAiWebsite } from '../../core/ai-web.js';
 import { readSettings } from '../../core/settings.js';
 import { readerPageURL, withoutHash } from '../../core/source.js';
+import { MIME_READER_PATH } from '../../core/mime-source.js';
 // Only paired tab IDs survive worker suspension. No question, URL, file name,
 // account information or conversation is stored or read by this capability.
 export function createAiWebsiteProduct({runtime=chrome.runtime,tabs=chrome.tabs,session=chrome.storage.session,read=readSettings}={}) {
@@ -11,7 +12,7 @@ export function createAiWebsiteProduct({runtime=chrome.runtime,tabs=chrome.tabs,
   const signature=settings=>JSON.stringify(preferenceKeys.map(key=>settings[key]));
   const serialize=task=>{const job=queue.catch(()=>{}).then(task);queue=job;return job;};
   const readerURL=readerPageURL(runtime);
-  function isReader(url){return typeof url==='string'&&(url===readerURL||url.startsWith(readerURL+'?')||url.startsWith(readerURL+'#'));}
+  function isReader(url){return typeof url==='string'&&[readerURL,runtime.getURL(MIME_READER_PATH)].some(page=>url===page||url.startsWith(page+'?')||url.startsWith(page+'#'));}
   function authorize(sender){
     if(!isReaderSender(sender,runtime)||!sender.documentId)throw Error('invalidRequest');
   }
@@ -19,7 +20,7 @@ export function createAiWebsiteProduct({runtime=chrome.runtime,tabs=chrome.tabs,
     if(job.cancelled)throw Error('cancelled');
     const [source,contexts]=await Promise.all([tabs.get(sender.tab.id),runtime.getContexts({documentIds:[sender.documentId],contextTypes:['TAB']})]);
     if(job.cancelled||!contexts.some(c=>c.documentId===sender.documentId&&c.tabId===source.id&&c.frameId===sender.frameId&&withoutHash(c.documentUrl)===withoutHash(sender.url)))throw Error('cancelled');
-    if(sender.frameId===0&&source.pendingUrl&&withoutHash(source.pendingUrl)!==withoutHash(sender.url))throw Error('cancelled');
+    if(source.pendingUrl&&withoutHash(source.pendingUrl)!==withoutHash(source.url||sender.url))throw Error('cancelled');
     const settings=await read();
     if(!settings.aiEnabled||settings.aiMode!=='subscription')throw Error('disabled');
     const current=signature(settings);if(job.preferences&&job.preferences!==current)throw Error('cancelled');job.preferences=current;
@@ -87,11 +88,15 @@ export function createAiWebsiteProduct({runtime=chrome.runtime,tabs=chrome.tabs,
     });}finally{if(jobs.get(sender.tab.id)===job)jobs.delete(sender.tab.id);}
   }
   function cancel(message,sender){authorize(sender);const job=jobs.get(sender.tab.id);if(job?.id===message.id&&job.documentId===sender.documentId)job.cancelled=true;}
-  function disposeTab(tabId,url){
+  async function disposeTab(tabId,url,sourceOnly=false){
+    if(url&&!isReader(url)&&runtime.getContexts){
+      const contexts=await runtime.getContexts({contextTypes:['TAB'],tabIds:[tabId]}).catch(()=>[]);
+      if(contexts.some(context=>context.documentUrl===runtime.getURL(MIME_READER_PATH)))return;
+    }
     const job=jobs.get(tabId);if(job&&(!url||!isReader(url)))job.cancelled=true;
     return serialize(async()=>{
       const data=await records();let changed=false;
-      for(const [id,entry]of Object.entries(data))if((Number(id)===tabId&&(!url||!isReader(url)))||(entry.tabId===tabId&&(!url||!isAiWebsite(url)))){delete data[id];changed=true;}
+      for(const [id,entry]of Object.entries(data))if((Number(id)===tabId&&(!url||!isReader(url)))||(!sourceOnly&&entry.tabId===tabId&&(!url||!isAiWebsite(url)))){delete data[id];changed=true;}
       if(changed)await persist(data);
     });
   }

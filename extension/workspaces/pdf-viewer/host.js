@@ -5,7 +5,7 @@ import { PDF_LIMITS } from './model.js';
 // This host is the only connection to a product. The opaque viewer has no
 // extension APIs, storage access, network capability, or arbitrary command channel.
 // The validated source URL supplies inert metadata and a bounded initial page destination.
-export function createPdfViewer({ container, locale, sampling, settings, filename = 'PDF', documentUrl = '', canUseNative = false, sharpening = false, dark, themeMode, onDownload, onPrint, onNative, onSettings, onTheme, onReady, onError, onAiPreference }) {
+export function createPdfViewer({ container, locale, sampling, settings, filename = 'PDF', documentUrl = '', canUseNative = false, embedded = window !== window.top, sharpening = false, dark, themeMode, onDownload, onPrint, onNative, onSettings, onTheme, onReady, onError, onAiPreference }) {
   themeMode = isAppearanceMode(themeMode) ? themeMode : normalizeSettings(settings).appearance;
   const iframe = document.createElement('iframe');
   iframe.className = 'pdf-viewer-frame'; iframe.title = 'PDF Viewer';
@@ -22,7 +22,6 @@ export function createPdfViewer({ container, locale, sampling, settings, filenam
   url.hash = new URLSearchParams({ dark: dark ? '1' : '0', locale });
   iframe.src = url.href;
   const channel = new MessageChannel(); let closed = false, loaded = false, frameLoaded = false, opened = false, pending, timeout;
-  const embedded = window !== window.top;
   let fullscreenFailed = false;
   const canFullscreen = () => !embedded && !fullscreenFailed && document.fullscreenEnabled === true
     && typeof container.requestFullscreen === 'function' && typeof document.exitFullscreen === 'function';
@@ -62,7 +61,7 @@ export function createPdfViewer({ container, locale, sampling, settings, filenam
     else if (data.type === 'parsed') clearTimeout(timeout);
     else if (data.type === 'download') onDownload();
     else if (data.type === 'print') onPrint?.();
-    else if (data.type === 'native') onNative();
+    else if (data.type === 'native') onNative(Number.isSafeInteger(data.page) && data.page > 0 && data.page <= PDF_LIMITS.pages ? data.page : undefined);
     else if (data.type === 'settings') onSettings();
     else if (data.type === 'theme') { if (data.mode === undefined) onTheme(); else if (isAppearanceMode(data.mode)) onTheme(data.mode); }
     else if (data.type === 'fullscreen') {

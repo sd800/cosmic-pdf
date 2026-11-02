@@ -1,10 +1,11 @@
 import { readSettings } from '../../core/settings.js';
 import { isReaderSender } from '../reader-sender.js';
 import { READER_ENTRY_PATH, readerPageURL, safeSource, sourceFromReader, withoutHash } from '../../core/source.js';
+import { mimeApi, mimeOriginalUrl, MIME_READER_PATH } from '../../core/mime-source.js';
 const readerURL=readerPageURL();
 let serial=Promise.resolve();
 const enqueue=fn=>{ const result=serial.catch(()=>{}).then(fn); serial=result; return result; };
-export function takeoverRules(enabled) {
+export function takeoverRules(enabled, nativeMime = false) {
   if(!enabled) return [];
   // A session entry lets Chrome validate response redirects even when its
   // native Go to… command supplies no referring origin.
@@ -14,14 +15,29 @@ export function takeoverRules(enabled) {
   const rules=[{id:1,priority:20,action:{type:'allow'},condition:{...base,responseHeaders:[{header:'content-disposition',values:['attachment*']}] }},
     {id:2,priority:10,action,condition:{...base,responseHeaders:[{header:'content-type',values:['application/pdf*','application/x-pdf*']}] }},
     {id:3,priority:10,action,condition:{...base,regexFilter:'^https?://[^?#]+\\.pdf([?#].*)?$',isUrlFilterCaseSensitive:false,responseHeaders:[{header:'content-type',values:['application/octet-stream*','binary/octet-stream*']}] }}];
+  if (nativeMime) rules[1].condition.responseHeaders[0].values = ['application/x-pdf*'];
   return rules;
 }
 export function configureTakeover(enabled) {return enqueue(async()=>{
   // Session IDs must not survive browser exit or extension reload. Retire
   // legacy persistent rules without disturbing native/Referer session rules.
   await chrome.declarativeNetRequest.updateDynamicRules({removeRuleIds:[1,2,3,4]});
-  await chrome.declarativeNetRequest.updateSessionRules({removeRuleIds:[1,2,3,4],addRules:takeoverRules(enabled)});
+  const api = mimeApi();
+  if (api) await api.setMimeHandlerOptions('application/pdf', { enabled: enabled === true });
+  await chrome.declarativeNetRequest.updateSessionRules({removeRuleIds:[1,2,3,4],addRules:takeoverRules(enabled, !!api)});
 });}
+export function rememberMimeNative(sender, value) { return enqueue(async () => {
+  const source = mimeOriginalUrl(value);
+  if (!mimeApi() || !source || !isReaderSender(sender) || sender.url !== chrome.runtime.getURL(MIME_READER_PATH)) throw Error('Native reader unavailable');
+  await assertCurrentReader(sender);
+  const tab = await chrome.tabs.get(sender.tab.id);
+  if (!tab.url || withoutHash(tab.url) !== withoutHash(source) || tab.pendingUrl && withoutHash(tab.pendingUrl) !== withoutHash(source)) throw Error('Reader has navigated');
+  const key = 'native:' + sender.tab.id, previous = (await chrome.storage.session.get(key))[key];
+  await chrome.storage.session.set({ [key]: { ...(previous || {}), mimeSource: withoutHash(source) } });
+  try { await assertCurrentReader(sender); }
+  catch (error) { if (previous) await chrome.storage.session.set({ [key]: previous }); else await chrome.storage.session.remove(key); throw error; }
+  return { native: true };
+}); }
 async function assertCurrentReader(sender) {
   if (!sender.documentId) throw Error('Reader document unavailable');
   const contexts = await chrome.runtime.getContexts({ contextTypes:['TAB'], documentIds:[sender.documentId] });
@@ -76,6 +92,7 @@ export function forgetNative(tabId,url,closed=false){return enqueue(async()=>{
   const key='native:'+tabId, state=(await chrome.storage.session.get(key))[key];
   if(!state&&!closed)return;
   const entries=nativeEntries(state);
+  if (!closed && state?.mimeSource && url && withoutHash(url) === state.mimeSource) return;
   if(!closed && (!url || (safeSource(url) && entries.some(entry=>entry.frameId===0&&withoutHash(url)===entry.url))))return;
   if(entries.length||closed){
     const ids=new Set(entries.map(entry=>entry.id)),rules=await chrome.declarativeNetRequest.getSessionRules();
@@ -88,6 +105,7 @@ export function forgetNative(tabId,url,closed=false){return enqueue(async()=>{
 // File navigations do not reliably pass through Chrome's network redirect
 // rules. Observe only explicit local PDF URL changes, never download history.
 export function openLocalPdf(tabId,value){
+  if (mimeApi()) return Promise.resolve();
   const source=safeSource(value);
   if(!Number.isInteger(tabId)||tabId<0||!source||!source.startsWith('file:')||!new URL(source).pathname.toLowerCase().endsWith('.pdf'))return Promise.resolve();
   return enqueue(async()=>{

@@ -1,5 +1,12 @@
 # Changelog
 
+## 26.11.2.2 — 2026-11-02
+
+- Use Chrome's native PDF MIME stream on supported versions to keep the original document address in the address bar. Read the browser's response once, including POST-generated, local, and embedded PDFs, while retaining the existing redirect route for older Chrome and compatible MIME variants.
+- Keep Open in Chrome PDF viewer in the same original-address tab by handing the RAM copy to Chrome's built-in reader. Preserve the current page and the tab's native-reader choice across reloads, without another website request during the handoff. Continue using Chrome's original-file printing pipeline.
+- Preserve authenticated AI access from native reader frames, apply source page-fragment changes without reparsing, and keep embedded toolbars in their existing compact layout. Distinguish AI companion-tab loading from source-reader disposal.
+- Validate browser-supplied source and stream identities, retain bounded session ownership, and release reader work on navigation. Keep PDF contents in memory and retain file selection, recovery actions, and the automatic-opening switch.
+
 ## 26.11.2.1 — 2026-11-02
 
 - Organize development scripts into build, checks, browser, asset, and vendor folders. Update package commands, fixture imports, generated-file notices, and documentation to use the new paths.

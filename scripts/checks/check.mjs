@@ -28,6 +28,8 @@ const permissions=['storage','declarativeNetRequestWithHostAccess'],hosts=['http
 if(JSON.stringify(manifest.permissions)!==JSON.stringify(permissions)||JSON.stringify(manifest.host_permissions)!==JSON.stringify(hosts))throw Error('Unexpected extension permissions: audit before expanding access');
 if(manifest.content_scripts||manifest.optional_permissions?.length||manifest.optional_host_permissions?.length)throw Error('No webpage injection or optional permission requests');
 if(!manifest.content_security_policy.sandbox.includes("connect-src 'self' blob:"))throw Error('Sandbox must not reach remote resources');
+if(JSON.stringify(manifest.mime_types_handler)!==JSON.stringify({'application/pdf':{handler_url:'workspaces/pdf-reader/mime.html',can_embed:true}}))throw Error('Native PDF handler contract changed');
+await stat('extension/'+manifest.mime_types_handler['application/pdf'].handler_url);
 const publicPages=manifest.web_accessible_resources.flatMap(group=>group.resources).sort();
 if(JSON.stringify(publicPages)!==JSON.stringify(['workspaces/pdf-reader/entry.html','workspaces/pdf-reader/index.html','workspaces/pdf-viewer/viewer.html']))throw Error('Only the navigation entry, trusted reader, and opaque viewer shell may be web-accessible');
 const readerEntry=manifest.web_accessible_resources.find(group=>group.resources.includes('workspaces/pdf-reader/entry.html'));

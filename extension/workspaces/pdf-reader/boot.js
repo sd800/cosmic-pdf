@@ -2,5 +2,6 @@
 if (location.pathname.endsWith('/workspaces/pdf-reader/index.html')) {
   document.documentElement.dataset.view = location.search.startsWith('?source=') ? 'loading' : 'home';
 }
+if (location.pathname.endsWith('/workspaces/pdf-reader/mime.html')) document.documentElement.dataset.view = 'loading';
 // A tiny synchronous, non-sensitive appearance hint prevents a light first paint.
 try { const theme=localStorage.getItem('appearance'); document.documentElement.dataset.dark=String(theme==='dark'||(theme!=='light'&&matchMedia('(prefers-color-scheme:dark)').matches)); }catch{}

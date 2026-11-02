@@ -4,11 +4,11 @@ export const SOURCE_TIMEOUTS = Object.freeze({ idle: 90_000, total: 30 * 60_000 
 // Progress, not file size or transfer duration, renews the inactivity budget.
 export async function fetchPdfSource(source, {
   signal, fetcher = fetch, onResponse = () => {},
-  idleMs = SOURCE_TIMEOUTS.idle, totalMs = SOURCE_TIMEOUTS.total,
+  idleMs = SOURCE_TIMEOUTS.idle, totalMs = SOURCE_TIMEOUTS.total, keepCompletedResponse = false,
   timers = { set: (callback, delay) => setTimeout(callback, delay), clear: id => clearTimeout(id) }
 } = {}) {
   const controller = new AbortController();
-  let idle, total, timedOut = false, stream;
+  let idle, total, timedOut = false, stream, completed = false;
   const timeout = () => { timedOut = true; controller.abort(); };
   const renew = () => { timers.clear(idle); idle = timers.set(timeout, idleMs); };
   const cancel = () => controller.abort();
@@ -37,6 +37,7 @@ export async function fetchPdfSource(source, {
     }
     const bytes = new Uint8Array(size); let offset = 0;
     for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+    completed = true;
     return {bytes:bytes.buffer, response};
   } catch (error) {
     if (timedOut) throw Error('timeout');
@@ -45,7 +46,7 @@ export async function fetchPdfSource(source, {
     timers.clear(idle); timers.clear(total);
     signal?.removeEventListener('abort', cancel);
     // Abort pending transport work on overflow/error; release its reader on every path.
-    controller.abort();
-    if (stream) { await stream.cancel().catch(() => {}); stream.releaseLock(); }
+    if (!completed || !keepCompletedResponse) controller.abort();
+    if (stream) { if (!completed || !keepCompletedResponse) await stream.cancel().catch(() => {}); stream.releaseLock(); }
   }
 }

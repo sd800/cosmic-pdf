@@ -1,7 +1,7 @@
 // Isolated navigation regression. Uses authored local files and the real extension.
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile, readFile, cp, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -27,7 +27,13 @@ const server=createServer((req,res)=>{
  res.end(pdf);
 });
 await new Promise(r=>server.listen(0,'127.0.0.1',r));
-const base=`http://127.0.0.1:${server.address().port}`,folder=await mkdtemp(join(tmpdir(),'cosmic-pdf-navigation-')),profile=join(folder,'profile'),ext=resolve('extension');
+const base=`http://127.0.0.1:${server.address().port}`,folder=await mkdtemp(join(tmpdir(),'cosmic-pdf-navigation-')),profile=join(folder,'profile'),ext=join(folder,'extension');
+await cp(resolve('extension'),ext,{recursive:true});
+// This suite covers the legacy transport; the native MIME suite covers Chrome 151+.
+const mimeSource=join(ext,'core/mime-source.js');
+await writeFile(mimeSource,(await readFile(mimeSource,'utf8')).replace(/export function mimeApi\(\) \{[^\n]+/, 'export function mimeApi() { return null; }'));
+const testManifest=JSON.parse(await readFile(join(ext,'manifest.json'),'utf8'));delete testManifest.mime_types_handler;
+await writeFile(join(ext,'manifest.json'),JSON.stringify(testManifest));
 let context;
 async function poll(check){for(let n=0;n<150;n++){if(await check())return;await new Promise(r=>setTimeout(r,40));}throw Error('Timed out waiting for navigation rules');}
 async function launch(){

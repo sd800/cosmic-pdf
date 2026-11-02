@@ -227,7 +227,7 @@ window.addEventListener('message', event => {
     }, { signal });
   }
   click('download', () => emit('download')); click('theme', () => emit('theme'));
-  click('fullscreen', () => emit('fullscreen')); click('native', () => emit('native'));
+  click('fullscreen', () => emit('fullscreen')); click('native', () => emit('native', { page: viewer?.currentPageNumber || 1 }));
   emit('shell-ready');
 }, { signal });
 

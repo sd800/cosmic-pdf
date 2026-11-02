@@ -5,6 +5,7 @@ import { readSettings, normalizeSettings, uiLocale, toolbarSignature } from '../
 import { sourceFromReader, readerPageURL, withoutHash, isPdf, filenameFrom, cleanFilename } from '../../core/source.js';
 import { createPdfViewer } from '../pdf-viewer/host.js';
 import { PDF_LIMITS, pdfPageDestination } from '../pdf-viewer/model.js';
+import { MIME_READER_PATH, NATIVE_PDF_FRAGMENT, mimeApi, validateMimeStream, mimeFilenameHeaders, mimeLocalFilename, isNativePdfCopy } from '../../core/mime-source.js';
 const $=id=>document.getElementById(id);
 // The extension-owned host also supports embedded PDFs. No bytes, OCR text or
 // private channel are ever shared with its containing webpage.
@@ -18,7 +19,16 @@ function localize(nextLocale){
  const errorKey=Object.keys(old).find(key=>old[key]===message);if(errorKey)$('message').textContent=text[errorKey];
 }
 localize(locale);document.documentElement.dataset.motion=String(settings.motion);
-let source=sourceFromReader(location.href,readerPageURL()), reader, original, blobURL, filename, controller, generation=0;
+let mimeInfo = null, mimeFailure = false;
+if (location.pathname === '/' + MIME_READER_PATH) {
+ try { mimeInfo = validateMimeStream(await mimeApi().getStreamInfo()); }
+ catch { mimeFailure = true; }
+ if (isNativePdfCopy(mimeInfo)) {
+  await mimeApi().abortAndFallbackToNativeHandler();
+ }
+}
+let source=mimeInfo?.originalUrl || sourceFromReader(location.href,readerPageURL()), reader, original, blobURL, filename, controller, generation=0;
+let nativeFrame = null;
 let activeSettings=settings,appearanceOverride=null; const media=matchMedia('(prefers-color-scheme:dark)');
 function appearance(){return resolveReaderAppearance(activeSettings.appearance,appearanceOverride,media.matches);}
 function currentDark(){return appearance().dark;}
@@ -26,24 +36,41 @@ function applyTheme(){const dark=currentDark();document.documentElement.dataset.
 applyTheme();media.addEventListener('change',()=>{if(appearanceOverride==='auto'||(appearanceOverride===null||appearanceOverride==='opposite')&&activeSettings.appearance==='auto')applyTheme();});
 function setView(view){document.documentElement.dataset.view=view;}
 function fail(message){$('message').textContent=message; setView('home');}
-async function native(){
+async function native(page){
+ if (mimeInfo || mimeFailure) {
+  try {
+   if (blobURL) {
+    const currentPage = Number.isSafeInteger(page) && page > 0 && page <= PDF_LIMITS.pages ? page : pdfPageDestination(source) || 1;
+    if (!mimeInfo.embedded) {
+      const result = await chrome.runtime.sendMessage({ type: 'NATIVE_MIME_READER', source });
+      if (!result?.ok) throw Error('Native handoff unavailable');
+    }
+    generation++; controller?.abort(); reader?.destroy(); reader = null;
+    nativeFrame = document.createElement('iframe'); nativeFrame.className = 'pdf-viewer-frame'; nativeFrame.title = 'Chrome PDF viewer';
+    nativeFrame.allowFullscreen = true; nativeFrame.referrerPolicy = 'no-referrer';
+    nativeFrame.src = blobURL + NATIVE_PDF_FRAGMENT + '&page=' + currentPage;
+    $('reader').replaceChildren(nativeFrame); $('reader').hidden = false; setView('reader');
+   } else await mimeApi().abortAndFallbackToNativeHandler();
+  } catch { fail(text.nativeFailed); }
+  return;
+ }
  if(source){
   const requested=source,run=generation;
   const result=await chrome.runtime.sendMessage({type:'NATIVE_READER'}).catch(()=>null);
   if(run!==generation||source!==requested)return;
   if(result?.ok&&window!==top){location.assign(requested);return;}
   if(!result?.ok){if(reader)reader.showError(text.nativeFailed);else fail(text.nativeFailed);}
- }else if(blobURL){try{await chrome.tabs.create({url:blobURL});}catch{reader?.showError(text.nativeFailed);}}
+ }else if(blobURL){await openNativeCopy();}
 }
-async function printOriginal(){
+async function openNativeCopy(){
  if(!blobURL||!reader)return;
  // Chrome prints the unchanged original, with its native PDF/OS print pipeline.
  // The opaque renderer cannot provide a destination or arbitrary bytes here.
  const url=blobURL,run=generation;
  try{
-  const current=await chrome.tabs.getCurrent();
+  const current=mimeInfo ? await chrome.tabs.get(mimeInfo.tabId) : await chrome.tabs.getCurrent();
   if(run!==generation||url!==blobURL)return;
-  await chrome.tabs.create({url,...(current?{windowId:current.windowId,index:current.index+1}:{} )});
+  await chrome.tabs.create({url:url+NATIVE_PDF_FRAGMENT,...(current?{windowId:current.windowId,index:current.index+1}:{} )});
  }catch{if(run===generation)reader?.showError(text.nativeFailed);}
 }
 function openSettings(){if(reader)void chrome.runtime.sendMessage({type:'OPEN_SETTINGS'});else location.assign(chrome.runtime.getURL('settings/index.html'));}
@@ -65,7 +92,7 @@ async function load(loader, initialFilename='PDF'){
  if(blobURL)URL.revokeObjectURL(blobURL);blobURL=null;original=null;
  try{
   // Load the isolated rendering shell and its bundled worker while fetching the PDF.
-  const prepared=createPdfViewer({container:$('reader'),locale,settings,filename:cleanFilename(initialFilename),documentUrl:source||'',canUseNative:!!source,sampling:settings.sampling,sharpening:settings.sharpening,dark:applyTheme(),themeMode:appearance().mode,onNative:native,onPrint:printOriginal,onSettings:openSettings,onAiPreference:(key,enabled)=>{
+  const prepared=createPdfViewer({container:$('reader'),locale,settings,filename:cleanFilename(initialFilename),documentUrl:source||'',canUseNative:!!source,embedded:mimeInfo ? mimeInfo.embedded === true : window !== top,sampling:settings.sampling,sharpening:settings.sharpening,dark:applyTheme(),themeMode:appearance().mode,onNative:native,onPrint:openNativeCopy,onSettings:openSettings,onAiPreference:(key,enabled)=>{
     void chrome.runtime.sendMessage({type:'SAVE_AI_PREFERENCE',key,enabled}).then(result=>{
       // Durable storage notifications publish successful edits. A late reply
       // must not repaint an older snapshot over a newer toolbar/context edit.
@@ -75,12 +102,17 @@ async function load(loader, initialFilename='PDF'){
   reader=prepared;
   const result=await loader(current.signal);if(run!==generation)return;if(!isPdf(result.bytes))throw Error('format');
   filename=cleanFilename(result.filename);original=new Blob([result.bytes],{type:'application/pdf'});blobURL=URL.createObjectURL(original);document.title=filename+' — Cosmic PDF';
+  if(mimeInfo&&!mimeInfo.embedded){const choice=(await chrome.storage.session.get('native:'+mimeInfo.tabId))['native:'+mimeInfo.tabId];if(run!==generation)return;if(choice?.mimeSource===withoutHash(source)||choice?.entries?.some(entry=>entry.frameId===0&&entry.url===withoutHash(source))){await native();return;}}
   prepared.open(result.bytes,filename);
  }catch(error){if(run===generation){reader?.destroy();reader=null;$('reader').hidden=true;fail(text[error.message]||text.failed);}}
 }
-async function openFile(file){if(file.size>PDF_LIMITS.bytes){if(reader)reader.showError(text.large);else fail(text.large);return;}source=null;history.replaceState(null,'',readerPageURL());$('native').hidden=true;await load(async()=>({bytes:await file.arrayBuffer(),filename:file.name}),file.name);}
+async function openFile(file){if(file.size>PDF_LIMITS.bytes){if(reader)reader.showError(text.large);else fail(text.large);return;}if(mimeInfo){const current=await chrome.tabs.get(mimeInfo.tabId);const url=URL.createObjectURL(file)+'#'+new URLSearchParams({filename:cleanFilename(file.name)});await chrome.tabs.create({url,windowId:current.windowId,index:current.index+1,openerTabId:current.id});return;}source=null;history.replaceState(null,'',readerPageURL());$('native').hidden=true;await load(async()=>({bytes:await file.arrayBuffer(),filename:file.name}),file.name);}
 function loadSource(){
  const requested=source;
+ if (mimeInfo) return load(async signal => {
+  const result = await fetchPdfSource(mimeInfo.streamUrl, { signal, keepCompletedResponse: true });
+  return { bytes: result.bytes, filename: mimeLocalFilename(mimeInfo) || filenameFrom(requested, mimeFilenameHeaders(mimeInfo).get('content-disposition') || '') };
+ }, filenameFrom(requested));
  return load(async signal=>{
   const request=createSourceRequest({signal});
   try {
@@ -93,12 +125,18 @@ function loadSource(){
   }
  },filenameFrom(requested));
 }
-if(source){$('native').hidden=false;void loadSource();}else setView('home');
+if(source){$('native').hidden=false;void loadSource();}else if(mimeFailure){$('native').hidden=false;fail(text.failed);}else setView('home');
 window.addEventListener('hashchange',()=>{
  const next=sourceFromReader(location.href,readerPageURL());
  if(source&&next&&withoutHash(source)===withoutHash(next))source=next;
  const page=pdfPageDestination(location.href)||(location.hash?null:1);if(page)reader?.goToPage(page);
 });
+function sourceUpdated(tabId, change) {
+ if (!mimeInfo || mimeInfo.embedded || tabId !== mimeInfo.tabId || !change.url || withoutHash(change.url) !== withoutHash(source)) return;
+ source = change.url; const page = pdfPageDestination(source) || 1; reader?.goToPage(page);
+ if (nativeFrame && blobURL) nativeFrame.src = blobURL + NATIVE_PDF_FRAGMENT + '&page=' + page;
+}
+if (mimeInfo) chrome.tabs.onUpdated.addListener(sourceUpdated);
 chrome.storage.onChanged.addListener((changes,area)=>{
  if(area!=='local'||!changes.settings)return;
  { const next=normalizeSettings(changes.settings.newValue);
@@ -115,6 +153,6 @@ chrome.storage.onChanged.addListener((changes,area)=>{
   // Sampling, OCR languages and recognition detail stay fixed for this reader.
  }
 });
-window.addEventListener('pagehide',()=>{generation++;controller?.abort();reader?.destroy();reader=null;if(blobURL)URL.revokeObjectURL(blobURL);blobURL=null;});
+window.addEventListener('pagehide',()=>{generation++;controller?.abort();reader?.destroy();reader=null;if(blobURL)URL.revokeObjectURL(blobURL);blobURL=null;if(mimeInfo)chrome.tabs.onUpdated.removeListener(sourceUpdated);});
 // A history restore may revive this document after its renderer was disposed.
-window.addEventListener('pageshow',event=>{if(!event.persisted)return;if(original){const saved=original,name=filename;void load(async()=>({bytes:await saved.arrayBuffer(),filename:name}),name);}else if(source)void loadSource();else setView('home');});
+window.addEventListener('pageshow',event=>{if(!event.persisted)return;if(mimeInfo)chrome.tabs.onUpdated.addListener(sourceUpdated);if(original){const saved=original,name=filename;void load(async()=>({bytes:await saved.arrayBuffer(),filename:name}),name);}else if(mimeInfo)void native();else if(source)void loadSource();else setView('home');});

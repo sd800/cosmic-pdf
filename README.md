@@ -22,7 +22,7 @@ The reader uses its own extension page to avoid a second dark-mode treatment by 
 
 ## Reading tools
 
-Open PDF links and embedded documents directly in Cosmic PDF, or choose a local file. Search text, navigate pages and outlines, adjust zoom, rotate left, enter full screen, print or download the original. You can also return to Chrome's PDF reader.
+Open PDF links and embedded documents directly in Cosmic PDF, or choose a local file. Search text, navigate pages and outlines, adjust zoom, rotate left, enter full screen, print or download the original. On Chrome 151 or later, the native PDF stream keeps the original file address, including when switching to Chrome's PDF reader.
 
 ## Local OCR
 
@@ -44,9 +44,9 @@ Requires Chrome 130 or later. [Download the installation ZIP](https://cpdf.songm
 2. Choose **Load unpacked** and select the `extension` directory inside the unzipped package (or this repository).
 3. Pin **Cosmic PDF** if you want quick access to the file picker. Settings are available from the reader or the extension's options menu.
 
-To open `file://` PDF links automatically, enable **Allow access to file URLs** in Chrome's extension details, then reopen the PDF. Selecting or dropping a file works without that permission.
+Chrome 151 or later uses its native PDF stream for automatic opening. If Chrome requires local-file access, enable **Allow access to file URLs** in extension details, then reopen the `file://` PDF. Selecting or dropping a file works without that permission.
 
-Automatic opening covers ordinary HTTP(S) PDF responses, including embedded viewers, and permitted local PDF links. POST-generated documents and opaque blob links are not automatically replaced. Downloads marked as attachments retain normal download behavior. Some authenticated or single-use links may need Chrome's reader or a local copy. Files larger than 128 MB remain outside this reader's safety limit.
+Automatic opening covers ordinary HTTP(S) PDF responses and embedded viewers. Chrome 151 or later also passes browser-handled local, POST-generated, and Blob-backed PDFs directly to the reader, without requesting the website file again. Downloads marked as attachments retain normal download behavior. The reader accepts files up to 128 MB.
 
 ## Privacy and safety
 

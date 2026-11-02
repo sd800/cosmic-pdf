@@ -29,3 +29,15 @@ test('safe page fragments preserve navigation bounds',()=>{
  assert.equal(pdfOpenPage('https://example.edu/a.pdf#page=999',20),20);
  for(const hash of ['page=0','page=-1','page=1.5','page=NaN','page=1e3','nameddest=thing'])assert.equal(pdfOpenPage('https://example.edu/a.pdf#'+hash,20),1);
 });
+
+test('native streams release completed readers without aborting the consumed response',async()=>{
+ for(const fails of [false,true]){
+  let transport,cancelled=false,released=false;
+  const timers=clock();
+  const job=fetchPdfSource('chrome-extension://test/stream',{timers,keepCompletedResponse:true,fetcher:async(_,{signal})=>{
+   transport=signal;return{ok:true,headers:headers({}),body:{getReader:()=>({read:async()=>{if(fails)throw Error('transport');return{done:true};},cancel:async()=>{cancelled=true;},releaseLock(){released=true;}})}};
+  }});
+  if(fails)await assert.rejects(job,/transport/);else await job;
+  assert.equal(transport.aborted,fails);assert.equal(cancelled,fails);assert.equal(released,true);assert.equal(timers.count,0);
+ }
+});

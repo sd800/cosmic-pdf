@@ -1,4 +1,5 @@
 import { readerPageURL } from '../core/source.js';
+import { MIME_READER_PATH } from '../core/mime-source.js';
 
 // Packaged pages must retain their owning extension origin and active document.
 // A matching path inside an opaque or retiring frame is not UI authority.
@@ -19,5 +20,5 @@ export function isReaderSender(sender, runtime = chrome.runtime) {
   const reader = readerPageURL(runtime);
   return isExtensionPageSender(sender, runtime) && Number.isInteger(sender.frameId) && sender.frameId >= 0 &&
     Number.isInteger(sender.tab?.id) && sender.tab.id >= 0 && typeof sender.url === 'string' &&
-    (sender.url === reader || sender.url.startsWith(reader + '?') || sender.url.startsWith(reader + '#'));
+    [reader, runtime.getURL(MIME_READER_PATH)].some(page => sender.url === page || sender.url.startsWith(page + '?') || sender.url.startsWith(page + '#'));
 }

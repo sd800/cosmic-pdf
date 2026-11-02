@@ -500,3 +500,11 @@ test('AI website handoff tolerates page fragments but yields to a pending depart
  h.entries.get(7).pendingUrl=h.sender.url+'?source=https://example.edu/another.pdf';
  await assert.rejects(h.open('new-pdf'),/cancelled/);
 });
+test('native MIME fragments preserve the AI companion and companion loading does not detach it',async()=>{
+ const h=websiteHarness();h.sender.url='chrome-extension://test/workspaces/pdf-reader/mime.html';h.sender.frameId=3;
+ Object.assign(h.contexts[0],{documentUrl:h.sender.url,frameId:3});h.entries.get(7).url='https://example.edu/a.pdf#page=1';
+ await h.open();await h.product.disposeTab(7,'https://example.edu/a.pdf#page=2');
+ assert.equal(h.data['ai-website-companions'][7].tabId,10);
+ await h.product.disposeTab(10,undefined,true);assert.equal(h.data['ai-website-companions'][7].tabId,10);
+ h.contexts.length=0;await h.product.disposeTab(7,'https://example.edu/next');assert.deepEqual(h.data['ai-website-companions'],{});
+});

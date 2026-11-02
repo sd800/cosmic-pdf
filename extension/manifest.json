@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Cosmic PDF",
-  "version": "26.11.2.1",
+  "version": "26.11.2.2",
   "description": "__MSG_extensionDescription__",
   "minimum_chrome_version": "130",
   "permissions": [
@@ -57,5 +57,11 @@
     }
   ],
   "incognito": "split",
-  "default_locale": "en"
+  "default_locale": "en",
+  "mime_types_handler": {
+    "application/pdf": {
+      "handler_url": "workspaces/pdf-reader/mime.html",
+      "can_embed": true
+    }
+  }
 }
