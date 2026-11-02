@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {mkdir,writeFile} from 'node:fs/promises';
 import {resolve,join} from 'node:path';
-import {reviewedPdf} from '../test/fixtures/reviewed-pdf.mjs';
+import {reviewedPdf} from '../../test/fixtures/reviewed-pdf.mjs';
 
 export async function runReviewQa({worker,page,reader,base,report,open}) {
   await worker.evaluate(async()=>{const settings=(await chrome.storage.local.get('settings')).settings||{};await chrome.storage.local.set({settings:{...settings,appearance:'light',sampling:1,aiEnabled:false,automaticOcr:false}});});
@@ -62,5 +62,5 @@ export async function runReviewQa({worker,page,reader,base,report,open}) {
   report.checks.push('source-origin Referer opens the protected local endpoint and its temporary rule is removed');
   const output=resolve('test-dist/reader-review');await mkdir(output,{recursive:true});
   await writeFile(join(output,'reviewed.pdf'),reviewedPdf());
-  await writeFile(join(output,'README.md'),'# Reader review fixtures\n\nSynthetic 12-page reviewed.pdf: highlight, note, stamp, filled Zhang San field, ink, safe link, inert JavaScript action, and a unique last-page search term. reader.png shows the passive renderer. Run PDF_QA=review with scripts/test-browser.mjs using the isolated Playwright/Chrome paths from docs/QA.md. \n\nVerified: '+report.checks.join('; ')+'.\n');
+  await writeFile(join(output,'README.md'),'# Reader review fixtures\n\nSynthetic 12-page reviewed.pdf: highlight, note, stamp, filled Zhang San field, ink, safe link, inert JavaScript action, and a unique last-page search term. reader.png shows the passive renderer. Run PDF_QA=review with scripts/browser/test-browser.mjs using the isolated Playwright/Chrome paths from docs/QA.md. \n\nVerified: '+report.checks.join('; ')+'.\n');
 }

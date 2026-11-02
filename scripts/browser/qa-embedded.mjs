@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
-import { scannedPdf, viewerPdf } from '../test/fixtures/pdf-viewer.mjs';
+import { scannedPdf, viewerPdf } from '../../test/fixtures/pdf-viewer.mjs';
 
 export function embeddedResponse(req,res,scan){
   const url=new URL(req.url,'http://fixture.test');

@@ -1,5 +1,9 @@
 # Changelog
 
+## 26.11.2.1 — 2026-11-02
+
+- Organize development scripts into build, checks, browser, asset, and vendor folders. Update package commands, fixture imports, generated-file notices, and documentation to use the new paths.
+
 ## 26.11.1.1 — 2026-11-01
 
 - Remove the Cosmic PDF branding option and its toolbar layouts, retaining the optional filename display.

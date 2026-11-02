@@ -1,6 +1,6 @@
 {
   "name": "cosmic-pdf",
-  "version": "26.11.1.1",
+  "version": "26.11.2.1",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -9,7 +9,7 @@
   },
   "scripts": {
     "test": "node --test test/*.test.mjs",
-    "check": "node scripts/check.mjs",
-    "test:browser": "node scripts/test-browser.mjs"
+    "check": "node scripts/checks/check.mjs",
+    "test:browser": "node scripts/browser/test-browser.mjs"
   }
 }

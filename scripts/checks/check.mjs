@@ -10,7 +10,7 @@ const brandSource=await readFile('extension/icons/icon.svg');
 const brandRevision=createHash('sha256').update(brandSource).digest('hex').slice(0,12);
 for(const name of ['icon.svg',...Object.values(manifest.icons).map(file=>file.replace(/^icons\//,''))]) {
   const bytes=await readFile('extension/icons/'+name);
-  if(createHash('sha256').update(bytes).digest('hex')!==brandHashes[name])throw Error('Stale brand asset: '+name+'; run scripts/render-icons.mjs');
+  if(createHash('sha256').update(bytes).digest('hex')!==brandHashes[name])throw Error('Stale brand asset: '+name+'; run scripts/assets/render-icons.mjs');
 }
 for(const [size,file]of Object.entries(manifest.icons)) {
   const bytes=await readFile('extension/'+file);
@@ -19,7 +19,7 @@ for(const [size,file]of Object.entries(manifest.icons)) {
 for(const file of (await walk('extension')).filter(file=>file.endsWith('.html')&&!file.includes('/vendor/'))) {
   const html=await readFile(file,'utf8');
   const references=[...html.matchAll(/(?:href|src)="((?:\.\.\/)+icons\/icon\.svg[^"]*)"/g)];
-  if(!references.length||references.some(([,url])=>!url.endsWith('icon.svg?v='+brandRevision)))throw Error('Stale brand URL: '+file+'; run scripts/render-icons.mjs');
+  if(!references.length||references.some(([,url])=>!url.endsWith('icon.svg?v='+brandRevision)))throw Error('Stale brand URL: '+file+'; run scripts/assets/render-icons.mjs');
   if(!/<link rel="icon" href="[^"]*icon\.svg\?v=[a-f0-9]+"/.test(html))throw Error('Missing favicon: '+file);
 }
 

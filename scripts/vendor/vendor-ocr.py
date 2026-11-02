@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Reproduce offline assets from unpacked pinned packages and raw traineddata.
-Usage: python3 scripts/vendor-ocr.py /path/tesseract.js/package /path/core/package /path/tessdata_fast
+Usage: python3 scripts/vendor/vendor-ocr.py /path/tesseract.js/package /path/core/package /path/tessdata_fast
 Download sources from extension/vendor/tesseract/NOTICE.md. No package code executes.
 """
 import sys,json,gzip,hashlib,shutil

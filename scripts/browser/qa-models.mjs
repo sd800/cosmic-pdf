@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {readFile,writeFile,mkdir} from 'node:fs/promises';
 import {join,resolve} from 'node:path';
-import {AI_PROVIDERS} from '../extension/core/ai.js';
+import {AI_PROVIDERS} from '../../extension/core/ai.js';
 import {prepareAiMock,mockAi} from './qa-ai.mjs';
 const ids={gemini:['gemini-4-pro','gemini-4-flash-lite','gemini-3.5-flash-lite'],openai:['gpt-7-pro','gpt-7-luna','gpt-6-luna'],claude:['claude-opus-6','claude-haiku-6','claude-haiku-5-5']};
 export const modelMock={mode:'normal',requests:0};
@@ -69,5 +69,5 @@ export async function runModelsQa({context,worker,page,settings,open,report}){
  assert.equal(await prefs.getByRole('option').count(),1);assert.match((await prefs.getByRole('option').allTextContents())[0],/Gemini 3\.5 Flash-Lite \(推荐\)/);
  await prefs.getByRole('option').filter({hasText:'Gemini 3.5 Flash-Lite'}).click();
  await prefs.waitForFunction(async()=>(await chrome.storage.local.get('settings')).settings.aiModels.gemini==='gemini-3.5-flash-lite');report.checks.push('cached media generators are hidden while an excluded saved selection retains its original label and is never substituted');
- await writeFile(join(folder,'README.md'),'# Model selection tests\n\nRun PDF_QA=models with scripts/test-browser.mjs and the browser paths in docs/QA.md. Reusable model-list and generation fixtures are in scripts/qa-models.mjs and qa-ai.mjs. Screenshots cover Settings and model menus. Tests cover vendor ordering, recommendation suffixes, independent choices, encrypted-key setup, generation routing, keyboard controls, themes, localization, cancellation, failure preservation, and unchanged labels for excluded saved selections.\n');
+ await writeFile(join(folder,'README.md'),'# Model selection tests\n\nRun PDF_QA=models with scripts/browser/test-browser.mjs and the browser paths in docs/QA.md. Reusable model-list and generation fixtures are in scripts/browser/qa-models.mjs and qa-ai.mjs. Screenshots cover Settings and model menus. Tests cover vendor ordering, recommendation suffixes, independent choices, encrypted-key setup, generation routing, keyboard controls, themes, localization, cancellation, failure preservation, and unchanged labels for excluded saved selections.\n');
 }

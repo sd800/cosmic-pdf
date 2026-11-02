@@ -14,7 +14,7 @@ import subprocess
 import tempfile
 import zipfile
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 OUTPUT = ROOT / 'downloads'
 EXCLUDED_ROOTS = {'.git', 'dist', 'test-dist', 'node_modules', 'downloads', 'coverage'}
 
@@ -76,7 +76,7 @@ if __name__ == '__main__':
     sources = tracked_sources()
     assert 'LICENSE' in sources
     extension = ['LICENSE', *[name for name in sources if name.startswith('extension/')]]
-    assert 'extension/manifest.json' in extension and 'scripts/build-downloads.py' in sources
+    assert 'extension/manifest.json' in extension and 'scripts/build/build-downloads.py' in sources
     OUTPUT.mkdir(exist_ok=True)
     packages = {
         'extension': make_archive('cosmic-pdf.zip', 'cosmic-pdf', extension),

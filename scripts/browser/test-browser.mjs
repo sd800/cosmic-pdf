@@ -1,5 +1,5 @@
 import {handleModelMock,prepareModelMock,runModelsQa} from './qa-models.mjs';
-import {reviewedPdf} from '../test/fixtures/reviewed-pdf.mjs';
+import {reviewedPdf} from '../../test/fixtures/reviewed-pdf.mjs';
 import {runReviewQa} from './qa-review.mjs';
 import {embeddedResponse,runEmbeddedQa} from './qa-embedded.mjs';
 import {runToolbarQa} from './qa-toolbar.mjs';
@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import {auditPdfLifecycle,savePdfAudit} from './qa-pdf-lifecycle.mjs';
 import {mkdtemp,writeFile,readFile,cp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';import {resolve,join} from 'node:path';import {pathToFileURL} from 'node:url';import {createServer} from 'node:http';
-import {viewerPdf,scannedPdf} from '../test/fixtures/pdf-viewer.mjs';
+import {viewerPdf,scannedPdf} from '../../test/fixtures/pdf-viewer.mjs';
 import {handleAiMock,prepareAiMock,runAiQa,runAiTestQa,handleWebAiMock,prepareWebAiMock,runWebAiQa,runSelectionQa} from './qa-ai.mjs';
 const {chromium}=await import(process.env.PDF_PLAYWRIGHT?pathToFileURL(process.env.PDF_PLAYWRIGHT).href:'playwright');
 const folder=await mkdtemp(join(tmpdir(),'cosmic-pdf-qa-')),ext=join(folder,'extension');await cp(resolve('extension'),ext,{recursive:true});
@@ -191,7 +191,7 @@ try{
   const fs=await import('node:fs/promises');await fs.mkdir(out,{recursive:true});
   await show();await page.screenshot({path:join(out,'appearance-menu.png')});await page.keyboard.press('Escape');
   report.checks.push('right-click Auto/Light/Dark, checked mode, explicit Auto with frozen Dark default, live system changes, fixed overrides, unchanged global preference, left-click toggling, outside dismissal, keyboard focus and live Chinese labels');
-  await fs.writeFile(join(out,'README.md'),'# Appearance menu regression\n\nRun PDF_QA=appearance with scripts/test-browser.mjs in the isolated test browser. Uses an authored local PDF and sampling 1. Checks mouse and keyboard menu operation, all three modes, device changes, unchanged saved default, original click/tooltip behavior, dismissal and live Chinese. No real documents, user Chrome, API credentials or remote requests.\n');
+  await fs.writeFile(join(out,'README.md'),'# Appearance menu regression\n\nRun PDF_QA=appearance with scripts/browser/test-browser.mjs in the isolated test browser. Uses an authored local PDF and sampling 1. Checks mouse and keyboard menu operation, all three modes, device changes, unchanged saved default, original click/tooltip behavior, dismissal and live Chinese. No real documents, user Chrome, API credentials or remote requests.\n');
   await fs.writeFile(join(out,'report.json'),JSON.stringify(report,null,2)+'\n');
  }else if(process.env.PDF_QA==='selection'){
   await runSelectionQa({context,worker,page,open,report,base,setScan:bytes=>{englishScan=bytes;}});
@@ -211,7 +211,7 @@ try{
   assert.equal(await page.locator('#file').inputValue(),'');report.checks.push('local file selection resets after success or failure so same-file retries work');
   const frame=await open('/lifecycle-audit');const screenshot=join(folder,'audit-reader.png');await page.screenshot({path:screenshot});
   const checks=await auditPdfLifecycle(frame);report.checks.push(...checks);
-  report.artifacts=await savePdfAudit(checks,screenshot,viewerPdf(6),'PDF_QA=audit node scripts/test-browser.mjs');
+  report.artifacts=await savePdfAudit(checks,screenshot,viewerPdf(6),'PDF_QA=audit node scripts/browser/test-browser.mjs');
  }else if(process.env.PDF_QA==='lifecycle'){
 
   const checkFrame = await open('/lifecycle');

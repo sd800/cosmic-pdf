@@ -5,7 +5,7 @@ import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { viewerPdf } from '../test/fixtures/pdf-viewer.mjs';
+import { viewerPdf } from '../../test/fixtures/pdf-viewer.mjs';
 const {chromium}=await import(process.env.PDF_PLAYWRIGHT?pathToFileURL(process.env.PDF_PLAYWRIGHT).href:'playwright');
 const pdf=viewerPdf(2),checks=[],errors=[],held=new Set(),fetches=new Map();
 const server=createServer((req,res)=>{
@@ -146,5 +146,5 @@ try{
  checks.push('disable/re-enable, browser restart, current-session redirects, and legacy persistent-rule migration');
  assert.deepEqual(errors,[]);console.log(JSON.stringify({passed:checks.length,checks},null,2));
  const evidence=resolve('test-dist/takeover-context-menu');await mkdir(evidence,{recursive:true});
- await writeFile(join(evidence,'README.md'),'# PDF navigation regression\n\nRun `PDF_PLAYWRIGHT=/path/to/playwright/index.mjs PDF_CHROME=/path/to/chrome node scripts/test-takeover-browser.mjs`. Uses an isolated profile, local authored two-page PDFs, and no private documents. The profile is removed on completion.\n\n`probe.mjs` is the headed native context-menu reproduction. Select the complete plain URL, right-click, and choose Go to. Its interactive commands are `menu`, `status`, and `quit`; it does not retain browser logs.\n\nVerified: native Go to opens the reader at page 2 with signed query parameters intact. Automated coverage also checks repeated website/PDF history traversal, live and delayed page fragments without refetching, new-tab/duplicate opening, MIME variants, removed embedded-reader cleanup, normal links, redirects, embedding, native fallback, local opening, disable/re-enable, restart, and legacy rule migration.\n');
+ await writeFile(join(evidence,'README.md'),'# PDF navigation regression\n\nRun `PDF_PLAYWRIGHT=/path/to/playwright/index.mjs PDF_CHROME=/path/to/chrome node scripts/browser/test-takeover-browser.mjs`. Uses an isolated profile, local authored two-page PDFs, and no private documents. The profile is removed on completion.\n\n`probe.mjs` is the headed native context-menu reproduction. Select the complete plain URL, right-click, and choose Go to. Its interactive commands are `menu`, `status`, and `quit`; it does not retain browser logs.\n\nVerified: native Go to opens the reader at page 2 with signed query parameters intact. Automated coverage also checks repeated website/PDF history traversal, live and delayed page fragments without refetching, new-tab/duplicate opening, MIME variants, removed embedded-reader cleanup, normal links, redirects, embedding, native fallback, local opening, disable/re-enable, restart, and legacy rule migration.\n');
 }finally{releaseHeld();if(context)await context.close();await new Promise(r=>server.close(r));await rm(folder,{recursive:true,force:true});}
