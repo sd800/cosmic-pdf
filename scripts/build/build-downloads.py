@@ -60,6 +60,7 @@ def make_archive(name, prefix, files):
             assert all(PurePosixPath(n).parts[1] not in EXCLUDED_ROOTS for n in archive.namelist())
             packaged = json.loads(archive.read(prefix + '/extension/manifest.json'))
             assert packaged['version'] == VERSION
+            assert packaged['version_name'] == VERSION_NAME
         os.replace(temporary, OUTPUT / name)
     finally:
         if os.path.exists(temporary):
@@ -72,7 +73,9 @@ def make_archive(name, prefix, files):
 if __name__ == '__main__':
     manifest = json.loads((ROOT / 'extension/manifest.json').read_text())
     VERSION = manifest['version']
-    assert json.loads((ROOT / 'package.json').read_text())['version'] == VERSION
+    VERSION_NAME = manifest['version_name']
+    project = json.loads((ROOT / 'package.json').read_text())
+    assert project['version'] == VERSION and project['version_name'] == VERSION_NAME
     sources = tracked_sources()
     assert 'LICENSE' in sources
     extension = ['LICENSE', *[name for name in sources if name.startswith('extension/')]]
@@ -82,7 +85,7 @@ if __name__ == '__main__':
         'extension': make_archive('cosmic-pdf.zip', 'cosmic-pdf', extension),
         'source': make_archive('cosmic-pdf-source.zip', 'cosmic-pdf-source', sources),
     }
-    data = {'version': VERSION, 'minimumChromeVersion': manifest['minimum_chrome_version'], 'packages': packages}
+    data = {'version': VERSION, 'version_name': VERSION_NAME, 'minimumChromeVersion': manifest['minimum_chrome_version'], 'packages': packages}
     (OUTPUT / 'latest.json').write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n')
     (OUTPUT / 'SHA256SUMS').write_text(''.join(item['sha256'] + '  ' + Path(item['url']).name + '\n' for item in packages.values()))
     print(json.dumps(data, indent=2))

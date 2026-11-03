@@ -1,5 +1,9 @@
 # Changelog
 
+## 26.11.3.1 (64) — 2026-11-03
+
+- Add the cumulative release number to displayed versions, extension and project metadata, and release records. Keep the four-part calendar version in the machine-readable version field.
+
 ## 26.11.2.2 — 2026-11-02
 
 - Use Chrome's native PDF MIME stream on supported versions to keep the original document address in the address bar. Read the browser's response once, including POST-generated, local, and embedded PDFs, while retaining the existing redirect route for older Chrome and compatible MIME variants.

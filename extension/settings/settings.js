@@ -21,7 +21,8 @@ const defaultHidden=new Set(hiddenToolbarActions(DEFAULTS));
 const dropdowns=createSettingsDropdowns();
 let aiSettings;
 let state=await readSettings();const $=id=>document.getElementById(id);
-const versionText='Cosmic PDF '+chrome.runtime.getManifest().version;
+const manifest=chrome.runtime.getManifest();
+const versionText='Cosmic PDF '+(manifest.version_name||manifest.version);
 function showTestMode(enabled){const text=versionText+(enabled?' (Test mode)':'');if($('version').textContent!==text)$('version').textContent=text;}
 showTestMode(false);
 function render(){const locale=uiLocale(state,chrome.i18n.getUILanguage()),t=copy[locale],v=t.values;document.documentElement.lang=locale;document.title='Cosmic PDF · '+t.title;

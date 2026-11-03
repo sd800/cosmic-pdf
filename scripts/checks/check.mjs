@@ -1,5 +1,7 @@
 import {readFile,readdir,stat}from'node:fs/promises';import{resolve,relative,join}from'node:path';import{createHash}from'node:crypto';import{spawnSync}from'node:child_process';
-const root=resolve('.'),manifest=JSON.parse(await readFile('extension/manifest.json')),pkg=JSON.parse(await readFile('package.json'));if(pkg.version!==manifest.version)throw Error('Version mismatch');
+const root=resolve('.'),manifest=JSON.parse(await readFile('extension/manifest.json')),pkg=JSON.parse(await readFile('package.json'));if(pkg.version!==manifest.version||pkg.version_name!==manifest.version_name)throw Error('Version mismatch');
+const releaseName=manifest.version_name?.match(/^(\d{2}\.\d{1,2}\.\d{1,2}\.[1-9]\d*) \(([1-9]\d*)\)$/);
+if(!releaseName||releaseName[1]!==manifest.version)throw Error('Expected calendar display version with an ASCII-space cumulative release number');
 async function walk(dir){const files=[];for(const name of await readdir(dir)){if(name==='.DS_Store'||name.startsWith('._')||['.git','node_modules','dist'].includes(name))continue;const p=join(dir,name);if((await stat(p)).isDirectory())files.push(...await walk(p));else files.push(p);}return files;}
 for(const file of await walk('extension'))if(file.endsWith('.js')&&!file.includes('/vendor/')){const result=spawnSync(process.execPath,['--check',file],{encoding:'utf8'});if(result.status)throw Error(result.stderr);}
 for(const vendor of ['pdfjs','tesseract','marked']){const folder='extension/vendor/'+vendor,entries=JSON.parse(await readFile(folder+'/integrity.json'));for(const[name,hash]of Object.entries(entries)){const actual=createHash('sha256').update(await readFile(folder+'/'+name)).digest('hex');if(actual!==hash)throw Error('Dependency changed: '+name);}}
@@ -35,5 +37,9 @@ if(JSON.stringify(publicPages)!==JSON.stringify(['workspaces/pdf-reader/entry.ht
 const readerEntry=manifest.web_accessible_resources.find(group=>group.resources.includes('workspaces/pdf-reader/entry.html'));
 if(readerEntry.resources.length!==1||readerEntry.use_dynamic_url!==true||Number(manifest.minimum_chrome_version)<130)throw Error('PDF takeover requires a session-specific reader entry with Chrome 130+ support');
 if(manifest.web_accessible_resources.some(group=>group.use_dynamic_url&&group.resources.some(path=>['workspaces/pdf-reader/index.html','workspaces/pdf-viewer/viewer.html'].includes(path))))throw Error('The reader and opaque viewer must retain stable canonical URLs');
-for(const file of ['CHANGELOG.md','CHANGELOG_zh.md'])if(!(await readFile(file,'utf8')).includes('## '+pkg.version))throw Error('Missing release entry');
+for(const file of ['CHANGELOG.md','CHANGELOG_zh.md']){
+ const changelog=await readFile(file,'utf8'),releases=[...changelog.matchAll(/^## (\d+(?:\.\d+)+)(?: \([1-9]\d*\))?(?: — [^\n]+)?$/gm)];
+ if(releases[0]?.[1]!==manifest.version||!changelog.includes('## '+manifest.version_name+' — '))throw Error('Missing complete release entry');
+ if(new Set(releases.map(match=>match[1])).size!==Number(releaseName[2]))throw Error('Cumulative release number differs from recorded versions');
+}
 const files=await walk('extension');let size=0;for(const f of files)size+=(await stat(f)).size;console.log(`Checks passed. ${files.length} runtime files; ${(size/1000000).toFixed(1)} MB unpacked.`);
