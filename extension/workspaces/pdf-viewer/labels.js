@@ -21,3 +21,9 @@ Object.assign(labels['zh-CN'],{aiToggle:'AI 解释'});
 
 Object.assign(labels['en-US'], {annotations:'Show annotations and filled forms'});
 Object.assign(labels['zh-CN'], {annotations:'显示批注和已填表单'});
+
+Object.assign(labels['en-US'],{themeMenu:'Appearance',themeAuto:'Auto',themeLight:'Light',themeDark:'Dark',themeGlobal:'All pages',themePage:'Current page'});
+Object.assign(labels['zh-CN'],{themeMenu:'外观',themeAuto:'自动',themeLight:'浅色',themeDark:'深色',themeGlobal:'全部页面',themePage:'当前页'});
+
+Object.assign(labels['en-US'],{themeFollowDocument:'Follow the appearance of all pages'});
+Object.assign(labels['zh-CN'],{themeFollowDocument:'跟随全部页面的外观'});

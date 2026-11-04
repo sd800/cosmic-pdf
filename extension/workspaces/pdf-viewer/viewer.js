@@ -1,3 +1,4 @@
+import { createPageAppearance } from './page-appearance.js';
 import { isViewerHost } from './host-origin.js';
 import { createAppearanceMenu } from './appearance-menu.js';
 import { isAppearanceMode } from '../../core/appearance.js';
@@ -23,6 +24,7 @@ let port, task, pdf, viewer, pdfWorker, parseTimer, destroyed = false, text = {.
 const lifetime = new AbortController(), signal = lifetime.signal;
 const eventBus = new EventBus(), viewport = $('viewport');
 let workerReady;
+const pageAppearance=createPageAppearance({pages:$('pages'),thumbnails:$('thumbnails'),getDark:()=>themeDark});
 let requestedPage = 1, pagesReady = false;
 let firstPageReady = false, themeDark = false, darkPaper;
 let aiReader;
@@ -58,9 +60,9 @@ function syncRenderProgress() {
 }
 function theme(dark, mode = themeMode) {
   if (isAppearanceMode(mode)) themeMode = mode;
-  themeDark = !!dark;
+  themeDark = !!dark; pageAppearance.apply();
   document.documentElement.dataset.dark = String(themeDark); document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
-  if (themeDark) for (const view of viewer?.getCachedPageViews() || []) updateDarkPaper(view);
+  for (const view of viewer?.getCachedPageViews() || []) updateDarkPaper(view);
   setReaderIcon($('theme'), dark ? 'sun' : 'moon');
   $('theme').title = text.theme; $('theme').setAttribute('aria-label', text.theme);
   appearanceMenu?.refresh();
@@ -96,10 +98,10 @@ function localize(locale) {
 function setDarkPaper(enabled) {
   settings.preserveDarkPaper = enabled === true;
   document.documentElement.dataset.preserveDarkPaper = String(settings.preserveDarkPaper);
-  if (themeDark && settings.preserveDarkPaper) for (const view of viewer?.getCachedPageViews() || []) updateDarkPaper(view);
+  if (settings.preserveDarkPaper) for (const view of viewer?.getCachedPageViews() || []) updateDarkPaper(view);
 }
 function updateDarkPaper(view, failed = false) {
-  if (!darkPaper || !view || ((!themeDark || !settings.preserveDarkPaper) && !failed)) return;
+  if (!darkPaper || !view || ((!pageAppearance.dark(view.id) || !settings.preserveDarkPaper) && !failed)) return;
   // A detail canvas is only a crop; a partial base render can miss white areas.
   if (!failed && view.renderingState !== RenderingStates.FINISHED) return;
   const result = failed ? darkPaper.reject(view.id) : darkPaper.decide(view.id, view.canvas, context => renderedPaperBackground(view.pdfPage, pdfjs.OPS, context, view.viewport.rotation));
@@ -211,9 +213,9 @@ window.addEventListener('message', event => {
   port.postMessage({type:'ai-refresh'});
   $('scale').value = settings.zoom.startsWith('page-') ? settings.zoom : String(Number(settings.zoom));
   $('scale-input').value = (Number(settings.zoom) > 0 ? Math.round(Number(settings.zoom) * 100) : 100) + '%';
-  toolbarMenu = createToolbarMenu({ text, signal, embedded: input.embedded === true, canFullscreen: input.canFullscreen === true, onAiToggle: () => aiReader?.toggle(), onSettings: () => emit('settings'), onOcrPanel: () => ocr?.openPanel(), canHoldOcr: () => settings.ocrAction !== 'panel', onFit: value => { if (viewer) viewer.currentScaleValue = value; } });
+  toolbarMenu = createToolbarMenu({ text, signal, embedded: input.embedded === true, canFullscreen: input.canFullscreen === true, onAiToggle: () => aiReader?.toggle(), onSettings: () => emit('settings'), onAppearanceMenu: keyboard => appearanceMenu?.open(keyboard,$('settings')), onOcrPanel: () => ocr?.openPanel(), canHoldOcr: () => settings.ocrAction !== 'panel', onFit: value => { if (viewer) viewer.currentScaleValue = value; } });
   toolbarMenu.update(settings);
-  appearanceMenu = createAppearanceMenu({text,signal,getMode:()=>themeMode,onChoose:mode=>port?.postMessage({type:'theme',mode})});
+  appearanceMenu = createAppearanceMenu({text,signal,getMode:scope=>scope==='page'?pageAppearance.get(viewer?.currentPageNumber||1):themeMode,getPage:()=>viewer?.currentPageNumber||1,onChoose:(mode,scope,page)=>{if(scope==='page'){pageAppearance.set(page,mode);for(const view of viewer?.getCachedPageViews()||[])updateDarkPaper(view);}else port?.postMessage({type:'theme',mode});}});
   // Keep form navigation forbidden by the sandbox, including method=dialog.
   // These controls only validate local input and close the local dialog.
   for (const form of document.querySelectorAll('dialog form')) {
@@ -287,6 +289,7 @@ async function open(bytes, sampling) {
     syncRenderProgress();
   }, { signal });
   eventBus.on('pagesinit', () => {
+    pageAppearance.apply(); appearanceMenu?.refresh();
     const initialPage = Math.min(pdf.numPages, requestedPage); pagesReady = true;
     for (const control of document.querySelectorAll('header nav button, header nav input, header nav select, #sidebar-toggle')) control.disabled = false;
     viewer.currentScaleValue = settings.zoom;
@@ -300,6 +303,7 @@ async function open(bytes, sampling) {
     if (settings.sidebar) $('sidebar').hidden = false; toolbarMenu.refresh();
   }, { signal });
   eventBus.on('pagechanging', ({ pageNumber }) => {
+    appearanceMenu?.refresh();
     $('page').value = pageNumber; $('previous').disabled = pageNumber === 1; $('next').disabled = pageNumber === pdf.numPages;
     toolbarMenu.refresh();
     for (const node of $('thumbnails').children) node.setAttribute('aria-current', String(Number(node.dataset.page) === pageNumber));
@@ -488,7 +492,7 @@ async function renderLinks(number, linkService) {
 function createThumbnails() {
   const fragment = document.createDocumentFragment();
   for (let i = 1; i <= pdf.numPages; i++) { const button = document.createElement('button'); button.className = 'thumbnail'; button.dataset.page = i; button.toggleAttribute('data-original-dark', darkPaper.get(i) === 2); button.textContent = String(i); button.title = text.page + ' ' + i; button.onclick = () => { viewer.currentPageNumber = i; }; fragment.append(button); }
-  $('thumbnails').append(fragment);
+  $('thumbnails').append(fragment); pageAppearance.apply();
   thumbnailObserver = new IntersectionObserver(entries => { for (const entry of entries) { if (entry.isIntersecting) nearThumbnails.add(entry.target); else nearThumbnails.delete(entry.target); } void drawThumbnails(); }, { root: $('sidebar'), rootMargin: '160px' });
   for (const node of $('thumbnails').children) thumbnailObserver.observe(node);
 }

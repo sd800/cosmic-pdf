@@ -104,3 +104,5 @@ Run `PDF_PLAYWRIGHT=/path/to/playwright/index.mjs PDF_CHROME=/path/to/chrome nod
 ## Native source addresses
 
 `scripts/browser/test-native-mime-browser.mjs` tests the real Chrome MIME handler with original-address navigation, a one-use response, source page-fragment updates, POST, embedding, local files, opening another file, authenticated AI access, original-file printing, native-reader handoff, saved native choice on reload, and the master switch. Fixtures and the reader screenshot are documented in ignored `test-dist/mime-handler/README.md`. Native stream tests validate source/stream ownership and completed-response cleanup. The legacy takeover browser suite uses a disposable extension copy with the MIME capability disabled, covering Chrome 130-style response redirects without changing shipped files.
+
+Appearance-menu tests cover all-pages and current-page choices independently, inherited current-page Auto, explicit system-following all-pages Auto, source dark paper, lazy page/thumbnail state, reading-position preservation, keyboard dismissal, and compact More actions access.

@@ -34,6 +34,8 @@ Select a passage to clarify its meaning or ask a follow-up question. Choose **Bu
 
 ## Make it yours
 
+Right-click the appearance button to choose Auto, Light, or Dark for all pages or only the current page. Current-page Auto follows the document appearance.
+
 Settings cover appearance, toolbar layout, 1×–6× rendering quality, optional sharpening, initial zoom, page spacing, thumbnails, document links, external-link capture, and OCR preferences. The interface supports English and Simplified Chinese. API users can choose a model for each service and refresh its model list in Settings.
 
 ## Install

@@ -1,5 +1,11 @@
 # Changelog
 
+## 26.11.4.1 (65) — 2026-11-04
+
+- Expand the custom appearance menu into All pages and Current page sections, each offering Auto, Light, and Dark. Current-page Auto follows the document; All pages Auto follows the system.
+- Keep page overrides in memory for the open PDF, retain them across navigation and global appearance changes, and synchronize thumbnail colors without reparsing or moving the document. Apply dark-paper preservation to individually darkened pages as well.
+- Keep right-click and keyboard appearance choices available when the appearance button moves into More actions in compact or embedded toolbars.
+
 ## 26.11.3.1 (64) — 2026-11-03
 
 - Add the cumulative release number to displayed versions, extension and project metadata, and release records. Keep the four-part calendar version in the machine-readable version field.

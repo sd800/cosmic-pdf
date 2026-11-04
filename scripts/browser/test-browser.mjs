@@ -153,17 +153,17 @@ try{
   await prefs.waitForFunction(async()=>{const s=(await chrome.storage.local.get('settings')).settings;return s.appearance==='dark'&&s.sampling===1;});
   await page.emulateMedia({colorScheme:'light'});
   const frame=await open('/appearance');
-  const menu=frame.locator('#appearance-menu'),trigger=frame.locator('#theme');
+  const menu=frame.locator('#appearance-menu'),globalMenu=menu.locator('.appearance-group').first(),trigger=frame.locator('#theme');
 
   async function dark(value){await frame.waitForFunction(v=>document.documentElement.dataset.dark===String(v),value);await page.waitForFunction(v=>document.documentElement.dataset.dark===String(v),value);}
   async function show(keyboard=false){
     if(keyboard){await trigger.focus();await trigger.press('Shift+F10');}else await trigger.click({button:'right'});
     await frame.waitForSelector('#appearance-menu:popover-open',{timeout:5000});
-    assert.equal(await menu.locator('[role=menuitemradio]').count(),3);
+    assert.equal(await menu.locator('[role=menuitemradio]').count(),6);
   }
-  async function choose(mode,label){await show();await menu.getByRole('menuitemradio',{name:label,exact:true}).click();await frame.waitForFunction(()=>!document.querySelector('#appearance-menu').matches(':popover-open'));await show();assert.equal(await menu.locator('[aria-checked=true]').getAttribute('data-mode'),mode);await page.keyboard.press('Escape');}
-  await dark(true);await show();assert.deepEqual(await menu.locator('button span:last-child').allTextContents(),['Auto','Light','Dark']);
-  assert.equal(await menu.locator('[aria-checked=true]').getAttribute('data-mode'),'dark');await page.keyboard.press('Escape');
+  async function choose(mode,label){await show();await globalMenu.getByRole('menuitemradio',{name:label,exact:true}).click();await frame.waitForFunction(()=>!document.querySelector('#appearance-menu').matches(':popover-open'));await show();assert.equal(await globalMenu.locator('[aria-checked=true]').getAttribute('data-mode'),mode);await page.keyboard.press('Escape');}
+  await dark(true);await show();assert.deepEqual(await globalMenu.locator('button span:last-child').allTextContents(),['Auto','Light','Dark']);
+  assert.equal(await globalMenu.locator('[aria-checked=true]').getAttribute('data-mode'),'dark');await page.keyboard.press('Escape');
   await choose('auto','Auto');await dark(false);
   await page.emulateMedia({colorScheme:'dark'});await dark(true);
   await choose('light','Light');await dark(false);
@@ -177,16 +177,16 @@ try{
   assert.equal(await prefs.locator('#appearance').inputValue(),'dark','reader choices do not rewrite global appearance');
   await prefs.locator('#locale').selectOption('zh-CN');
   await frame.waitForFunction(()=>document.documentElement.lang==='zh-CN');
-  await show(true);assert.deepEqual(await menu.locator('button span:last-child').allTextContents(),['自动','浅色','深色']);
+  await show(true);assert.deepEqual(await globalMenu.locator('button span:last-child').allTextContents(),['自动','浅色','深色']);
   assert.equal(await trigger.getAttribute('title'),'切换浅色／深色模式');
-  await menu.getByRole('menuitemradio',{name:'自动',exact:true}).press('ArrowDown');
+  await globalMenu.getByRole('menuitemradio',{name:'自动',exact:true}).press('ArrowDown');
   assert.equal(await frame.evaluate(()=>document.activeElement.dataset.mode),'light');
   await page.keyboard.press('Escape');assert.equal(await trigger.evaluate(n=>document.activeElement===n),true);
   await show();await frame.locator('#settings').click();
   await frame.waitForSelector('#more-actions:popover-open');
   assert.equal(await menu.evaluate(n=>n.matches(':popover-open')),false);
   await page.keyboard.press('Escape');
-  await show();await menu.getByRole('menuitemradio',{name:'深色',exact:true}).click();await dark(true);
+  await show();await globalMenu.getByRole('menuitemradio',{name:'深色',exact:true}).click();await dark(true);
   const out=resolve('test-dist/appearance-'+JSON.parse(await readFile('extension/manifest.json','utf8')).version);
   const fs=await import('node:fs/promises');await fs.mkdir(out,{recursive:true});
   await show();await page.screenshot({path:join(out,'appearance-menu.png')});await page.keyboard.press('Escape');

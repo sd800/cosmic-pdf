@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Cosmic PDF",
-  "version": "26.11.3.1",
-  "version_name": "26.11.3.1 (64)",
+  "version": "26.11.4.1",
+  "version_name": "26.11.4.1 (65)",
   "description": "__MSG_extensionDescription__",
   "minimum_chrome_version": "130",
   "permissions": [

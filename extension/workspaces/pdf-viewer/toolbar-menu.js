@@ -15,7 +15,7 @@ const collapseOrder = ['ai','rotate','ocr','zoom','pages','theme','filename',
 
 // Presentation only: original controls keep their handlers, permissions and
 // disabled state. The menu never adds commands to the privileged host bridge.
-export function createToolbarMenu({ text, signal, embedded = false, canFullscreen = false, onAiToggle, onSettings, onFit, onOcrPanel, canHoldOcr }) {
+export function createToolbarMenu({ text, signal, embedded = false, canFullscreen = false, onAiToggle, onSettings, onAppearanceMenu, onFit, onOcrPanel, canHoldOcr }) {
   canFullscreen = !embedded && canFullscreen === true;
   const $ = id => document.getElementById(id), trigger = $('settings'), menu = $('more-actions');
   document.documentElement.dataset.embedded = String(embedded);
@@ -65,6 +65,15 @@ export function createToolbarMenu({ text, signal, embedded = false, canFullscree
         else if (action.startsWith('fit-')) onFit(action === 'fit-width' ? 'page-width' : 'page-fit');
         else $(action).click();
       };
+      if(action==='theme'){
+        button.setAttribute('aria-haspopup','menu');let down=false,pending=false,skip=false;
+        button.addEventListener('pointerdown',()=>{down=true;skip=false;},{signal:menuLifetime.signal});
+        button.addEventListener('click',event=>{if(skip){skip=false;event.preventDefault();event.stopImmediatePropagation();}},{capture:true,signal:menuLifetime.signal});
+        document.addEventListener('pointerup',()=>{if(!down)return;down=false;if(pending){pending=false;queueMicrotask(()=>{if(!signal.aborted){close();onAppearanceMenu?.(false);}});}},{capture:true,signal:menuLifetime.signal});
+        document.addEventListener('pointercancel',()=>{down=pending=skip=false;},{capture:true,signal:menuLifetime.signal});
+        button.addEventListener('contextmenu',event=>{event.preventDefault();event.stopPropagation();skip=down;if(down)pending=true;else{close();onAppearanceMenu?.(false);}},{signal:menuLifetime.signal});
+        button.addEventListener('keydown',event=>{if(event.key==='ContextMenu'||event.shiftKey&&event.key==='F10'){event.preventDefault();event.stopPropagation();close();onAppearanceMenu?.(true);}},{signal:menuLifetime.signal});
+      }
       if(action==='ocr-toggle')bindPressAction(button,{click:activate,hold:()=>{close(true);onOcrPanel();},canHold:canHoldOcr,signal:menuLifetime.signal});
       else button.addEventListener('click',activate);
       menu.append(button); entries.push({ action, button });
