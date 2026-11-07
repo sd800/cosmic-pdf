@@ -1,25 +1,27 @@
 import test from 'node:test';import assert from 'node:assert/strict';
+const ticket='12345678-1234-4234-8234-123456789abc';
 const records=[],session={},calls=[];globalThis.chrome={runtime:{id:'test',getURL:path=>'chrome-extension://test/'+path,getContexts:async()=>[{tabId:12,frameId:0,documentUrl:'chrome-extension://test/workspaces/pdf-reader/index.html?source=https://example.com/a.pdf?signature=x%2By&k=1'}]},extension:{isAllowedFileSchemeAccess:async()=>true},declarativeNetRequest:{getSessionRules:async()=>records.flatMap(r=>r.addRules||[]),updateDynamicRules:async r=>records.push(r),updateSessionRules:async r=>records.push(r),isRegexSupported:async()=>({isSupported:true})},storage:{session:{get:async key=>({[key]:session[key]}),set:async data=>Object.assign(session,data),remove:async key=>delete session[key]}},tabs:{get:async()=>({}),update:async(...args)=>calls.push(args)}};
 const {takeoverRules,configureTakeover,useNative,forgetNative,openLocalPdf}=await import('../extension/background/products/takeover.js');
 test('public takeover uses the current session entry while authenticated readers keep their canonical origin',()=>{
  const original=chrome.runtime.getURL;
  try{
   chrome.runtime.getURL=path=>'chrome-extension://'+(path==='workspaces/pdf-reader/entry.html'?'session-guid':'test')+'/'+path;
-  assert.equal(takeoverRules(true)[1].action.redirect.regexSubstitution,'chrome-extension://session-guid/workspaces/pdf-reader/entry.html?source=\\0');
+  assert.equal(takeoverRules(true,false,ticket)[1].action.redirect.regexSubstitution,'chrome-extension://session-guid/workspaces/pdf-reader/entry.html?ticket='+ticket+'&source=\\0');
  }finally{chrome.runtime.getURL=original;}
 });
 test('takeover retires persistent redirects and updates only its reserved session rule IDs',async()=>{
  const original=chrome.declarativeNetRequest,updates=[];
  try{
-  chrome.declarativeNetRequest={updateDynamicRules:async value=>updates.push(['dynamic',value]),updateSessionRules:async value=>updates.push(['session',value])};
+  chrome.declarativeNetRequest={getSessionRules:async()=>takeoverRules(true,false,ticket),updateDynamicRules:async value=>updates.push(['dynamic',value]),updateSessionRules:async value=>updates.push(['session',value])};
   await configureTakeover(true);await configureTakeover(false);
   assert.deepEqual(updates.map(([kind])=>kind),['dynamic','session','dynamic','session']);
   for(const [,update]of updates)assert.deepEqual(update.removeRuleIds,[1,2,3,4]);
   assert.equal(updates[0][1].addRules,undefined);assert.equal(updates[1][1].addRules.length,3);
+  assert.deepEqual(updates[1][1].addRules,takeoverRules(true,false,ticket));
   assert.deepEqual(updates[3][1].addRules,[]);
  }finally{chrome.declarativeNetRequest=original;}
 });
-test('takeover covers PDF tabs and embedded frames, is GET/MIME gated and respects attachments',async()=>{assert.deepEqual(takeoverRules(false,true),[]);const rules=takeoverRules(true,false);assert.equal(rules.length,3);for(const r of rules){assert.deepEqual(r.condition.requestMethods,['get']);assert.deepEqual(r.condition.resourceTypes,['main_frame','sub_frame','object']);assert.ok(r.condition.responseHeaders);}assert.equal(rules[0].action.type,'allow');assert.ok(rules[0].priority>rules[1].priority);assert.equal(rules[1].action.redirect.regexSubstitution,'chrome-extension://test/workspaces/pdf-reader/entry.html?source=\\0');assert.equal(takeoverRules(true,true).length,3);await configureTakeover(true);});
+test('takeover covers PDF tabs and embedded frames, is GET/MIME gated and respects attachments',async()=>{assert.deepEqual(takeoverRules(false,true),[]);const rules=takeoverRules(true,false,ticket);assert.equal(rules.length,3);for(const r of rules){assert.deepEqual(r.condition.requestMethods,['get']);assert.deepEqual(r.condition.resourceTypes,['main_frame','sub_frame','object']);assert.ok(r.condition.responseHeaders);}assert.equal(rules[0].action.type,'allow');assert.ok(rules[0].priority>rules[1].priority);assert.equal(takeoverRules(true,true,ticket).length,3);await configureTakeover(true);});
 test('native exemption scoped to source and tab, cleaned only on departure',async()=>{const source='https://example.com/a.pdf?signature=x%2By&k=1';const sender={id:'test',frameId:0,documentId:'reader-document',tab:{id:12},url:'chrome-extension://test/workspaces/pdf-reader/index.html?source='+source};await useNative(sender);const rule=records.at(-1).addRules[0];assert.deepEqual(rule.condition.tabIds,[12]);assert.equal(rule.condition.isUrlFilterCaseSensitive,true);assert.ok(new RegExp(rule.condition.regexFilter).test(source));assert.ok(new RegExp(rule.condition.regexFilter).test(source+'#page=2'));assert.equal(new RegExp(rule.condition.regexFilter).test(source+'2'),false);await forgetNative(12,source+'#page=2');assert.ok(session['native:12']);await forgetNative(12,'https://example.com/');assert.equal(session['native:12'],undefined);await assert.rejects(useNative({...sender,frameId:2}));await assert.rejects(useNative({...sender,url:'https://evil.test/'}));});
 
 test('native handover cancels stale requests and rolls back failures without leaking exemptions',async()=>{

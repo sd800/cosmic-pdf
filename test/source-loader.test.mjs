@@ -12,6 +12,14 @@ test('streaming permits progress beyond a minute and keeps bounded byte/header l
  await assert.rejects(fetchPdfSource('https://example.edu/test.pdf',{timers,fetcher:async()=>({ok:true,headers:headers({'content-length':String(PDF_LIMITS.bytes+1)}),body:{getReader(){read=true;}}})}),/large/);
  assert.equal(read,false);assert.equal(timers.count,0);
 });
+test('source replay rejects redirects before fetching the redirected URL',async()=>{
+ const timers=clock();
+ await assert.rejects(fetchPdfSource('https://example.edu/test.pdf',{timers,fetcher:async(_,options)=>{
+  assert.equal(options.redirect,'error');
+  throw new TypeError('Redirect blocked');
+ }}),/Redirect blocked/);
+ assert.equal(timers.count,0);
+});
 test('idle timeout, transport cancellation, authorization failure, and overflow have distinct cleanup',async()=>{
  const timers=clock();let aborted=false;
  const promise=fetchPdfSource('https://example.edu/test.pdf',{timers,fetcher:async(_,{signal})=>new Promise((_,reject)=>signal.addEventListener('abort',()=>{aborted=true;reject(Error('transport'));},{once:true}))});

@@ -17,7 +17,7 @@ export async function fetchPdfSource(source, {
   renew(); total = timers.set(timeout, totalMs);
   try {
     if (controller.signal.aborted) throw Error('abort');
-    const response = await fetcher(source, { signal: controller.signal, credentials: 'include', cache: 'default', referrerPolicy: 'no-referrer' });
+    const response = await fetcher(source, { signal: controller.signal, credentials: 'include', redirect: 'error', cache: 'default', referrerPolicy: 'no-referrer' });
     if (controller.signal.aborted) throw Error('abort');
     if (!response.ok) throw Error(response.status === 401 || response.status === 403 ? 'access' : 'fetch');
     if (Number(response.headers.get('content-length')) > PDF_LIMITS.bytes) throw Error('large');

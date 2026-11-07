@@ -21,8 +21,9 @@ test('Chrome MIME streams require the own extension stream and a safe source URL
 test('native and legacy handlers have distinct routes without extra permissions',()=>{
  const previous=globalThis.chrome;globalThis.chrome={runtime};
  try{
-  assert.deepEqual(takeoverRules(true,true)[1].condition.responseHeaders[0].values,['application/x-pdf*']);
-  assert.deepEqual(takeoverRules(true)[1].condition.responseHeaders[0].values,['application/pdf*','application/x-pdf*']);
+  const ticket='12345678-1234-4234-8234-123456789abc';
+  assert.deepEqual(takeoverRules(true,true,ticket)[1].condition.responseHeaders[0].values,['application/x-pdf*']);
+  assert.deepEqual(takeoverRules(true,false,ticket)[1].condition.responseHeaders[0].values,['application/pdf*','application/x-pdf*']);
   assert.deepEqual(takeoverRules(false,true),[]);
   const sender={id:'test',url:mimeUrl,origin:'chrome-extension://test',frameId:3,documentId:'mime-doc',tab:{id:7}};
   assert.equal(isReaderSender(sender,runtime),true);

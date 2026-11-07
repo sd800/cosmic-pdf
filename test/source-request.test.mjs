@@ -12,12 +12,16 @@ function client(){
  const runtime={connect({name}){assert.equal(name,'pdf-source-request');connections++;return port;},sendMessage:async value=>{messages.push(value);}};
  return{port,tasks,messages,timers,runtime,get connections(){return connections;},fire(delay){for(const [id,t]of [...tasks])if(t.delay===delay){if(!t.interval)tasks.delete(id);t.fn();}}};
 }
-test('transient entry retains signed URLs and fragments but has one fixed trusted destination',()=>{
+test('transient entry requires its active takeover ticket and preserves signed URLs and fragments',()=>{
  const runtime={getURL:path=>'chrome-extension://owner/'+path},entry=runtime.getURL(READER_ENTRY_PATH),reader=readerPageURL(runtime);
+ const ticket='12345678-1234-4234-8234-123456789abc',query='?ticket='+ticket+'&source=';
  const source='https://example.edu/Download?token=a%2Bb&k=1#page=12';
- assert.equal(readerEntryTarget(entry+'?source='+source,runtime),reader+'?source='+source);
- for(const value of ['javascript:alert(1)','https://user:pass@example.edu/a.pdf','file:///tmp/a.pdf','data:application/pdf,abc'])assert.equal(readerEntryTarget(entry+'?source='+value,runtime),reader);
- assert.equal(readerEntryTarget('https://example.edu/'+READER_ENTRY_PATH+'?source='+source,runtime),reader);
+ assert.equal(readerEntryTarget(entry+query+source,runtime,ticket),reader+'?source='+source);
+ assert.equal(readerEntryTarget(entry+query+source,runtime),null);
+ assert.equal(readerEntryTarget(entry+'?source='+source,runtime,ticket),null);
+ assert.equal(readerEntryTarget(entry+query+source,runtime,ticket.replace('abc','abd')),null);
+ for(const value of ['javascript:alert(1)','https://user:pass@example.edu/a.pdf','file:///tmp/a.pdf','data:application/pdf,abc'])assert.equal(readerEntryTarget(entry+query+value,runtime,ticket),null);
+ assert.equal(readerEntryTarget('https://example.edu/'+READER_ENTRY_PATH+query+source,runtime,ticket),null);
  for(const value of ['0','-1','1.2','1e3','NaN','999999999'])assert.equal(pdfPageDestination('https://example.edu/a.pdf#page='+value),null);
  assert.equal(pdfPageDestination('https://example.edu/a.pdf#page=12&zoom=150'),12);
 });

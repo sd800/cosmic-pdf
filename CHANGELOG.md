@@ -1,5 +1,12 @@
 # Changelog
 
+## 26.11.7.3 (68) — 2026-11-07
+
+Strengthen PDF opening security by limiting when the extension can request a document and which URL it can request.
+
+- Require a valid ticket from the current browser session’s takeover rules before the public entry opens a PDF. Keep the reader and rendering pages private to the extension.
+- Stop the legacy PDF fetch if the server responds with a redirect when the extension requests the document again.
+
 ## 26.11.7.2 (67) — 2026-11-07
 
 - Keep the reader’s own paper, toolbar, and menu colors when a browser PDF darkening overlay is present. Preserve the original address and restore the overlay’s normal behavior when switching to Chrome’s reader.

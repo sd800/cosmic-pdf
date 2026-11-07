@@ -146,7 +146,9 @@ try{
  ({worker,urls}=await launch());
  assert.notEqual(urls.public,priorEntry,'restart replaces the public session ID');
  const rules=await worker.evaluate(()=>chrome.declarativeNetRequest.getSessionRules());
- assert.equal(rules.find(r=>r.id===2).action.redirect.regexSubstitution,urls.public+'?source=\\0');
+ const substitution=rules.find(r=>r.id===2).action.redirect.regexSubstitution,prefix=urls.public+'?ticket=';
+ assert.ok(substitution.startsWith(prefix));
+ assert.match(substitution.slice(prefix.length),/^[0-9a-f-]{36}&source=\\0$/);
  assert.deepEqual(await worker.evaluate(()=>chrome.declarativeNetRequest.getDynamicRules()),[]);
  page=context.pages()[0]||await context.newPage();await navigate(page,source);await rendered(page,urls.canonical,source);
  checks.push('disable/re-enable, browser restart, current-session redirects, and legacy persistent-rule migration');

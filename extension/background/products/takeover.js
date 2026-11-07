@@ -1,20 +1,20 @@
 import { readSettings } from '../../core/settings.js';
 import { isReaderSender } from '../reader-sender.js';
-import { READER_ENTRY_PATH, readerPageURL, safeSource, sourceFromReader, withoutHash } from '../../core/source.js';
+import { TAKEOVER_REDIRECT_RULE_IDS, readerPageURL, safeSource, sourceFromReader, takeoverRedirectURL, takeoverTicket, withoutHash } from '../../core/source.js';
 import { mimeApi, mimeOriginalUrl, MIME_READER_PATH } from '../../core/mime-source.js';
 const readerURL=readerPageURL();
 let serial=Promise.resolve();
 const enqueue=fn=>{ const result=serial.catch(()=>{}).then(fn); serial=result; return result; };
-export function takeoverRules(enabled, nativeMime = false) {
+export function takeoverRules(enabled, nativeMime = false, ticket) {
   if(!enabled) return [];
   // A session entry lets Chrome validate response redirects even when its
   // native Go to… command supplies no referring origin.
-  const action={type:'redirect',redirect:{regexSubstitution:chrome.runtime.getURL(READER_ENTRY_PATH)+'?source=\\0'}};
+  const action={type:'redirect',redirect:{regexSubstitution:takeoverRedirectURL(ticket)}};
   const base={resourceTypes:['main_frame','sub_frame','object'],requestMethods:['get'],regexFilter:'^https?://.*'};
   // Attachments remain normal downloads. Never retry/replay a POST response.
   const rules=[{id:1,priority:20,action:{type:'allow'},condition:{...base,responseHeaders:[{header:'content-disposition',values:['attachment*']}] }},
-    {id:2,priority:10,action,condition:{...base,responseHeaders:[{header:'content-type',values:['application/pdf*','application/x-pdf*']}] }},
-    {id:3,priority:10,action,condition:{...base,regexFilter:'^https?://[^?#]+\\.pdf([?#].*)?$',isUrlFilterCaseSensitive:false,responseHeaders:[{header:'content-type',values:['application/octet-stream*','binary/octet-stream*']}] }}];
+    {id:TAKEOVER_REDIRECT_RULE_IDS[0],priority:10,action,condition:{...base,responseHeaders:[{header:'content-type',values:['application/pdf*','application/x-pdf*']}] }},
+    {id:TAKEOVER_REDIRECT_RULE_IDS[1],priority:10,action,condition:{...base,regexFilter:'^https?://[^?#]+\\.pdf([?#].*)?$',isUrlFilterCaseSensitive:false,responseHeaders:[{header:'content-type',values:['application/octet-stream*','binary/octet-stream*']}] }}];
   if (nativeMime) rules[1].condition.responseHeaders[0].values = ['application/x-pdf*'];
   return rules;
 }
@@ -24,7 +24,9 @@ export function configureTakeover(enabled) {return enqueue(async()=>{
   await chrome.declarativeNetRequest.updateDynamicRules({removeRuleIds:[1,2,3,4]});
   const api = mimeApi();
   if (api) await api.setMimeHandlerOptions('application/pdf', { enabled: enabled === true });
-  await chrome.declarativeNetRequest.updateSessionRules({removeRuleIds:[1,2,3,4],addRules:takeoverRules(enabled, !!api)});
+  // The public entry only accepts a ticket from the browser's active rules.
+  const ticket = enabled && (takeoverTicket(await chrome.declarativeNetRequest.getSessionRules()) || crypto.randomUUID());
+  await chrome.declarativeNetRequest.updateSessionRules({removeRuleIds:[1,2,3,4],addRules:takeoverRules(enabled, !!api, ticket)});
 });}
 export function rememberMimeNative(sender, value) { return enqueue(async () => {
   const source = mimeOriginalUrl(value);
