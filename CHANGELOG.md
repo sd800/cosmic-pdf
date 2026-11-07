@@ -1,5 +1,9 @@
 # Changelog
 
+## 26.11.7.2 (67) — 2026-11-07
+
+- Keep the reader’s own paper, toolbar, and menu colors when a browser PDF darkening overlay is present. Preserve the original address and restore the overlay’s normal behavior when switching to Chrome’s reader.
+
 ## 26.11.7.1 (66) — 2026-11-07
 
 - Add Original to the All pages and Current page appearance menus. Keep the PDF's source colors while allowing the reader interface to follow the system appearance.

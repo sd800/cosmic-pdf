@@ -118,7 +118,7 @@ try{
  const page=await context.newPage();observe(page);await page.goto('chrome://extensions');await page.waitForFunction(()=>document.querySelector('extensions-manager')?.shadowRoot?.querySelector('extensions-item-list')?.shadowRoot?.querySelector('extensions-item')?.id);const id=await page.evaluate(()=>document.querySelector('extensions-manager').shadowRoot.querySelector('extensions-item-list').shadowRoot.querySelector('extensions-item')?.id);assert.ok(id,'extension installed');
  const origin=`chrome-extension://${id}/`,reader=origin+'workspaces/pdf-reader/index.html',settings=origin+'settings/index.html';
  const worker=context.serviceWorkers()[0]||await context.waitForEvent('serviceworker');
- const granted=await worker.evaluate(()=>chrome.permissions.getAll());assert.deepEqual(granted.permissions.sort(),['declarativeNetRequestWithHostAccess','storage']);assert.equal(await worker.evaluate(()=>typeof chrome.downloads),'undefined');report.checks.push('fixed minimal API permissions; no downloads API');
+ const granted=await worker.evaluate(()=>chrome.permissions.getAll());assert.deepEqual(granted.permissions.sort(),['declarativeNetRequestWithHostAccess','scripting','storage']);assert.equal(await worker.evaluate(()=>typeof chrome.downloads),'undefined');report.checks.push('fixed minimal API permissions; no downloads API');
  for(let i=0;i<50;i++){if((await worker.evaluate(()=>chrome.declarativeNetRequest.getSessionRules())).filter(rule=>rule.id<1000).length===3)break;await delay(100);}
  async function go(url){await page.goto(url).catch(e=>{if(!/net::ERR_ABORTED|Download is starting/.test(e.message))throw e;});}
  async function open(path='/document?token=a%2Bb&sig=x%3D'){

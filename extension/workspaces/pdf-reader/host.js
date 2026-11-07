@@ -2,7 +2,7 @@ import { fetchPdfSource } from './source-loader.js';
 import { createSourceRequest } from './source-request.js';
 import { resolveReaderAppearance, toggleReaderAppearance, isAppearanceMode } from '../../core/appearance.js';
 import { readSettings, normalizeSettings, uiLocale, toolbarSignature } from '../../core/settings.js';
-import { sourceFromReader, readerPageURL, withoutHash, isPdf, filenameFrom, cleanFilename } from '../../core/source.js';
+import { sourceFromReader, readerPageURL, safeSource, withoutHash, isPdf, filenameFrom, cleanFilename } from '../../core/source.js';
 import { createPdfViewer } from '../pdf-viewer/host.js';
 import { PDF_LIMITS, pdfPageDestination } from '../pdf-viewer/model.js';
 import { MIME_READER_PATH, NATIVE_PDF_FRAGMENT, mimeApi, validateMimeStream, mimeFilenameHeaders, mimeLocalFilename, isNativePdfCopy } from '../../core/mime-source.js';
@@ -34,6 +34,10 @@ function appearance(){return resolveReaderAppearance(activeSettings.appearance,a
 function currentDark(){return appearance().dark;}
 function applyTheme(){const dark=currentDark();document.documentElement.dataset.dark=String(dark);try{localStorage.setItem('appearance',settings.appearance);}catch{}reader?.setTheme(dark,appearance().mode);return dark;}
 applyTheme();media.addEventListener('change',()=>{if(appearanceOverride==='auto'||appearanceOverride==='original'||(appearanceOverride===null||appearanceOverride==='opposite')&&activeSettings.appearance==='auto')applyTheme();});
+function setMimeAppearanceShield(enabled){
+ if(!mimeInfo||mimeInfo.embedded||!safeSource(source))return Promise.resolve();
+ return chrome.runtime.sendMessage({type:'MIME_APPEARANCE_SHIELD',source,enabled}).catch(()=>{});
+}
 function setView(view){document.documentElement.dataset.view=view;}
 function fail(message){$('message').textContent=message; setView('home');}
 async function native(page){
@@ -45,12 +49,16 @@ async function native(page){
       const result = await chrome.runtime.sendMessage({ type: 'NATIVE_MIME_READER', source });
       if (!result?.ok) throw Error('Native handoff unavailable');
     }
+    await setMimeAppearanceShield(false);
     generation++; controller?.abort(); reader?.destroy(); reader = null;
     nativeFrame = document.createElement('iframe'); nativeFrame.className = 'pdf-viewer-frame'; nativeFrame.title = 'Chrome PDF viewer';
     nativeFrame.allowFullscreen = true; nativeFrame.referrerPolicy = 'no-referrer';
     nativeFrame.src = blobURL + NATIVE_PDF_FRAGMENT + '&page=' + currentPage;
     $('reader').replaceChildren(nativeFrame); $('reader').hidden = false; setView('reader');
-   } else await mimeApi().abortAndFallbackToNativeHandler();
+   } else {
+    await setMimeAppearanceShield(false);
+    await mimeApi().abortAndFallbackToNativeHandler();
+   }
   } catch { fail(text.nativeFailed); }
   return;
  }
@@ -103,6 +111,8 @@ async function load(loader, initialFilename='PDF'){
   const result=await loader(current.signal);if(run!==generation)return;if(!isPdf(result.bytes))throw Error('format');
   filename=cleanFilename(result.filename);original=new Blob([result.bytes],{type:'application/pdf'});blobURL=URL.createObjectURL(original);document.title=filename+' — Cosmic PDF';
   if(mimeInfo&&!mimeInfo.embedded){const choice=(await chrome.storage.session.get('native:'+mimeInfo.tabId))['native:'+mimeInfo.tabId];if(run!==generation)return;if(choice?.mimeSource===withoutHash(source)||choice?.entries?.some(entry=>entry.frameId===0&&entry.url===withoutHash(source))){await native();return;}}
+  await setMimeAppearanceShield(true);
+  if(run!==generation)return;
   prepared.open(result.bytes,filename);
  }catch(error){if(run===generation){reader?.destroy();reader=null;$('reader').hidden=true;fail(text[error.message]||text.failed);}}
 }

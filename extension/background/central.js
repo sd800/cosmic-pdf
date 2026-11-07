@@ -32,6 +32,7 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
   if(message?.type==='PDF_REQUEST_START') job=standing.preparePdfRequest(sender);
   else if(message?.type==='PDF_REQUEST_END') job=standing.finishPdfRequest(sender,message.token);
   else if(message?.type==='NATIVE_READER') job=standing.useNative(sender);
+  else if(message?.type==='MIME_APPEARANCE_SHIELD') job=standing.setMimeAppearanceShield(sender,message.source,message.enabled);
   else if(message?.type==='NATIVE_MIME_READER') job=standing.rememberMimeNative(sender,message.source);
   else if(message?.type==='OPEN_SETTINGS' && isReaderSender(sender)) job=start().then(()=>operations.openSettings(sender.tab.id));
   else if(message?.type==='SETTINGS_OPENED') job=operations.settingsOpened(sender,message.openedAt);

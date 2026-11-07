@@ -28,6 +28,22 @@ try{
  assert.equal((await result.host.evaluate(()=>chrome.runtime.sendMessage({type:'AI_STATUS'}))).ok,true,'native MIME child retains authenticated AI access');
  await worker.evaluate(async url=>{const [tab]=await chrome.tabs.query({url:url.split('#')[0]+'*'});await chrome.tabs.update(tab.id,{url:url.split('#')[0]+'#page=3'});},p.url());
  await result.view.waitForFunction(()=>document.querySelector('#page').value==='3');assert.equal(counts.get('/once.pdf'),1);
+ async function overlayFilter(create = false) {
+  return worker.evaluate(async ({url,create})=>{
+   const [tab]=await chrome.tabs.query({url:url.split('#')[0]+'*'});
+   const [frame]=await chrome.scripting.executeScript({target:{tabId:tab.id,frameIds:[0]},args:[create],func:create=>{
+    const root=chrome.dom.openOrClosedShadowRoot(document.body);
+    if(create){
+     const overlay=document.createElement('div');overlay.className='darkreader--pdf-overlay';
+     Object.assign(overlay.style,{position:'fixed',inset:'56px 0 0',pointerEvents:'none',backdropFilter:'invert(1) contrast(.9)'});
+     root.append(overlay);
+    }
+    return getComputedStyle(root.querySelector('.darkreader--pdf-overlay')).backdropFilter;
+   }});
+   return frame.result;
+  },{url:p.url(),create});
+ }
+ assert.equal(await overlayFilter(true),'none','the browser PDF overlay cannot recolor the Cosmic reader');
  await p.screenshot({path:join(folder,'native-reader.png')});
  const printOpened=context.waitForEvent('page');
  await result.view.locator('#print').evaluate(button=>button.click());
@@ -38,6 +54,7 @@ try{
  assert.equal(p.url(),base+'/once.pdf#page=3','Chrome reader retains the original address');
  assert.equal(counts.get('/once.pdf'),1,'native handoff uses the RAM copy');
  assert.ok(p.frames().some(f=>f.url().startsWith('chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/')),'the built-in Chrome reader is shown inside the original-address stream host');
+ assert.match(await overlayFilter(),/invert/,'native handoff restores the browser PDF overlay');
  const reload=await context.newPage();await reload.goto(base+'/native-choice.pdf');const reloadReader=await reader(reload);
  await reloadReader.host.locator('#native').evaluate(button=>button.click());await reload.waitForTimeout(400);await reload.reload();
  await frame(reload,'chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/');assert.equal(reload.url(),base+'/native-choice.pdf');
@@ -49,6 +66,6 @@ try{
  const pickedReader=await reader(picked);assert.ok(picked.url().startsWith('blob:chrome-extension://'));assert.match(await pickedReader.host.title(),/sample.pdf/);
  await worker.evaluate(async()=>{const api=chrome.mimeHandler;await chrome.storage.local.set({settings:{enabled:false}});for(let i=0;i<80;i++){if((await api.getMimeHandlerOptions('application/pdf')).enabled===false)return;await new Promise(r=>setTimeout(r,25));}throw Error('Native handler did not turn off');});
  const off=await context.newPage();await off.goto(base+'/off.pdf',{waitUntil:'domcontentloaded'});await off.waitForTimeout(300);assert.equal(off.frames().some(f=>f.url().includes('/pdf-reader/mime.html')),false);
- await writeFile(join(folder,'README.md'),'# Native PDF URL checks\n\nRun scripts/browser/test-native-mime-browser.mjs with PDF_PLAYWRIGHT and PDF_CHROME pointing to installed tools. sample.pdf is a three-page synthetic file. The check covers original URL and page fragment, a single-use response, POST, embedded and local PDFs, authenticated AI status, native fallback, system-print bypass, and the saved master switch. native-reader.png shows the current reader. probe-extension/ and probe.mjs are a minimal native-stream and sender-identity experiment. Browser profiles are temporary; no request logs or private documents are retained.\n');
- console.log('Native MIME: original URL, one request, page fragment, POST, embeds, local files, AI identity, print/native fallback and off switch passed.');
+ await writeFile(join(folder,'README.md'),'# Native PDF URL checks\n\nRun scripts/browser/test-native-mime-browser.mjs with PDF_PLAYWRIGHT and PDF_CHROME pointing to installed tools. sample.pdf is a three-page synthetic file. The check covers original URL and page fragment, a single-use response, POST, embedded and local PDFs, authenticated AI status, native fallback, PDF overlay isolation/restoration, system-print bypass, and the saved master switch. native-reader.png shows the current reader. probe-extension/ and probe.mjs are a minimal native-stream and sender-identity experiment. Browser profiles are temporary; no request logs or private documents are retained.\n');
+ console.log('Native MIME: original URL, one request, page fragment, POST, embeds, local files, AI identity, print/native fallback, overlay isolation/restoration and off switch passed.');
 }finally{await context?.close();await rm(profile,{recursive:true,force:true});await new Promise(r=>server.close(r));}

@@ -38,6 +38,40 @@ export function rememberMimeNative(sender, value) { return enqueue(async () => {
   catch (error) { if (previous) await chrome.storage.session.set({ [key]: previous }); else await chrome.storage.session.remove(key); throw error; }
   return { native: true };
 }); }
+export async function setMimeAppearanceShield(sender, value, enabled) {
+  const source = safeSource(value);
+  if (!source || typeof enabled !== 'boolean' || !isReaderSender(sender) || sender.frameId <= 0
+      || sender.url !== chrome.runtime.getURL(MIME_READER_PATH)) throw Error('Invalid PDF reader');
+  const tabId = sender.tab.id, address = withoutHash(source);
+  const tab = await chrome.tabs.get(tabId);
+  if (!tab.url || withoutHash(tab.url) !== address || tab.pendingUrl && withoutHash(tab.pendingUrl) !== address) return;
+  await assertCurrentReader(sender);
+  await chrome.scripting.executeScript({
+    target: { tabId, frameIds: [0] },
+    args: [address, enabled],
+    func: (address, enabled) => {
+      const actual = new URL(location.href); actual.hash = '';
+      if (actual.href !== address || !document.body) return;
+      // Chromium owns this closed shadow root. A nested reader cannot reach it
+      // directly, and an overlay there recolors even the reader's popovers.
+      const root = chrome.dom?.openOrClosedShadowRoot(document.body);
+      if (!root || document.body.shadowRoot || !root.querySelector('iframe[type="application/pdf"]')) return;
+      const key = Symbol.for('cosmic-pdf.mime-appearance-shield');
+      let sheet = globalThis[key];
+      if (enabled) {
+        if (!sheet) {
+          sheet = new CSSStyleSheet();
+          sheet.replaceSync('.darkreader--pdf-overlay{backdrop-filter:none!important} iframe[type="application/pdf"]{filter:none!important}');
+          globalThis[key] = sheet;
+        }
+        if (!root.adoptedStyleSheets.includes(sheet)) root.adoptedStyleSheets = [...root.adoptedStyleSheets, sheet];
+      } else if (sheet) {
+        root.adoptedStyleSheets = root.adoptedStyleSheets.filter(candidate => candidate !== sheet);
+        delete globalThis[key];
+      }
+    },
+  });
+}
 async function assertCurrentReader(sender) {
   if (!sender.documentId) throw Error('Reader document unavailable');
   const contexts = await chrome.runtime.getContexts({ contextTypes:['TAB'], documentIds:[sender.documentId] });

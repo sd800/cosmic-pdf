@@ -26,9 +26,9 @@ for(const file of (await walk('extension')).filter(file=>file.endsWith('.html')&
 }
 
 // Keep the fixed permission contract small; additions require a deliberate audit.
-const permissions=['storage','declarativeNetRequestWithHostAccess'],hosts=['http://*/*','https://*/*','file:///*'];
+const permissions=['storage','declarativeNetRequestWithHostAccess','scripting'],hosts=['http://*/*','https://*/*','file:///*'];
 if(JSON.stringify(manifest.permissions)!==JSON.stringify(permissions)||JSON.stringify(manifest.host_permissions)!==JSON.stringify(hosts))throw Error('Unexpected extension permissions: audit before expanding access');
-if(manifest.content_scripts||manifest.optional_permissions?.length||manifest.optional_host_permissions?.length)throw Error('No webpage injection or optional permission requests');
+if(manifest.content_scripts||manifest.optional_permissions?.length||manifest.optional_host_permissions?.length)throw Error('No persistent content scripts or optional permission requests');
 if(!manifest.content_security_policy.sandbox.includes("connect-src 'self' blob:"))throw Error('Sandbox must not reach remote resources');
 if(JSON.stringify(manifest.mime_types_handler)!==JSON.stringify({'application/pdf':{handler_url:'workspaces/pdf-reader/mime.html',can_embed:true}}))throw Error('Native PDF handler contract changed');
 await stat('extension/'+manifest.mime_types_handler['application/pdf'].handler_url);
