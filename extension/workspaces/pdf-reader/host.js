@@ -33,7 +33,7 @@ let activeSettings=settings,appearanceOverride=null; const media=matchMedia('(pr
 function appearance(){return resolveReaderAppearance(activeSettings.appearance,appearanceOverride,media.matches);}
 function currentDark(){return appearance().dark;}
 function applyTheme(){const dark=currentDark();document.documentElement.dataset.dark=String(dark);try{localStorage.setItem('appearance',settings.appearance);}catch{}reader?.setTheme(dark,appearance().mode);return dark;}
-applyTheme();media.addEventListener('change',()=>{if(appearanceOverride==='auto'||(appearanceOverride===null||appearanceOverride==='opposite')&&activeSettings.appearance==='auto')applyTheme();});
+applyTheme();media.addEventListener('change',()=>{if(appearanceOverride==='auto'||appearanceOverride==='original'||(appearanceOverride===null||appearanceOverride==='opposite')&&activeSettings.appearance==='auto')applyTheme();});
 function setView(view){document.documentElement.dataset.view=view;}
 function fail(message){$('message').textContent=message; setView('home');}
 async function native(page){

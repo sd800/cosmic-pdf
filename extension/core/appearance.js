@@ -1,11 +1,12 @@
 // Reader-local choices; changing them never writes the default Settings appearance.
-export const isAppearanceMode = value => ['auto','light','dark'].includes(value);
+const isDefaultAppearance = value => ['auto','light','dark'].includes(value);
+export const isAppearanceMode = value => value === 'original' || isDefaultAppearance(value);
 export function resolveReaderAppearance(defaultMode, override, systemDark) {
-  const fallback = isAppearanceMode(defaultMode) ? defaultMode : 'auto';
+  const fallback = isDefaultAppearance(defaultMode) ? defaultMode : 'auto';
   const base = fallback === 'dark' || (fallback === 'auto' && !!systemDark);
   if (override === 'opposite') return {dark:!base, mode:base ? 'light' : 'dark'};
   const mode = isAppearanceMode(override) ? override : fallback;
-  return {dark:mode === 'dark' || (mode === 'auto' && !!systemDark), mode};
+  return {dark:mode === 'dark' || ((mode === 'auto' || mode === 'original') && !!systemDark), mode};
 }
 export function toggleReaderAppearance(defaultMode, override, systemDark) {
   if (override === null || override === 'opposite') return override === null ? 'opposite' : null;

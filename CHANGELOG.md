@@ -1,5 +1,10 @@
 # Changelog
 
+## 26.11.7.1 (66) — 2026-11-07
+
+- Add Original to the All pages and Current page appearance menus. Keep the PDF's source colors while allowing the reader interface to follow the system appearance.
+- Let PDF pages and thumbnails inherit the document's appearance. Keep their colors in sync when switching system appearance, navigating to reattached pages, or creating new thumbnails, while honoring explicit per-page overrides.
+
 ## 26.11.4.1 (65) — 2026-11-04
 
 - Expand the custom appearance menu into All pages and Current page sections, each offering Auto, Light, and Dark. Current-page Auto follows the document; All pages Auto follows the system.

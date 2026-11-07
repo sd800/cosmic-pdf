@@ -152,20 +152,38 @@ try{
   await prefs.locator('#appearance').selectOption('dark');await prefs.locator('#sampling').selectOption('1');
   await prefs.waitForFunction(async()=>{const s=(await chrome.storage.local.get('settings')).settings;return s.appearance==='dark'&&s.sampling===1;});
   await page.emulateMedia({colorScheme:'light'});
-  const frame=await open('/appearance');
+  await page.bringToFront();await page.goto(reader);
+  await page.locator('#file').setInputFiles({name:'Appearance.pdf',mimeType:'application/pdf',buffer:Buffer.from(viewerPdf(6))});
+  const frame=await (await page.waitForSelector('.pdf-viewer-frame')).contentFrame();
+  await frame.waitForFunction(()=>window.qaViewer?.getPageView(0).renderingState===3);
   const menu=frame.locator('#appearance-menu'),globalMenu=menu.locator('.appearance-group').first(),trigger=frame.locator('#theme');
 
   async function dark(value){await frame.waitForFunction(v=>document.documentElement.dataset.dark===String(v),value);await page.waitForFunction(v=>document.documentElement.dataset.dark===String(v),value);}
   async function show(keyboard=false){
     if(keyboard){await trigger.focus();await trigger.press('Shift+F10');}else await trigger.click({button:'right'});
     await frame.waitForSelector('#appearance-menu:popover-open',{timeout:5000});
-    assert.equal(await menu.locator('[role=menuitemradio]').count(),6);
+    assert.equal(await menu.locator('[role=menuitemradio]').count(),8);
   }
   async function choose(mode,label){await show();await globalMenu.getByRole('menuitemradio',{name:label,exact:true}).click();await frame.waitForFunction(()=>!document.querySelector('#appearance-menu').matches(':popover-open'));await show();assert.equal(await globalMenu.locator('[aria-checked=true]').getAttribute('data-mode'),mode);await page.keyboard.press('Escape');}
-  await dark(true);await show();assert.deepEqual(await globalMenu.locator('button span:last-child').allTextContents(),['Auto','Light','Dark']);
+  await dark(true);await show();assert.deepEqual(await globalMenu.locator('button span:last-child').allTextContents(),['Auto','Light','Dark','Original']);
   assert.equal(await globalMenu.locator('[aria-checked=true]').getAttribute('data-mode'),'dark');await page.keyboard.press('Escape');
   await choose('auto','Auto');await dark(false);
+  // PDF.js temporarily detaches the other page views in page-by-page mode.
+  await frame.evaluate(()=>{qaViewer.scrollMode=3;});await dark(false);
+  assert.equal(await frame.locator('.page').count(),1);
   await page.emulateMedia({colorScheme:'dark'});await dark(true);
+  await frame.evaluate(()=>{qaViewer.currentPageNumber=2;});
+  const paper=frame.locator('.page[data-page-number="2"] .canvasWrapper');
+  await paper.waitFor();
+  assert.match(await paper.evaluate(node=>getComputedStyle(node).filter),/invert/);
+  await choose('original','Original');await dark(true);
+  assert.equal(await paper.evaluate(node=>getComputedStyle(node).filter),'none');
+  await choose('dark','Dark');
+  await show();await menu.locator('[data-scope=page][data-mode=original]').click();
+  assert.equal(await paper.evaluate(node=>getComputedStyle(node).filter),'none');
+  await show();await menu.locator('[data-scope=page][data-mode=auto]').click();
+  assert.match(await paper.evaluate(node=>getComputedStyle(node).filter),/invert/);
+  await frame.evaluate(()=>{qaViewer.scrollMode=0;qaViewer.currentPageNumber=1;});
   await choose('light','Light');await dark(false);
   await page.emulateMedia({colorScheme:'light'});await page.emulateMedia({colorScheme:'dark'});await dark(false);
   await choose('dark','Dark');await dark(true);
@@ -177,7 +195,7 @@ try{
   assert.equal(await prefs.locator('#appearance').inputValue(),'dark','reader choices do not rewrite global appearance');
   await prefs.locator('#locale').selectOption('zh-CN');
   await frame.waitForFunction(()=>document.documentElement.lang==='zh-CN');
-  await show(true);assert.deepEqual(await globalMenu.locator('button span:last-child').allTextContents(),['自动','浅色','深色']);
+  await show(true);assert.deepEqual(await globalMenu.locator('button span:last-child').allTextContents(),['自动','浅色','深色','原色']);
   assert.equal(await trigger.getAttribute('title'),'切换浅色／深色模式');
   await globalMenu.getByRole('menuitemradio',{name:'自动',exact:true}).press('ArrowDown');
   assert.equal(await frame.evaluate(()=>document.activeElement.dataset.mode),'light');
@@ -190,9 +208,8 @@ try{
   const out=resolve('test-dist/appearance-'+JSON.parse(await readFile('extension/manifest.json','utf8')).version);
   const fs=await import('node:fs/promises');await fs.mkdir(out,{recursive:true});
   await show();await page.screenshot({path:join(out,'appearance-menu.png')});await page.keyboard.press('Escape');
-  report.checks.push('right-click Auto/Light/Dark, checked mode, explicit Auto with frozen Dark default, live system changes, fixed overrides, unchanged global preference, left-click toggling, outside dismissal, keyboard focus and live Chinese labels');
-  await fs.writeFile(join(out,'README.md'),'# Appearance menu regression\n\nRun PDF_QA=appearance with scripts/browser/test-browser.mjs in the isolated test browser. Uses an authored local PDF and sampling 1. Checks mouse and keyboard menu operation, all three modes, device changes, unchanged saved default, original click/tooltip behavior, dismissal and live Chinese. No real documents, user Chrome, API credentials or remote requests.\n');
-  await fs.writeFile(join(out,'report.json'),JSON.stringify(report,null,2)+'\n');
+  report.checks.push('right-click Auto/Light/Dark/Original, inherited paper appearance across detached page views, checked mode, explicit Auto with frozen Dark default, live system changes, fixed overrides, unchanged global preference, left-click toggling, outside dismissal, keyboard focus and live Chinese labels');
+  await fs.writeFile(join(out,'README.md'),'# Appearance menu regression\n\nRun PDF_QA=appearance with scripts/browser/test-browser.mjs in the isolated test browser. Uses an authored local PDF and sampling 1. Checks mouse and keyboard menu operation, all four modes, inherited paper appearance, device changes, unchanged saved default, original click/tooltip behavior, dismissal and live Chinese. No real documents, user Chrome, API credentials or remote requests.\n');
  }else if(process.env.PDF_QA==='selection'){
   await runSelectionQa({context,worker,page,open,report,base,setScan:bytes=>{englishScan=bytes;}});
  }else if(process.env.PDF_QA==='ai-web'){

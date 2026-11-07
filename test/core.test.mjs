@@ -335,9 +335,10 @@ test('automatic OCR debounces empty current pages, preserves manual priority and
  page=4;automatic.observe(4,false);abort.abort();await flush();assert.deepEqual(calls,[2,5,5]);assert.equal(timers.size,0);
 });
 
-test('reader appearance choices follow the system only in Auto and never alter configured defaults',()=>{
+test('reader appearance choices resolve the system appearance for Auto and Original and never alter configured defaults',()=>{
  for(const configured of ['auto','light','dark'])for(const systemDark of [false,true]){
   assert.equal(resolveReaderAppearance(configured,'auto',systemDark).dark,systemDark);
+  assert.deepEqual(resolveReaderAppearance(configured,'original',systemDark),{dark:systemDark,mode:'original'});
   assert.deepEqual(resolveReaderAppearance(configured,'light',systemDark),{dark:false,mode:'light'});
   assert.deepEqual(resolveReaderAppearance(configured,'dark',systemDark),{dark:true,mode:'dark'});
   const base=configured==='dark'||configured==='auto'&&systemDark;
@@ -348,7 +349,7 @@ test('reader appearance choices follow the system only in Auto and never alter c
   for(const mode of ['auto','light','dark'])assert.equal(resolveReaderAppearance(configured,toggleReaderAppearance(configured,mode,systemDark),systemDark).dark,!resolveReaderAppearance(configured,mode,systemDark).dark);
  }
  for(const value of [null,undefined,'opposite','DARK','__proto__',{},true])assert.equal(isAppearanceMode(value),false);
- for(const value of ['auto','light','dark'])assert.equal(isAppearanceMode(value),true);
+ for(const value of ['auto','light','dark','original'])assert.equal(isAppearanceMode(value),true);
 });
 
 const {isViewerHost}=await import('../extension/workspaces/pdf-viewer/host-origin.js');

@@ -73,7 +73,7 @@ The optional anonymous public-link smoke check returned HTTP 403 from both websi
 
 ## Appearance menu
 
-Use PDF_QA=appearance with the existing isolated browser harness. It checks the real reader host and private sandbox port: all three right-click choices, checked state, system changes after selecting Auto from a fixed Dark default, fixed modes, unchanged saved default, existing single-click behavior, light dismissal, Escape/arrow-key focus and live Chinese labels. Reusable artifacts are in ignored test-dist/appearance-<version>. Run only the appearance-named core test for its pure state matrix.
+Use PDF_QA=appearance with the existing isolated browser harness. It checks the real reader host and private sandbox port: all four right-click choices, Original paper colors in dark chrome, inherited appearance for reattached pages, checked state, system changes after selecting Auto from a fixed Dark default, fixed modes, unchanged saved default, existing single-click behavior, light dismissal, Escape/arrow-key focus and live Chinese labels. Reusable artifacts are in ignored test-dist/appearance-<version>. Run only the appearance-named core test for its pure state matrix.
 
 ## Embedded PDF and independent OCR
 

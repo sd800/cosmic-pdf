@@ -24,7 +24,7 @@ let port, task, pdf, viewer, pdfWorker, parseTimer, destroyed = false, text = {.
 const lifetime = new AbortController(), signal = lifetime.signal;
 const eventBus = new EventBus(), viewport = $('viewport');
 let workerReady;
-const pageAppearance=createPageAppearance({pages:$('pages'),thumbnails:$('thumbnails'),getDark:()=>themeDark});
+const pageAppearance=createPageAppearance({root:document.documentElement,getPage:page=>viewer?.getPageView(page-1)?.div,thumbnails:$('thumbnails'),getDark:()=>themeDark && themeMode !== 'original'});
 let requestedPage = 1, pagesReady = false;
 let firstPageReady = false, themeDark = false, darkPaper;
 let aiReader;
@@ -289,7 +289,7 @@ async function open(bytes, sampling) {
     syncRenderProgress();
   }, { signal });
   eventBus.on('pagesinit', () => {
-    pageAppearance.apply(); appearanceMenu?.refresh();
+    appearanceMenu?.refresh();
     const initialPage = Math.min(pdf.numPages, requestedPage); pagesReady = true;
     for (const control of document.querySelectorAll('header nav button, header nav input, header nav select, #sidebar-toggle')) control.disabled = false;
     viewer.currentScaleValue = settings.zoom;
@@ -491,8 +491,8 @@ async function renderLinks(number, linkService) {
 }
 function createThumbnails() {
   const fragment = document.createDocumentFragment();
-  for (let i = 1; i <= pdf.numPages; i++) { const button = document.createElement('button'); button.className = 'thumbnail'; button.dataset.page = i; button.toggleAttribute('data-original-dark', darkPaper.get(i) === 2); button.textContent = String(i); button.title = text.page + ' ' + i; button.onclick = () => { viewer.currentPageNumber = i; }; fragment.append(button); }
-  $('thumbnails').append(fragment); pageAppearance.apply();
+  for (let i = 1; i <= pdf.numPages; i++) { const button = document.createElement('button'); button.className = 'thumbnail'; button.dataset.page = i; pageAppearance.applyOverride(button, i); button.toggleAttribute('data-original-dark', darkPaper.get(i) === 2); button.textContent = String(i); button.title = text.page + ' ' + i; button.onclick = () => { viewer.currentPageNumber = i; }; fragment.append(button); }
+  $('thumbnails').append(fragment);
   thumbnailObserver = new IntersectionObserver(entries => { for (const entry of entries) { if (entry.isIntersecting) nearThumbnails.add(entry.target); else nearThumbnails.delete(entry.target); } void drawThumbnails(); }, { root: $('sidebar'), rootMargin: '160px' });
   for (const node of $('thumbnails').children) thumbnailObserver.observe(node);
 }
