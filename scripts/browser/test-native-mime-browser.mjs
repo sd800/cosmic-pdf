@@ -57,6 +57,34 @@ async function checkColdOpen(file, url){
 try{
  context=await launch();
  const worker=context.serviceWorkers()[0]||await context.waitForEvent('serviceworker');assert.equal(await worker.evaluate(()=>typeof chrome.mimeHandler),'object');
+ await context.route('https://pdf-blob.test/**',route=>route.fulfill({contentType:'text/html',body:
+  route.request().url().endsWith('/sandbox')
+   ? '<iframe sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox" src="/source"></iframe>'
+   : '<a id="open" target="_blank">Open PDF</a>'}));
+ for(const opaque of [false,true]){
+  const creator=await context.newPage();
+  await creator.goto('https://pdf-blob.test/'+(opaque?'sandbox':'source'));
+  const source=opaque?await frame(creator,'pdf-blob.test/source'):creator;
+  const address=await source.locator('#open').evaluate((link,bytes)=>{
+   link.href=URL.createObjectURL(new Blob([new Uint8Array(bytes)],{type:'application/pdf'}))+'#page=2';
+   return link.href;
+  },[...bytes]);
+  assert.ok(address.startsWith(opaque?'blob:null/':'blob:https://pdf-blob.test/'));
+  const opened=context.waitForEvent('page');await source.locator('#open').click();const tab=await opened;
+  const blobReader=await reader(tab);
+  assert.equal(tab.url(),address);
+  assert.equal(await blobReader.view.locator('#page').inputValue(),'2');
+  await source.evaluate(url=>URL.revokeObjectURL(url.split('#')[0]),address);
+  const download=tab.waitForEvent('download');
+  await blobReader.view.locator('#download').click();
+  assert.deepEqual(await readFile(await (await download).path()),Buffer.from(bytes));
+  await blobReader.view.locator('#settings').click();
+  await blobReader.view.locator('#more-actions [data-action="native"]').click();
+  await frame(tab,'chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/');
+  assert.equal(tab.url(),address,'the in-memory native handoff retains the original Blob address');
+  assert.match(await blobReader.host.locator('#reader iframe').getAttribute('src'),/#cosmic-pdf-native&page=2$/);
+  await tab.close();await creator.close();
+ }
  const p=await context.newPage();await p.goto(base+'/once.pdf#page=2',{waitUntil:'domcontentloaded'});let result=await reader(p);
  assert.equal(p.url(),base+'/once.pdf#page=2');assert.equal(counts.get('/once.pdf'),1);assert.equal(await result.view.locator('#page').inputValue(),'2');
  assert.equal((await result.host.evaluate(()=>chrome.runtime.sendMessage({type:'AI_STATUS'}))).ok,true,'native MIME child retains authenticated AI access');
@@ -120,6 +148,6 @@ try{
  assert.ok(await blockedHost.locator('#message').textContent());
  await blockedHost.locator('#native').click();await frame(blocked,'chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/');
  assert.equal(blocked.url(),encodedUrl,'Chrome fallback preserves the local path even if the renderer did not load');
- await writeFile(join(folder,'README.md'),'# Native PDF URL checks\n\nRun scripts/browser/test-native-mime-browser.mjs with PDF_PLAYWRIGHT and PDF_CHROME pointing to installed tools. sample.pdf is a three-page synthetic file. The check covers original URLs and page fragments, one-use responses, POST, embeds, local files, cold startup with a local path, renderer startup failure and Chrome fallback, authenticated AI status, PDF overlays, system printing, and the master switch. The local path includes spaces, Unicode, and a literal hash. native-reader.png shows the current reader. probe-extension/ and probe.mjs are a minimal native-stream and sender-identity experiment. Browser profiles are temporary.\n');
- console.log('Native MIME: original addresses, local cold start and reload, renderer recovery, POST, embeds, AI identity, Chrome fallback, printing, overlays, and master switch passed.');
+ await writeFile(join(folder,'README.md'),'# Native PDF URL checks\n\nRun scripts/browser/test-native-mime-browser.mjs with PDF_PLAYWRIGHT and PDF_CHROME pointing to installed tools. sample.pdf is a three-page synthetic file. The check covers original URLs and page fragments, Blob URLs from HTTPS and sandboxed pages (including saving and switching readers after revocation), one-use responses, POST, embeds, local files, cold startup with a local path, renderer startup failure and Chrome fallback, authenticated AI status, PDF overlays, system printing, and the master switch. The local path includes spaces, Unicode, and a literal hash. native-reader.png shows the current reader. probe-extension/ and probe.mjs are a minimal native-stream and sender-identity experiment. Browser profiles are temporary.\n');
+ console.log('Native MIME: Blob sources, original addresses, local cold start and reload, renderer recovery, POST, embeds, AI identity, Chrome fallback, printing, overlays, and master switch passed.');
 }finally{await context?.close();await rm(profile,{recursive:true,force:true});await new Promise(r=>server.close(r));}

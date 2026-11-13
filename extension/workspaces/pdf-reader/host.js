@@ -28,6 +28,9 @@ if (location.pathname === '/' + MIME_READER_PATH) {
  }
 }
 let source=mimeInfo?.originalUrl || sourceFromReader(location.href,readerPageURL()), reader, original, blobURL, filename, controller, generation=0;
+// Chrome can withhold Blob URLs from tabs.get(). Use the in-memory copy for
+// this document and leave the browser's next navigation to the source URL alone.
+const rememberNativeChoice = mimeInfo && !mimeInfo.embedded && !source.startsWith('blob:');
 let nativeFrame = null;
 let activeSettings=settings,appearanceOverride=null; const media=matchMedia('(prefers-color-scheme:dark)');
 function appearance(){return resolveReaderAppearance(activeSettings.appearance,appearanceOverride,media.matches);}
@@ -45,7 +48,7 @@ async function native(page){
   try {
    if (blobURL) {
     const currentPage = Number.isSafeInteger(page) && page > 0 && page <= PDF_LIMITS.pages ? page : pdfPageDestination(source) || 1;
-    if (!mimeInfo.embedded) {
+    if (rememberNativeChoice) {
       const result = await chrome.runtime.sendMessage({ type: 'NATIVE_MIME_READER', source });
       if (!result?.ok) throw Error('Native handoff unavailable');
     }
@@ -113,7 +116,7 @@ async function load(loader, initialFilename='PDF'){
   reader=prepared;
   const result=await loader(current.signal);if(run!==generation)return;if(!isPdf(result.bytes))throw Error('format');
   filename=cleanFilename(result.filename);original=new Blob([result.bytes],{type:'application/pdf'});blobURL=URL.createObjectURL(original);document.title=filename+' — Cosmic PDF';
-  if(mimeInfo&&!mimeInfo.embedded){const choice=await chrome.storage.session.get('native:'+mimeInfo.tabId).then(values=>values['native:'+mimeInfo.tabId]).catch(()=>null);if(run!==generation)return;if(choice?.mimeSource===withoutHash(source)||choice?.entries?.some(entry=>entry.frameId===0&&entry.url===withoutHash(source))){await native();return;}}
+  if(rememberNativeChoice){const choice=await chrome.storage.session.get('native:'+mimeInfo.tabId).then(values=>values['native:'+mimeInfo.tabId]).catch(()=>null);if(run!==generation)return;if(choice?.mimeSource===withoutHash(source)||choice?.entries?.some(entry=>entry.frameId===0&&entry.url===withoutHash(source))){await native();return;}}
   await setMimeAppearanceShield(true);
   if(run!==generation)return;
   prepared.open(result.bytes,filename);

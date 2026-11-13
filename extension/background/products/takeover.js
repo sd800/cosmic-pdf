@@ -30,7 +30,7 @@ export function configureTakeover(enabled) {return enqueue(async()=>{
 });}
 export function rememberMimeNative(sender, value) { return enqueue(async () => {
   const source = mimeOriginalUrl(value);
-  if (!mimeApi() || !source || !isReaderSender(sender) || sender.url !== chrome.runtime.getURL(MIME_READER_PATH)) throw Error('Native reader unavailable');
+  if (!mimeApi() || !source || source.startsWith('blob:') || !isReaderSender(sender) || sender.url !== chrome.runtime.getURL(MIME_READER_PATH)) throw Error('Native reader unavailable');
   await assertCurrentReader(sender);
   const tab = await chrome.tabs.get(sender.tab.id);
   if (!tab.url || withoutHash(tab.url) !== withoutHash(source) || tab.pendingUrl && withoutHash(tab.pendingUrl) !== withoutHash(source)) throw Error('Reader has navigated');

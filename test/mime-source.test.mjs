@@ -13,6 +13,10 @@ test('Chrome MIME streams require the own extension stream and a safe source URL
  for(const patch of [{mimeType:'text/html'},{tabId:-1},{streamUrl:'https://example.edu/stream'},{streamUrl:stream.streamUrl+'?key=secret'},
    {streamUrl:stream.streamUrl.replace('//test/','//foreign/')},{originalUrl:'javascript:alert(1)'},{originalUrl:'https://user:password@example.edu/a.pdf'}])assert.throws(()=>validateMimeStream({...stream,...patch},runtime));
  assert.equal(mimeOriginalUrl('blob:chrome-extension://foreign/uuid',runtime),null);
+ const opaque = 'blob:null/11111111-1111-4111-8111-111111111111#page=2';
+ assert.equal(validateMimeStream({...stream,originalUrl:opaque},runtime).originalUrl,opaque);
+ assert.equal(mimeOriginalUrl('blob:null/not-a-uuid',runtime),null);
+ assert.throws(()=>validateMimeStream({...stream,originalUrl:opaque,streamUrl:opaque},runtime));
  assert.equal(mimeOriginalUrl('file:///tmp/a.pdf',runtime),'file:///tmp/a.pdf');
  const copy={originalUrl:'blob:chrome-extension://test/uuid#cosmic-pdf-native&page=2'};
  assert.equal(isNativePdfCopy(copy,runtime),true);assert.equal(isNativePdfCopy({...copy,originalUrl:'blob:https://example.edu/uuid#cosmic-pdf-native'},runtime),false);
@@ -41,6 +45,9 @@ test('native choice is bound to a live MIME document, survives fragment changes,
   await rememberMimeNative(sender,stream.originalUrl);assert.equal(state['native:7'].mimeSource,'https://example.edu/a.pdf');
   await forgetNative(7,'https://example.edu/a.pdf#page=3');assert.ok(state['native:7']);
   await assert.rejects(rememberMimeNative(sender,'https://other.edu/a.pdf'));
+  url='blob:https://example.edu/11111111-1111-4111-8111-111111111111';
+  await assert.rejects(rememberMimeNative(sender,url));
+  assert.equal(state['native:7'].mimeSource,'https://example.edu/a.pdf');
   active=false;await assert.rejects(rememberMimeNative(sender,stream.originalUrl));
   await forgetNative(7,'https://example.edu/next');assert.equal(state['native:7'],undefined);
  }finally{globalThis.chrome=previous;}

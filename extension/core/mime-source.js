@@ -10,10 +10,12 @@ export function mimeOriginalUrl(value, runtime = chrome.runtime) {
     const url = new URL(value);
     if (url.username || url.password) return null;
     if (['http:', 'https:', 'file:'].includes(url.protocol)) return url.href;
-    if (url.protocol === 'blob:' && ['http:', 'https:', 'chrome-extension:'].includes(new URL(url.pathname).protocol)) {
-      const origin = new URL(url.pathname);
-      if (origin.protocol !== 'chrome-extension:' || origin.host === runtime.id) return url.href;
-    }
+    if (url.protocol !== 'blob:') return null;
+    // Sandboxed pages can produce opaque Blob URLs. The URL is metadata;
+    // validateMimeStream still requires a browser-provided extension stream.
+    if (/^null\/[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i.test(url.pathname)) return url.href;
+    const origin = new URL(url.pathname);
+    if (['http:', 'https:'].includes(origin.protocol) || origin.protocol === 'chrome-extension:' && origin.host === runtime.id) return url.href;
   } catch {}
   return null;
 }
