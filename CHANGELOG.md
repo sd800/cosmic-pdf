@@ -1,5 +1,12 @@
 # Changelog
 
+## 26.11.12.2 (70) — 2026-11-12
+
+Keep a recovery path available when PDF opening stops before the first page appears.
+
+- Wait for the first page to render or for a password prompt. Restart the deadline after password submission and pause it while the tab is hidden.
+- Explain when a temporary reader link has expired. Keep the current PDF visible with an error message if switching to Chrome’s reader fails.
+
 ## 26.11.12.1 (69) — 2026-11-12
 
 Restore PDF reading when Chrome opens a local file or loads a document inside a webpage.

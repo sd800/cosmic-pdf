@@ -250,7 +250,7 @@ async function open(bytes, sampling) {
     $('password').value = ''; showReaderDialog($('password-dialog'), $('password'));
     $('password-dialog').onclose = () => {
       if (destroyed) return;
-      if ($('password-dialog').returnValue === 'open') { status('loading', true); armParseDeadline(); accept($('password').value); $('password').value = ''; }
+      if ($('password-dialog').returnValue === 'open') { status('loading', true); emit('opening'); armParseDeadline(); accept($('password').value); $('password').value = ''; }
       else { passwordCancelled = true; status('cancelled'); void task.destroy().catch(() => {}); pdfWorker?.destroy(); }
     };
   };
@@ -259,7 +259,7 @@ async function open(bytes, sampling) {
   if (destroyed) return;
   if (pdf.numPages > PDF_LIMITS.pages) { await task.destroy(); throw Error('PDF page budget'); }
   darkPaper = createDarkPaperGuard(pdf.numPages, settings.darkStrength);
-  emit('parsed'); $('properties').disabled = $('filename').disabled = false;
+  $('properties').disabled = $('filename').disabled = false;
   const links = new PDFLinkService({ eventBus });
   // Paint existing annotation/widget appearances into the canvas only.
   // No PDF.js HTML annotation/form/editor/scripting layer is instantiated.
@@ -311,7 +311,8 @@ async function open(bytes, sampling) {
   eventBus.on('pagerendered', ({ pageNumber, cssTransform, isDetailView, error }) => {
     if (!isDetailView && !cssTransform) updateDarkPaper(viewer.getPageView(pageNumber - 1), !!error);
     // A user may scroll away from page one before its render finishes.
-    if (!firstPageReady) {
+    if (!firstPageReady && !cssTransform && !isDetailView) {
+      if (error) { status('pageError'); emit('error'); return; }
       firstPageReady = true; status(''); emit('ready');
       // Let the first page reach the screen before optional thumbnail work.
       if (!$('sidebar').hidden) requestAnimationFrame(() => { if (!destroyed && !$('thumbnails').children.length) createThumbnails(); });

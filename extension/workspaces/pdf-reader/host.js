@@ -59,7 +59,7 @@ async function native(page){
     await setMimeAppearanceShield(false);
     await mimeApi().abortAndFallbackToNativeHandler();
    }
-  } catch { fail(text.nativeFailed); }
+  } catch { if (reader) reader.showError(text.nativeFailed); else fail(text.nativeFailed); }
   return;
  }
  if(source){
