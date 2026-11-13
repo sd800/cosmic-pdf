@@ -1,5 +1,12 @@
 # Changelog
 
+## 26.11.12.1 (69) — 2026-11-12
+
+Restore PDF reading when Chrome opens a local file or loads a document inside a webpage.
+
+- Let Chrome load the isolated rendering frame in local, online, and embedded PDF readers. Keep the original document address and honor page links on open and reload.
+- Show file-opening and Chrome reader options when the rendering frame fails to start.
+
 ## 26.11.7.3 (68) — 2026-11-07
 
 Strengthen PDF opening security by limiting when the extension can request a document and which URL it can request.

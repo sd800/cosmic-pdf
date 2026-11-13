@@ -9,7 +9,7 @@ import { MIME_READER_PATH, NATIVE_PDF_FRAGMENT, mimeApi, validateMimeStream, mim
 const $=id=>document.getElementById(id);
 // The extension-owned host also supports embedded PDFs. No bytes, OCR text or
 // private channel are ever shared with its containing webpage.
-let settings=await readSettings(), locale=uiLocale(settings,chrome.i18n.getUILanguage());
+let settings=await readSettings().catch(()=>normalizeSettings()), locale=uiLocale(settings,chrome.i18n.getUILanguage());
 function hostText(locale){return locale==='zh-CN'?{intro:'以舒适的外观阅读 PDF，按需识别扫描件中的文字。',open:'打开 PDF 文件',settings:'设置',native:'使用 Chrome 阅读器',hint:'将 PDF 拖到这里，或选择本地文件。PDF 阅读和文字识别均在本机完成。',failed:'无法打开此文件。可尝试 Chrome 阅读器或选择本地副本。',large:'文件超过 128 MB 的安全读取上限，请使用 Chrome 阅读器。',timeout:'连接长时间没有进展，请重试或选择本地副本。',access:'网站未允许读取此文件，请尝试 Chrome 阅读器。',downloadFailed:'下载未能开始，请重试。',nativeFailed:'无法切换。请在设置中暂时关闭自动打开，然后重新访问原文件。'}:{intro:'Read PDFs comfortably and recognize scanned text when you need it.',open:'Open a PDF',settings:'Settings',native:'Use Chrome reader',hint:'Drop a PDF here, or choose a local file. PDF reading and text recognition stay on your device.',failed:'This file could not be opened. Try the Chrome reader or choose a local copy.',large:'This file exceeds the 128 MB safe reading limit. Use the Chrome reader instead.',timeout:'The connection stopped making progress. Try again or choose a local copy.',access:'The website did not allow this file to be read. Try the Chrome reader.',downloadFailed:'The download could not start. Please try again.',nativeFailed:'Could not switch. Turn off automatic opening in Settings, then revisit the original file.'}}
 let text=hostText(locale);
 function localize(nextLocale){
@@ -106,11 +106,14 @@ async function load(loader, initialFilename='PDF'){
       // must not repaint an older snapshot over a newer toolbar/context edit.
       if(run===generation&&!result?.ok)reader?.setAi(settings);
     },()=>{if(run===generation)reader?.setAi(settings);});
-  },onDownload:download,onTheme:mode=>{appearanceOverride=isAppearanceMode(mode)?mode:toggleReaderAppearance(activeSettings.appearance,appearanceOverride,media.matches);applyTheme();},onReady:()=>{if(run===generation){setView('reader');}},onError:()=>{if(run===generation&&!$('reader').querySelector('iframe')){reader=null;$('reader').hidden=true;fail(text.failed);}}});
+  },onDownload:download,onTheme:mode=>{appearanceOverride=isAppearanceMode(mode)?mode:toggleReaderAppearance(activeSettings.appearance,appearanceOverride,media.matches);applyTheme();},onReady:()=>{if(run===generation){setView('reader');}},onError:()=>{
+    if(run!==generation||$('reader').querySelector('iframe'))return;
+    generation++;current.abort();reader=null;$('reader').hidden=true;fail(text.failed);
+  }});
   reader=prepared;
   const result=await loader(current.signal);if(run!==generation)return;if(!isPdf(result.bytes))throw Error('format');
   filename=cleanFilename(result.filename);original=new Blob([result.bytes],{type:'application/pdf'});blobURL=URL.createObjectURL(original);document.title=filename+' — Cosmic PDF';
-  if(mimeInfo&&!mimeInfo.embedded){const choice=(await chrome.storage.session.get('native:'+mimeInfo.tabId))['native:'+mimeInfo.tabId];if(run!==generation)return;if(choice?.mimeSource===withoutHash(source)||choice?.entries?.some(entry=>entry.frameId===0&&entry.url===withoutHash(source))){await native();return;}}
+  if(mimeInfo&&!mimeInfo.embedded){const choice=await chrome.storage.session.get('native:'+mimeInfo.tabId).then(values=>values['native:'+mimeInfo.tabId]).catch(()=>null);if(run!==generation)return;if(choice?.mimeSource===withoutHash(source)||choice?.entries?.some(entry=>entry.frameId===0&&entry.url===withoutHash(source))){await native();return;}}
   await setMimeAppearanceShield(true);
   if(run!==generation)return;
   prepared.open(result.bytes,filename);

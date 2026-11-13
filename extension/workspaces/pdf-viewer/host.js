@@ -21,7 +21,7 @@ export function createPdfViewer({ container, locale, sampling, settings, filenam
   const url = new URL('viewer.html', import.meta.url);
   url.hash = new URLSearchParams({ dark: dark ? '1' : '0', locale });
   iframe.src = url.href;
-  const channel = new MessageChannel(); let closed = false, loaded = false, frameLoaded = false, opened = false, pending, timeout;
+  const channel = new MessageChannel(); let closed = false, loaded = false, frameLoaded = false, opened = false, pending, timeout, shellTimeout;
   let fullscreenFailed = false;
   const canFullscreen = () => !embedded && !fullscreenFailed && document.fullscreenEnabled === true
     && typeof container.requestFullscreen === 'function' && typeof document.exitFullscreen === 'function';
@@ -41,7 +41,7 @@ export function createPdfViewer({ container, locale, sampling, settings, filenam
     channel.port1.postMessage({ type: 'document', bytes, filename }, [bytes]);
   }
   function destroy() {
-    if (closed) return; closed = true; pending = null; clearTimeout(timeout);
+    if (closed) return; closed = true; pending = null; clearTimeout(timeout); clearTimeout(shellTimeout);
     document.removeEventListener('fullscreenchange', fullscreenChanged);
     window.removeEventListener('blur', focusLost);
     if (document.fullscreenElement === container) void document.exitFullscreen().catch(() => {});
@@ -54,7 +54,7 @@ export function createPdfViewer({ container, locale, sampling, settings, filenam
     else if (data.type === 'ai-cancel') aiBridge.cancel(data.id);
     else if (data.type === 'ai-refresh') void aiBridge.refresh();
     else if (data.type === 'ai-toggle' || data.type === 'ai-context') {if(typeof data.enabled==='boolean')onAiPreference(data.type==='ai-toggle'?'aiEnabled':'aiIncludeContext',data.enabled);}
-    else if (data.type === 'shell-ready') iframe.style.visibility = '';
+    else if (data.type === 'shell-ready') { clearTimeout(shellTimeout); iframe.style.visibility = ''; }
     else if (data.type === 'ready' || data.type === 'password') {
       if (!loaded) { loaded = true; clearTimeout(timeout); onReady(); }
     }
@@ -78,6 +78,9 @@ export function createPdfViewer({ container, locale, sampling, settings, filenam
     iframe.contentWindow.postMessage({ type: 'CP_PDF_INIT', filename, documentUrl, canUseNative, embedded, canFullscreen: canFullscreen(), locale, settings, sampling, sharpening: sharpening === true, dark, themeMode }, '*', [channel.port2]);
     frameLoaded = true; sendDocument();
   }, { once: true });
+  // A blocked or failed frame can still dispatch load. Require the private
+  // channel's acknowledgement before treating its UI as available.
+  shellTimeout = setTimeout(() => { destroy(); onError(); }, 10000);
   container.append(iframe);
   return {
     open(bytes, filename) {

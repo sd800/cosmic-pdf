@@ -33,7 +33,9 @@ if(!manifest.content_security_policy.sandbox.includes("connect-src 'self' blob:"
 if(JSON.stringify(manifest.mime_types_handler)!==JSON.stringify({'application/pdf':{handler_url:'workspaces/pdf-reader/mime.html',can_embed:true}}))throw Error('Native PDF handler contract changed');
 await stat('extension/'+manifest.mime_types_handler['application/pdf'].handler_url);
 const publicPages=manifest.web_accessible_resources.flatMap(group=>group.resources).sort();
-if(JSON.stringify(publicPages)!==JSON.stringify(['workspaces/pdf-reader/entry.html']))throw Error('Only the navigation entry may be web-accessible');
+const viewerShell='workspaces/pdf-viewer/viewer.html';
+if(JSON.stringify(publicPages)!==JSON.stringify(['workspaces/pdf-reader/entry.html',viewerShell]))throw Error('Only the navigation entry and opaque viewer shell may be web-accessible');
+if(JSON.stringify(manifest.sandbox.pages)!==JSON.stringify([viewerShell])||!manifest.content_security_policy.sandbox.startsWith('sandbox ')||manifest.content_security_policy.sandbox.includes('allow-same-origin'))throw Error('The embeddable viewer shell must have an opaque origin');
 const readerEntry=manifest.web_accessible_resources.find(group=>group.resources.includes('workspaces/pdf-reader/entry.html'));
 if(readerEntry.resources.length!==1||readerEntry.use_dynamic_url!==true||Number(manifest.minimum_chrome_version)<130)throw Error('PDF takeover requires a session-specific reader entry with Chrome 130+ support');
 for(const file of ['CHANGELOG.md','CHANGELOG_zh.md']){

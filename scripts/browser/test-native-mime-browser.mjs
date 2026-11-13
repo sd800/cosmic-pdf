@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
+import {spawn} from 'node:child_process';
 import {createServer} from 'node:http';
-import {mkdtemp,mkdir,rm,writeFile,readFile} from 'node:fs/promises';
+import {cp,mkdtemp,mkdir,realpath,rm,writeFile,readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {resolve,join} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -19,9 +20,42 @@ const server=createServer((req,res)=>{
 });await new Promise(r=>server.listen(0,'127.0.0.1',r));
 const base=`http://127.0.0.1:${server.address().port}`,profile=await mkdtemp(join(tmpdir(),'cpdf-native-'));let context;
 async function frame(page,path){for(let i=0;i<100;i++){const f=page.frames().find(f=>f.url().includes(path));if(f)return f;await page.waitForTimeout(75);}throw Error('Missing '+path+' in '+page.frames().map(f=>f.url()).join(', '));}
-async function reader(page){const host=await frame(page,'/pdf-reader/mime.html'),view=await frame(page,'/pdf-viewer/viewer.html');await view.waitForFunction(()=>document.querySelector('#count')?.textContent==='3');return {host,view};}
+async function renderedViewer(page){const view=await frame(page,'/pdf-viewer/viewer.html');await view.waitForFunction(()=>document.querySelector('#count')?.textContent==='3'&&document.querySelector('.page canvas')?.width>0);return view;}
+async function reader(page){return {host:await frame(page,'/pdf-reader/mime.html'),view:await renderedViewer(page)};}
+function launch(ext=resolve('extension'), userDataDir=profile){
+ return chromium.launchPersistentContext(userDataDir,{headless:true,viewport:{width:1200,height:900},executablePath:process.env.PDF_CHROME,
+  args:[`--disable-extensions-except=${ext}`,`--load-extension=${ext}`]});
+}
+async function checkColdOpen(file, url){
+ const ext=resolve('extension'), portFile=join(profile,'DevToolsActivePort');
+ await rm(portFile,{force:true});
+ const chromeProcess=spawn(process.env.PDF_CHROME,['--headless=new','--no-first-run','--disable-background-networking',
+  '--remote-debugging-port=0',`--user-data-dir=${profile}`,`--disable-extensions-except=${ext}`,`--load-extension=${ext}`,file],{stdio:'ignore'});
+ const exited=new Promise(resolve=>{chromeProcess.once('exit',resolve);chromeProcess.once('error',resolve);});
+ let browser;
+ try{
+  let port;
+  for(let attempt=0;attempt<80&&!port&&chromeProcess.exitCode===null;attempt++){
+   port=await readFile(portFile,'utf8').then(text=>Number(text.split('\n')[0])).catch(()=>null);
+   if(!port)await new Promise(resolve=>setTimeout(resolve,100));
+  }
+  assert.ok(port,'cold-start Chrome exposes its temporary DevTools endpoint');
+  browser=await chromium.connectOverCDP(`http://127.0.0.1:${port}`,{noDefaults:true});
+  const context=browser.contexts()[0];
+  for(let attempt=0;attempt<80;attempt++){
+   const opened=context.pages().find(page=>page.url()===url);
+   if(opened){await renderedViewer(opened);return;}
+   await new Promise(resolve=>setTimeout(resolve,100));
+  }
+  assert.fail('Chrome did not open the startup file. Tabs: '+context.pages().map(page=>page.url()).join(', '));
+ }finally{
+  await browser?.close();
+  if(chromeProcess.exitCode===null)chromeProcess.kill('SIGTERM');
+  await exited;
+ }
+}
 try{
- const ext=resolve('extension');context=await chromium.launchPersistentContext(profile,{headless:true,viewport:{width:1200,height:900},executablePath:process.env.PDF_CHROME,args:[`--disable-extensions-except=${ext}`,`--load-extension=${ext}`]});
+ context=await launch();
  const worker=context.serviceWorkers()[0]||await context.waitForEvent('serviceworker');assert.equal(await worker.evaluate(()=>typeof chrome.mimeHandler),'object');
  const p=await context.newPage();await p.goto(base+'/once.pdf#page=2',{waitUntil:'domcontentloaded'});let result=await reader(p);
  assert.equal(p.url(),base+'/once.pdf#page=2');assert.equal(counts.get('/once.pdf'),1);assert.equal(await result.view.locator('#page').inputValue(),'2');
@@ -61,11 +95,31 @@ try{
  const post=await context.newPage();await post.goto(base+'/form');await post.getByText('Open PDF').click();await reader(post);assert.equal(post.url(),base+'/post.pdf');assert.equal(counts.get('/post.pdf'),1);
  const embedded=await context.newPage();await embedded.goto(base+'/embed');const em=await reader(embedded);assert.equal(embedded.url(),base+'/embed');assert.equal(counts.get('/embedded.pdf'),1);
  assert.equal(await em.view.locator('#viewport').count(),1);
- const local=await context.newPage();await local.goto(pathToFileURL(fixture).href);const localReader=await reader(local);assert.equal(local.url(),pathToFileURL(fixture).href);
+ const encodedFile=join(profile,'Lecture 7 中文 #1.PDF');await writeFile(encodedFile,bytes);
+ const encodedUrl=pathToFileURL(encodedFile).href;
+ const local=await context.newPage();await local.goto(encodedUrl+'#page=2');let localReader=await reader(local);
+ assert.equal(local.url(),encodedUrl+'#page=2');assert.equal(await localReader.view.locator('#page').inputValue(),'2');
+ assert.match(await localReader.host.title(),/^Lecture 7 中文 #1\.PDF/);
+ await local.reload();localReader=await reader(local);assert.equal(await localReader.view.locator('#page').inputValue(),'2');
  const pickedEvent=context.waitForEvent('page');await localReader.host.locator('#file').setInputFiles(fixture);const picked=await pickedEvent;
  const pickedReader=await reader(picked);assert.ok(picked.url().startsWith('blob:chrome-extension://'));assert.match(await pickedReader.host.title(),/sample.pdf/);
  await worker.evaluate(async()=>{const api=chrome.mimeHandler;await chrome.storage.local.set({settings:{enabled:false}});for(let i=0;i<80;i++){if((await api.getMimeHandlerOptions('application/pdf')).enabled===false)return;await new Promise(r=>setTimeout(r,25));}throw Error('Native handler did not turn off');});
  const off=await context.newPage();await off.goto(base+'/off.pdf',{waitUntil:'domcontentloaded'});await off.waitForTimeout(300);assert.equal(off.frames().some(f=>f.url().includes('/pdf-reader/mime.html')),false);
- await writeFile(join(folder,'README.md'),'# Native PDF URL checks\n\nRun scripts/browser/test-native-mime-browser.mjs with PDF_PLAYWRIGHT and PDF_CHROME pointing to installed tools. sample.pdf is a three-page synthetic file. The check covers original URL and page fragment, a single-use response, POST, embedded and local PDFs, authenticated AI status, native fallback, PDF overlay isolation/restoration, system-print bypass, and the saved master switch. native-reader.png shows the current reader. probe-extension/ and probe.mjs are a minimal native-stream and sender-identity experiment. Browser profiles are temporary; no request logs or private documents are retained.\n');
- console.log('Native MIME: original URL, one request, page fragment, POST, embeds, local files, AI identity, print/native fallback, overlay isolation/restoration and off switch passed.');
+ await worker.evaluate(async()=>{const api=chrome.mimeHandler;await chrome.storage.local.set({settings:{enabled:true}});for(let i=0;i<80;i++){if((await api.getMimeHandlerOptions('application/pdf')).enabled===true)return;await new Promise(r=>setTimeout(r,25));}throw Error('Native handler did not turn on');});
+ await context.close();context=null;
+ // Launch Chrome with a local path, as an OS open-file action does on startup.
+ await checkColdOpen(encodedFile,pathToFileURL(await realpath(encodedFile)).href);
+ // Reproduce the packaged resource failure in an isolated extension copy.
+ const blockedExtension=join(profile,'blocked-extension');await cp(resolve('extension'),blockedExtension,{recursive:true});
+ const manifestPath=join(blockedExtension,'manifest.json'),manifest=JSON.parse(await readFile(manifestPath,'utf8'));
+ manifest.web_accessible_resources=manifest.web_accessible_resources.filter(group=>!group.resources.includes('workspaces/pdf-viewer/viewer.html'));
+ await writeFile(manifestPath,JSON.stringify(manifest));
+ context=await launch(blockedExtension,join(profile,'blocked-profile'));
+ const blocked=await context.newPage();await blocked.goto(encodedUrl);const blockedHost=await frame(blocked,'/pdf-reader/mime.html');
+ await blockedHost.locator('#message').waitFor({state:'visible',timeout:15000});
+ assert.ok(await blockedHost.locator('#message').textContent());
+ await blockedHost.locator('#native').click();await frame(blocked,'chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/');
+ assert.equal(blocked.url(),encodedUrl,'Chrome fallback preserves the local path even if the renderer did not load');
+ await writeFile(join(folder,'README.md'),'# Native PDF URL checks\n\nRun scripts/browser/test-native-mime-browser.mjs with PDF_PLAYWRIGHT and PDF_CHROME pointing to installed tools. sample.pdf is a three-page synthetic file. The check covers original URLs and page fragments, one-use responses, POST, embeds, local files, cold startup with a local path, renderer startup failure and Chrome fallback, authenticated AI status, PDF overlays, system printing, and the master switch. The local path includes spaces, Unicode, and a literal hash. native-reader.png shows the current reader. probe-extension/ and probe.mjs are a minimal native-stream and sender-identity experiment. Browser profiles are temporary.\n');
+ console.log('Native MIME: original addresses, local cold start and reload, renderer recovery, POST, embeds, AI identity, Chrome fallback, printing, overlays, and master switch passed.');
 }finally{await context?.close();await rm(profile,{recursive:true,force:true});await new Promise(r=>server.close(r));}
